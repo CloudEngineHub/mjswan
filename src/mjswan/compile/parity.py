@@ -8,7 +8,7 @@ term must match at every step. Run headless with ``MUJOCO_GL=disable``.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, Callable, Collection
 
 import numpy as np
 import torch
@@ -91,6 +91,15 @@ def _declared_feeds(
     return {name: value for name, value in feeds.items() if name in declared}
 
 
+def _inputs(export: Any) -> list[tuple[str, Any, list[int] | None]]:
+    """``(input name, slot, rows)`` per graph input; rows is None for a whole field."""
+    rows = getattr(export, "input_rows", None) or []
+    return [
+        (name, slot, rows[i] if i < len(rows) else None)
+        for i, (name, slot) in enumerate(zip(export.input_names, export.input_slots))
+    ]
+
+
 def _to_numpy(t: torch.Tensor) -> np.ndarray:
     return t.detach().cpu().numpy().astype(np.float32)
 
@@ -141,12 +150,17 @@ def run_parity(
     event_modes: tuple[str, ...] = ("reset",),
     n_event_draws: int = 16,
     include_obs: bool = True,
+    reader_fields: Collection[str] | None = None,
 ) -> ParityReport:
     """Trace a task's terms and assert live-vs-ONNX parity over ``n_steps``.
 
     ``env`` must be a freshly constructed mjlab env; this function resets it.
     Observation terms are checked every step; ``reset``-mode Event terms are
     checked by replaying ``n_event_draws`` fresh recorded RNG draws (§2b).
+
+    ``reader_fields`` is passed to :func:`trace_term`; an empty set traces every
+    ``EntityData`` property through to raw sim slots, putting mjlab's own property math
+    under this harness.
     """
     import onnxruntime as ort
 
@@ -162,7 +176,9 @@ def run_parity(
     obs_terms = _iter_obs_terms(env, obs_group) if include_obs else []
     for term_name, func, params in obs_terms:
         try:
-            export = trace_term(func, params, env, name=term_name)
+            export = trace_term(
+                func, params, env, name=term_name, reader_fields=reader_fields
+            )
         except ValueError as exc:
             report.terms.append(
                 TermReport(
@@ -216,8 +232,8 @@ def run_parity(
             feeds = _declared_feeds(
                 session,
                 {
-                    in_name: _to_numpy(read_slot(env, slot))
-                    for in_name, slot in zip(export.input_names, export.input_slots)
+                    in_name: _to_numpy(read_slot(env, slot, rows))
+                    for in_name, slot, rows in _inputs(export)
                 },
             )
             (onnx_out,) = session.run([export.output_name], feeds)
@@ -256,7 +272,10 @@ def run_parity(
                 feeds = {"rand": _to_numpy(rec.rand_vector)}
                 for in_name, slot in zip(export.input_names, export.input_slots):
                     feeds[in_name] = _to_numpy(read_slot(env, slot))
-                onnx_outs = session.run(export.output_names, feeds)
+                # A draw-free event has no `rand` input: the export prunes it.
+                onnx_outs = session.run(
+                    export.output_names, _declared_feeds(session, feeds)
+                )
                 for onnx_out, ref in zip(onnx_outs, ref_tensors):
                     ref_np = _to_numpy(ref)
                     tr.max_abs_diff = max(

@@ -76,6 +76,31 @@ velocity-command shortcuts were removed outright, see Removed.
   two siblings both marked fail the build, none marked means the first added.
 - `mjswan info` lists each scene's MDPs with their traced-graph counts, and reads a
   `.swn`.
+- `MuscleActivationActionCfg.action_mode` (`sigmoid` / `direct` / `excitation`). `direct`
+  writes the raw action clipped to each actuator's own `ctrlrange`: a myosuite muscle
+  model declares `ctrlrange="-1 1"` and a checkpoint trained against the raw control uses
+  the negative half, which `excitation` clamps to zero. `normalize` stays as the legacy
+  spelling of the other two; the policy JSON carries `mode`, and the engine reads either.
+- **Document format 2.** `input_slots` may now carry a raw `mjData` field (`{"sim": ...}`,
+  with `rows`), which an engine reading format 1 accepts and then cannot serve, freezing
+  the observation group at its previous value. `DOCUMENT_FORMAT` and the engine's
+  `MAX_DOCUMENT_FORMAT` are 2; the guard is a ceiling, so the new engine still reads a
+  format-1 document.
+- **Raw `mjData` fields as graph inputs.** A term reading `entity.data.data.<field>`
+  (mjlab's `SimData` — a muscle model's `act`, the sim `time`) traces to a `sim` slot the
+  browser serves from `mjData`, and an `EntityData` property the browser has no native
+  reader for is traced *through*: mjlab's own property math enters the graph and the raw
+  fields it reads become `sim` slots. Such a term used to build and then freeze its
+  observation group at its previous value; a property that cannot be traced now fails the
+  build. The TypeScript readers remain a shortcut — a property they serve is one value
+  slot with no math in the graph — and now cover all 55 `EntityData` properties rather
+  than 15, under `core/onnx/slotReader/fields/`, one file per section of mjlab's
+  `entity/data.py`. A `sim` slot carries only the `rows` the term indexes where the build
+  can tell which (unioned across a group's terms, whole otherwise), so the graph gathers
+  nothing and a 2038-site model's `site_xmat` costs 17 rows a step rather than all of
+  them. A term may also read `physics_dt` / `step_dt` / `cfg` off the env.
+- `add_policy` fills `policy_num_actions` from the ONNX output width when a policy has no
+  joint names (muscle policies).
 - **MDP term bodies are traced to ONNX at build time and run by ONNX Runtime Web**
   ([ADR 0005](docs/adr/0005-onnx-traced-terms-superseding-the-declarative-dsl.md)),
   replacing the hand-written TypeScript DSL (see Removed). mjlab's real
@@ -182,6 +207,8 @@ velocity-command shortcuts were removed outright, see Removed.
   build carries its loader inlined. The ORT version is still fixed at build time — now the
   bytes in the package rather than a URL. A consumer serving `dist/` as published sees only
   the change of origin; one that mirrored `onnxruntime-web` for the old URL can stop.
+
+- **ONNX Runtime Web 1.24.3 → 1.29.0.**
 
 - **`dist/` ships each WASM once, and `dist/` is 47 MiB instead of 87**
   ([#123](https://github.com/ttktjmt/mjswan/issues/123)): the SPA and library builds write

@@ -36,6 +36,13 @@ export interface OnnxInputSlot {
   field?: string;
   sensor?: string;
   command?: string;
+  /** A raw `mjData` field the term read off mjlab's `SimData` (`act`, `time`, ...). */
+  sim?: string;
+  /**
+   * For a `sim` slot: the rows of the field's element axis the graph takes, in this
+   * order. Absent means the whole field.
+   */
+  rows?: number[];
   input?: string;
   shape?: number[];
 }
