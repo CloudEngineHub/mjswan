@@ -5,10 +5,9 @@ against a recording proxy to discover those reads, classified into time-varying 
 (a graph input) or a model-derived constant (baked in), then exported as an
 ``nn.Module`` whose ``forward`` takes the dynamic tensors.
 
-Raw ``mjData`` is what a slot is. An ``EntityData`` property the browser reads natively
-(:data:`READER_FIELDS`) is threaded as its own value slot — a shortcut that keeps mjlab's
-property math out of the graph. Any other property is *traced through*: it runs against
-the raw sim proxy, so its reads become ``sim`` slots and its math enters the graph.
+An ``EntityData`` property the browser reads natively (:data:`READER_FIELDS`) becomes a
+value slot of its own. Any other property is *traced through*: it runs against the raw
+sim proxy, so its reads become ``sim`` slots and its math enters the graph.
 """
 
 from __future__ import annotations
@@ -54,8 +53,7 @@ def _is_dynamic_field(field_name: str) -> bool:
 #   (entity_name, data_field)        -> env.scene[entity].data.<field>
 #   (_SENSOR_NS, sensor_name)        -> env.scene[sensor].data (a whole BuiltinSensor)
 #   (_COMMAND_NS, "cmd.attr")        -> env.command_manager.get_term(cmd).<attr>
-#   (_SIM_NS, field)                 -> env.sim.data.<field> (raw sim data; maybe narrowed
-#                                        to the rows the term indexes, see SimRows)
+#   (_SIM_NS, field)                 -> env.sim.data.<field> (raw; maybe narrowed to rows)
 SlotKey = tuple[str, str]
 
 # A tagged key identifies one value an event/command body reads off ``env``. Wider than
@@ -74,13 +72,10 @@ _SIM_NS = "__sim__"
 _FORWARDED_ENV_ATTRS = ("num_envs", "device", "physics_dt", "step_dt", "cfg")
 
 #: ``EntityData`` fields the browser's slot reader serves natively
-#: (``core/onnx/slotReader/fields/``): every property of mjlab's ``EntityData`` but
-#: ``joint_torques``, which raises there too, plus the ``gravity_vec_w`` constant. A term
-#: reading one gets a value slot — the shortcut, one graph input in place of the
-#: property's math. Any other ``EntityData`` property is traced through to the raw
-#: ``sim`` fields it reads. Kept in step by hand with ``FIELD_READERS``;
-#: ``tests/dump_slot_fixture.py`` dumps exactly this set and the browser's parity test
-#: refuses a dumped field it cannot read.
+#: (``core/onnx/slotReader/fields/``): every ``EntityData`` property but
+#: ``joint_torques``, which raises in mjlab too, plus the ``gravity_vec_w`` constant.
+#: Kept in step with ``FIELD_READERS`` by hand; ``tests/dump_slot_fixture.py`` dumps
+#: exactly this set and the browser's parity test refuses a dumped field it cannot read.
 READER_FIELDS: frozenset[str] = frozenset(
     {
         # Root properties, their components, and the root velocities in the body frame.
@@ -153,8 +148,8 @@ READER_FIELDS: frozenset[str] = frozenset(
 def _traces_through(data: Any, name: str, reader_fields: Collection[str]) -> bool:
     """Whether ``data.<name>`` is a property to run against the sim proxy.
 
-    Only properties can be: a plain tensor field has no math to trace, so it stays a
-    slot of its own (dynamic or constant by :func:`_is_dynamic_field`).
+    Only a property can be: a plain tensor field has no math to trace, so it stays a
+    slot of its own.
     """
     if name in reader_fields:
         return False
@@ -376,11 +371,9 @@ class _RecordingSimData:
     """Wraps the raw ``SimData`` behind ``env.sim.data`` — the object every
     ``Entity.data.data`` is — logging each field read and the rows the reads touch.
 
-    Reached two ways: a term reading the sim directly (a muscle model's ``act``, or
-    ``time`` — what ``EntityData`` does not wrap), and an ``EntityData`` property traced
-    through it. The sim is one object shared by every entity, hence its own namespace
-    rather than the entity's. Fields are warp-backed ``TorchArray`` proxies; the tensor
-    view is what gets logged, and the term gets it as a :class:`_RecordingField`.
+    One sim object is shared by every entity, hence its own namespace rather than the
+    entity's. Fields are warp-backed ``TorchArray`` proxies; the tensor view is what
+    gets logged, and the term gets it as a :class:`_RecordingField`.
     """
 
     def __init__(self, env: Any, log: list[tuple[SlotKey, Any]]):
@@ -409,7 +402,7 @@ def _merge_narrowing(sims: Sequence[_RecordingSimData]) -> SimRows:
     Terms index one field by different sets — ``cvel`` by the root body in one, by every
     site's body in another — so the union is taken and the input carries it once. A
     field any term used whole, or indexed in a way that cannot be told statically, ships
-    whole: narrowing is per slot, not all-or-nothing.
+    whole.
     """
     merged: dict[str, tuple[set[int] | None, int | None]] = {}
     for sim in sims:
@@ -438,9 +431,9 @@ def _sim_tensor(value: Any) -> Any:
 class _RecordingData:
     """Wraps a real ``Entity.data``, logging every field access.
 
-    A reader-served field is logged as one slot, value and all. Any other property
-    runs against a copy whose ``data`` is the recording sim proxy, so what gets logged
-    is the raw fields it reads and its math lands in the graph.
+    A reader-served field is logged as one slot, value and all; any other property runs
+    against a copy whose ``data`` is the recording sim proxy, so the raw fields it reads
+    are what get logged.
     """
 
     def __init__(

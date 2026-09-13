@@ -76,7 +76,7 @@ export function velocityFromCvel(
   ]);
 }
 
-/** Wrap a reader needing a root body. Null, since indexing at -1 gives plausible zeros. */
+/** Wrap a reader that needs a root body: null rather than index at -1 and get zeros. */
 export function rootField(
   read: (root: number, mjData: MjData, index: EntityIndex) => Float32Array,
 ): FieldReader {

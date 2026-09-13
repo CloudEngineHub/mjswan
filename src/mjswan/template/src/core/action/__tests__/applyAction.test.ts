@@ -181,8 +181,7 @@ describe('applyAction — other kinds', () => {
 
   it('direct mode keeps the negative half of the actuator range', () => {
     // A myosuite muscle model declares ctrlrange="-1 1" and a checkpoint trained
-    // against the raw control really does use the negative half; `excitation` would
-    // clamp it to zero and the policy tracks measurably worse.
+    // against the raw control uses the negative half; `excitation` clamps it to zero.
     const data = fakeData(2);
     applyAction(
       data,

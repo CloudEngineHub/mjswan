@@ -722,8 +722,8 @@ class SceneHandle:
             clip_actions = runner.clip_actions
         slot_in, slot_out = _check_slot_tables(name, policy, in_keys, out_keys)
         if policy_num_actions is None and not policy_joint_names:
-            # A muscle policy has no joint transmission to count; the network's own
-            # output width is the one thing that always knows its action count.
+            # A muscle policy has no joint transmission to count, so take the action
+            # count from the network's own output width.
             policy_num_actions = _onnx_output_width(policy)
 
         policy_config = PolicyConfig(

@@ -150,9 +150,8 @@ def test_no_term_is_silently_unchecked(sweep_report):
 
 # ---------------------------------------------------------------------------
 # The traced path: every `EntityData` property recomputed in the graph from the raw sim
-# fields it reads, mjlab's own math included. The shortcut — value slots the browser's
-# reader fills — is checked against mjlab by `slotReaderParity.test.ts`; this is the
-# other half, so a property with no reader is proven the same way.
+# fields it reads, mjlab's own math included. The other half of the chain is
+# `slotReaderParity.test.ts`, which checks the browser's value-slot readers.
 # ---------------------------------------------------------------------------
 
 _TRACED_TASKS = [

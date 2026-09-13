@@ -27,8 +27,8 @@ MANIFEST_NAME = "manifest.json"
 #: engine by ``version``, an engine protects itself by ``format`` (ADR 0006 §7).
 #:
 #: 2: ``input_slots`` may carry a raw ``mjData`` field (``{"sim": ...}``), narrowed to
-#: ``rows``. A format-1 engine accepts the entry and then cannot serve it, freezing the
-#: observation group at its previous value — exactly the misread the number exists for.
+#: ``rows``. A format-1 engine accepts the entry, cannot serve it, and freezes the
+#: observation group at its previous value.
 DOCUMENT_FORMAT = 2
 
 #: Already-compressed containers: deflating them again costs time for nothing.

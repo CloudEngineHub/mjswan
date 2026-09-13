@@ -128,8 +128,8 @@ function fakeScene() {
   for (let i = 0; i < geomNames.length; i++) geom_xmat.set(identity, i * 9);
   sensordata.set([1, 2, 3, 4, 5, 6]);
 
-  // Generalized forces on dof 9 (the shoulder hinge... the elbow), chosen so the
-  // qfrc_external identity has something to recover: 10 - 1 - 2 - 3 + 4 = 8.
+  // Generalized forces on dof 9 (the elbow hinge), chosen so the qfrc_external
+  // identity has something to recover: 10 - 1 - 2 - 3 + 4 = 8.
   const dofForce = (value: number): Float64Array => {
     const out = new Float64Array(17);
     out[9] = value;

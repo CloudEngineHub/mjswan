@@ -158,9 +158,9 @@ def run_parity(
     Observation terms are checked every step; ``reset``-mode Event terms are
     checked by replaying ``n_event_draws`` fresh recorded RNG draws (§2b).
 
-    ``reader_fields`` is passed to :func:`trace_term`: an empty set traces every
-    ``EntityData`` property through to raw sim slots, which puts mjlab's property math
-    itself under this harness rather than only the browser reader's fixture.
+    ``reader_fields`` is passed to :func:`trace_term`; an empty set traces every
+    ``EntityData`` property through to raw sim slots, putting mjlab's own property math
+    under this harness.
     """
     import onnxruntime as ort
 

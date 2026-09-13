@@ -251,7 +251,7 @@ class MuscleActivationActionCfg(BaseActionCfg):
     """MyoSuite-style muscle activation control.
 
     Writes excitation values to ``mjData.ctrl`` for the named MuJoCo muscle
-    actuators (``dyntype=muscle``). Both modes apply ``raw = scale * a + offset``
+    actuators (``dyntype=muscle``). Every mode applies ``raw = scale * a + offset``
     first, then:
 
     - ``"sigmoid"`` (default): the canonical MyoSuite sigmoid
@@ -259,9 +259,9 @@ class MuscleActivationActionCfg(BaseActionCfg):
     - ``"excitation"``: clips ``raw`` to ``[0, 1]`` for models that already output
       excitation in that range.
     - ``"direct"``: clips ``raw`` to each actuator's own ``ctrlrange`` and writes it
-      unchanged — checkpoint playback, where the policy was trained against the raw
-      control. A muscle model whose ``ctrlrange`` is ``[-1, 1]`` really does use the
-      negative half, so this is not the same as ``"excitation"``.
+      unchanged, for a policy trained against the raw control. A muscle model whose
+      ``ctrlrange`` is ``[-1, 1]`` really does use the negative half, so this is not
+      ``"excitation"`` by another name.
 
     Semantics mirror myosuite4 ``MyoMuscleActivationActionCfg.action_mode``; see
     ``docs/adr/0002-muscle-action-term-aligned-with-myomuscleactivationactioncfg.md``.

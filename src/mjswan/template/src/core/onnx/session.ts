@@ -30,7 +30,6 @@ export interface OnnxTensorLike {
  * `input` is the graph input name, build-supplied because sensor and command names
  * carry dots the build folds to identifiers — not reproducible here. `shape` is the
  * traced shape, batch axis included, since a slot reader hands back a flat array.
- * A `sim` slot may carry `rows`: the graph then takes only those rows of the field.
  */
 export interface OnnxInputSlot {
   entity?: string | null;
@@ -41,7 +40,7 @@ export interface OnnxInputSlot {
   sim?: string;
   /**
    * For a `sim` slot: the rows of the field's element axis the graph takes, in this
-   * order — the build narrowed the input to what the term indexes. Absent: the whole field.
+   * order. Absent means the whole field.
    */
   rows?: number[];
   input?: string;

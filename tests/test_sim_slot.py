@@ -2,11 +2,10 @@
 
 Layer: L3 (builds a real mjlab env from a spec).
 
-Raw ``mjData`` is what a slot is. A term reading ``entity.data.data.<field>`` directly
-(myosuite's mimic terms read ``act`` and ``time`` this way) gets a ``sim`` slot; a term
-reading an ``EntityData`` property gets either a value slot — when the browser has a
-reader for it, the shortcut — or, for any other property, the raw fields the property
-reads, with mjlab's math traced into the graph.
+A term reading ``entity.data.data.<field>`` directly (myosuite's mimic terms read ``act``
+and ``time`` this way) gets a ``sim`` slot. A term reading an ``EntityData`` property gets
+a value slot when the browser has a reader for it, and otherwise the raw fields the
+property reads, with mjlab's math traced into the graph.
 """
 
 from __future__ import annotations
@@ -182,8 +181,8 @@ def test_sim_time_is_a_dynamic_slot(env):
 class TestTraceThrough:
     """An ``EntityData`` property the browser has no reader for.
 
-    Every property has one now, so the tests force the path with an empty
-    ``reader_fields`` — what a property mjlab adds tomorrow gets by default.
+    Every property has one now, so these force the path with an empty ``reader_fields``
+    — what a property mjlab adds tomorrow gets by default.
     """
 
     def test_reads_become_the_raw_fields_the_property_reads(self, env):
@@ -218,8 +217,8 @@ class TestShortcut:
         assert export.input_slots == [("robot", "joint_pos")]
 
     def test_shortcut_and_traced_path_agree(self, env):
-        # Both paths for one property: the value slot the reader fills, and the
-        # raw `qpos` slot with mjlab's indexing traced in. Same numbers either way.
+        # One property both ways: the value slot the reader fills, and the raw `qpos`
+        # slot with mjlab's indexing traced in.
         shortcut = trace_term(_joint_pos, {}, env, name="jp")
         traced = trace_term(_joint_pos, {}, env, name="jp", reader_fields=())
         assert shortcut.input_slots == [("robot", "joint_pos")]
@@ -240,8 +239,8 @@ class TestShortcut:
 
 
 class TestNarrowing:
-    """A sim slot carries only the rows the term indexes (§3): the manifest says which,
-    the graph gathers nothing, and the browser reads those rows."""
+    """A sim slot carries only the rows the term indexes: the manifest says which, and
+    the graph gathers nothing."""
 
     def test_indexed_reads_narrow_the_slot_to_their_rows(self, env):
         indexing = env.scene["robot"].indexing

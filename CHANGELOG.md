@@ -76,37 +76,31 @@ velocity-command shortcuts were removed outright, see Removed.
   two siblings both marked fail the build, none marked means the first added.
 - `mjswan info` lists each scene's MDPs with their traced-graph counts, and reads a
   `.swn`.
-- `MuscleActivationActionCfg.action_mode` (`sigmoid` / `direct` / `excitation`), named
-  as mjlab/myosuite spells it so the adapter copies it across by itself. `direct` writes
-  the raw action clipped to each actuator's own `ctrlrange` — a myosuite muscle model
-  declares `ctrlrange="-1 1"` and a checkpoint trained against the raw control uses the
-  negative half, which `excitation` would clamp to zero. `normalize` stays as the legacy
-  spelling of the other two; the policy JSON now carries `mode` instead of `normalize`,
-  and the engine still reads the old key.
+- `MuscleActivationActionCfg.action_mode` (`sigmoid` / `direct` / `excitation`). `direct`
+  writes the raw action clipped to each actuator's own `ctrlrange`: a myosuite muscle
+  model declares `ctrlrange="-1 1"` and a checkpoint trained against the raw control uses
+  the negative half, which `excitation` clamps to zero. `normalize` stays as the legacy
+  spelling of the other two; the policy JSON carries `mode`, and the engine reads either.
 - **Document format 2.** `input_slots` may now carry a raw `mjData` field (`{"sim": ...}`,
-  with `rows`); an engine reading format 1 accepts the entry and then cannot serve it,
-  freezing the observation group at its previous value — the misread `format` exists to
-  refuse. `DOCUMENT_FORMAT` and the engine's `MAX_DOCUMENT_FORMAT` are 2; the guard is a
-  ceiling, so the new engine still reads a format-1 document. mjswan Cloud's
-  `ENGINE_DOCUMENT_FORMAT` table, which matches one format per engine version exactly,
-  needs its own decision before this engine is offered there.
-- **Raw `mjData` is what a slot is.** A term reading `entity.data.data.<field>` (mjlab's
-  `SimData` — a muscle model's `act`, the sim `time`) traces to a `sim` slot the browser
-  serves from `mjData`, and every `EntityData` property is traceable: one the browser has
-  no native reader for is traced *through* — mjlab's own property math enters the graph
-  and the raw fields it reads become `sim` slots — where before it built fine and then
-  froze the observation group at its previous value. The TypeScript readers stay as a
-  shortcut over that foundation (`READER_FIELDS`): a property they serve is still one
-  value slot with no math in the graph, and every `EntityData` property now has one —
-  55 readers where there were 15, `core/onnx/slotReader/fields/` mirroring the sections
-  of mjlab's `entity/data.py`, each checked against mjlab by `slotReaderParity.test.ts`.
-  A property that cannot be traced now fails the build. A `sim` slot carries only the
-  `rows` the term indexes when the build can tell which (unioned across a group's
-  terms; whole otherwise), so the graph gathers nothing and a 2038-site model's
-  `site_xmat` costs 17 rows a step rather than all of them.
-  Replay proxies also forward `physics_dt` / `step_dt` / `cfg` from the real env,
-  and `add_policy` fills `policy_num_actions` from the ONNX output width when a policy
-  has no joint names (muscle policies).
+  with `rows`), which an engine reading format 1 accepts and then cannot serve, freezing
+  the observation group at its previous value. `DOCUMENT_FORMAT` and the engine's
+  `MAX_DOCUMENT_FORMAT` are 2; the guard is a ceiling, so the new engine still reads a
+  format-1 document.
+- **Raw `mjData` fields as graph inputs.** A term reading `entity.data.data.<field>`
+  (mjlab's `SimData` — a muscle model's `act`, the sim `time`) traces to a `sim` slot the
+  browser serves from `mjData`, and an `EntityData` property the browser has no native
+  reader for is traced *through*: mjlab's own property math enters the graph and the raw
+  fields it reads become `sim` slots. Such a term used to build and then freeze its
+  observation group at its previous value; a property that cannot be traced now fails the
+  build. The TypeScript readers remain a shortcut — a property they serve is one value
+  slot with no math in the graph — and now cover all 55 `EntityData` properties rather
+  than 15, under `core/onnx/slotReader/fields/`, one file per section of mjlab's
+  `entity/data.py`. A `sim` slot carries only the `rows` the term indexes where the build
+  can tell which (unioned across a group's terms, whole otherwise), so the graph gathers
+  nothing and a 2038-site model's `site_xmat` costs 17 rows a step rather than all of
+  them. A term may also read `physics_dt` / `step_dt` / `cfg` off the env.
+- `add_policy` fills `policy_num_actions` from the ONNX output width when a policy has no
+  joint names (muscle policies).
 - **MDP term bodies are traced to ONNX at build time and run by ONNX Runtime Web**
   ([ADR 0005](docs/adr/0005-onnx-traced-terms-superseding-the-declarative-dsl.md)),
   replacing the hand-written TypeScript DSL (see Removed). mjlab's real

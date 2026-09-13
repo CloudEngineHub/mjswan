@@ -12,13 +12,11 @@
  *
  * This closes the last gap in the ADR 0005 verification chain: the Python parity
  * harness proves each traced graph reproduces mjlab's term, and this proves the
- * browser feeds that graph the same numbers mjlab would. With `test_onnx_parity.py`'s
- * traced-path sweep (property math in the graph, checked against mjlab), it also
- * gives reader ≡ traced for every property that has a reader.
+ * browser feeds that graph the same numbers mjlab would.
  *
  * Regenerate the fixture whenever a field is added to the reader — the coverage
  * assertion at the bottom fails on a reader never compared, and every dumped field
- * must be readable, so the two lists cannot drift apart silently.
+ * must be readable.
  */
 import { describe, expect, it } from 'vitest';
 

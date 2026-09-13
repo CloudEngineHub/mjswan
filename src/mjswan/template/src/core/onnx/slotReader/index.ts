@@ -2,18 +2,15 @@
  * Fills a traced graph's `input_slots` from `mjModel`/`mjData`. A field read wrong here
  * makes the graph compute the right function of the wrong numbers, silently.
  *
- * Every slot must be the **whole** field, flattened (the graph carries its own baked-in
- * indexing), in mjlab's element order (MJCF spec order, i.e. ascending model id within
- * an entity, free joint excluded), as float32.
+ * Every entity slot must be the **whole** field, flattened (the graph carries its own
+ * baked-in indexing), in mjlab's element order (MJCF spec order, i.e. ascending model id
+ * within an entity, free joint excluded), as float32.
  *
  * A `sim` slot is a raw `mjData` field — whole, or narrowed to the `rows` the term
- * indexes, which the build worked out so the graph need not gather them. That is the
- * foundation — an
- * `EntityData` property with no reader here is traced through to the `sim` fields it
- * reads, with mjlab's math in the graph — and the entity readers (`fields/`) are a
- * shortcut over it, one input in place of that math, reproducing mjlab's `EntityData`
- * semantics natively. The build emits a value slot only for the fields `READER_FIELDS`
- * (compile/tracer.py) lists, kept in step with `FIELD_READERS` by hand.
+ * indexes, so the graph need not gather them. An `EntityData` property with no reader in
+ * `fields/` is traced through to the `sim` fields it reads, with mjlab's math in the
+ * graph; a reader replaces that math with one input. The build emits a value slot only
+ * for the fields `READER_FIELDS` (compile/tracer.py) lists, kept in step by hand.
  *
  * Entities resolve as `indexing.ts` describes; an unknown field returns null and the
  * caller holds its previous value.

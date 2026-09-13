@@ -160,18 +160,17 @@ A raw field is served whole unless the build could tell which rows the term inde
 `rows` then names them, in the order the graph takes them, and the graph gathers
 nothing: `site_xmat` on a 2038-site model is 18,342 floats a step read whole, 153 for
 the 17 sites a term uses. A read the build cannot pin down statically (an index computed
-from data, a boolean mask) ships the whole field; narrowing is per slot, not
-all-or-nothing.
+from data, a boolean mask) ships the whole field.
 
-Raw `mjData` is the foundation. A term reading `entity.data.data.<field>` — a muscle
-model's activation state, the sim time — gets a `sim` slot directly, and an `EntityData`
-property the browser has no native reader for is *traced through*: mjlab's own property
-math enters the graph and the raw fields it reads become `sim` slots. The entity `data`
-slots above are a shortcut over that foundation: for the properties the browser's slot
-reader reproduces in TypeScript, the build emits the property's value as one input and
-keeps the math out of the graph. Anything model-derived and therefore constant — an
-entity's indices, `default_joint_pos`, `encoder_bias` — is baked into the graph instead
-of becoming a slot.
+A term gets a `sim` slot by reading `entity.data.data.<field>` — a muscle model's
+activation state, the sim time — or by reading an `EntityData` property the browser has
+no native reader for, which is *traced through*: mjlab's own property math enters the
+graph and the raw fields it reads become `sim` slots. For the properties the browser's
+slot reader does reproduce in TypeScript, the build emits the property's value as one
+entity `data` slot instead and keeps the math out of the graph.
+
+Anything model-derived and therefore constant — an entity's indices, `default_joint_pos`,
+`encoder_bias` — is baked into the graph instead of becoming a slot.
 
 A handful of values have no simulation slot at all — the previous action, a command's
 current value, a baked constant — so they arrive as **native inputs** the orchestrator
