@@ -208,15 +208,7 @@ velocity-command shortcuts were removed outright, see Removed.
   bytes in the package rather than a URL. A consumer serving `dist/` as published sees only
   the change of origin; one that mirrored `onnxruntime-web` for the old URL can stop.
 
-- **ONNX Runtime Web 1.24.3 → 1.29.0.** The assumptions the library build's ORT wiring
-  rests on hold in 1.29.0, as `ortRuntimeFiles.test.ts` checks: the package's default
-  entry is still `ort.bundle.min.mjs`, the build with its `.mjs` loader inlined, and it
-  still names `ort-wasm-simd-threaded.jsep.wasm`, so `dist/` keeps fetching that one wasm
-  and nothing else. Checked in headless Chromium against a library build of the demo's G1
-  locomotion policy: the policy runs, one same-origin wasm fetch, no loader fetch, no
-  other origin. The wasm is 27.8 MB (was 25.0). mjswan Cloud needs no change: its
-  `ORT_VERSIONS` names what 0.9.x engines fetch from jsDelivr, and since 0.10.0 the engine
-  fetches its own.
+- **ONNX Runtime Web 1.24.3 → 1.29.0.**
 
 - **`dist/` ships each WASM once, and `dist/` is 47 MiB instead of 87**
   ([#123](https://github.com/ttktjmt/mjswan/issues/123)): the SPA and library builds write
