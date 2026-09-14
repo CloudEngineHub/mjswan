@@ -19,6 +19,7 @@ from .tracer import (
     WriteCaptures,
     _EventCaptureEnv,
     _flatten_captures,
+    is_native_termination,
     read_slot,
     slot_label,
     trace_event_term,
@@ -73,10 +74,6 @@ class ParityReport:
                 )
         lines.append("PASS" if self.passed else "FAIL")
         return "\n".join(lines)
-
-
-# Terms handled natively by the runtime (no ONNX graph); ADR 0005 §2 table.
-_NATIVE_TERMINATIONS = {"time_out"}
 
 
 def _declared_feeds(
@@ -207,7 +204,7 @@ def run_parity(
 
     if include_obs:
         for term_name, func in _iter_termination_terms(env):
-            native = term_name in _NATIVE_TERMINATIONS
+            native = is_native_termination(func)
             report.terms.append(
                 TermReport(
                     name=term_name,

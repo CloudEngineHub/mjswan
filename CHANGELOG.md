@@ -332,6 +332,26 @@ All kept as aliases via `_compat.py`, removed in 0.9:
 
 ### Fixed
 
+- **A term reading `env.sim.data` is traced, and a termination that reads nothing fails
+  instead of becoming the `time_out` rule**
+  ([#129](https://github.com/ttktjmt/mjswan/issues/129)). `env.sim.data.<field>` is the
+  object `entity.data.data.<field>` is, but only the second spelling was recorded: the
+  first fell through the recording proxy to the real env, so the term traced to a
+  constant with nothing said. An observation then shipped as `native: "constant"` with
+  its trace-time values, and a termination so shaped was serialized as
+  `elapsed_s >= episode_length_s` — the timeout rule, minus the `time_out` flag. Both
+  proxies now expose `env.sim` whose `.data` is the pass's sim proxy, so both spellings
+  record one `sim` slot. Every other
+  `env` attribute a term reads is either a forwarded constant (`num_envs`, `device`,
+  `physics_dt`, `step_dt`, `cfg`) or raises `UnsupportedEnvRead` in discovery as it
+  already did in replay, naming the attribute and what a term may read instead. The
+  event and command discovery proxy holds the same contract; a model-field
+  randomization (`geom_friction`, `body_mass`, …) is described from its config before
+  any tracing, so its body no longer runs against the live model at build time.
+  `time_out` is native by function name, as `last_action` and `generated_commands` are;
+  a termination that traces to a constant fails the build, `time_out=True` or not, since
+  a constant fires every step or never; and a baked observation term is warned about by
+  name.
 - **White robots render white.** A `<material>` that declares no `metallic` (every
   material in Menagerie and mjlab, G1's `0.7 0.7 0.7` and Microduck's included) was
   handed MuJoCo's `specular` as its `metalness`. The two are unrelated: `specular` is a

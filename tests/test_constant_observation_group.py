@@ -95,6 +95,30 @@ def test_group_with_one_dynamic_term_still_fuses(tmp_path):
     assert [e["name"] for e in entry["layout"]] == ["pad", "base_ang_vel"]
 
 
+def test_a_baked_term_is_named_in_a_warning(tmp_path):
+    """Right for padding, wrong for a term that meant to read state; the tracer cannot
+    tell, so the build says which terms it baked (issue #129). Both bake sites."""
+    from mjlab.envs.mdp import observations as obs_fns
+
+    from mjswan._onnx_build import serialize_observation_group
+    from mjswan.compile.tracer import GroupTermSpec, trace_observation_group
+    from mjswan.managers.observation_manager import (
+        ObservationGroupCfg,
+        ObservationTermCfg,
+    )
+
+    group = ObservationGroupCfg(terms={"pad": ObservationTermCfg(func=_padding)})
+    with pytest.warns(RuntimeWarning, match="'pad' reads no simulation state"):
+        serialize_observation_group(group, _trace_env(), tmp_path, "command")
+
+    specs = [
+        GroupTermSpec("pad", _padding, {}),
+        GroupTermSpec("base_ang_vel", obs_fns.base_ang_vel, {}),
+    ]
+    with pytest.warns(RuntimeWarning, match="'pad' reads no simulation state"):
+        trace_observation_group(specs, _trace_env(), name="policy")
+
+
 def test_constant_group_raises_from_the_fused_path(tmp_path):
     """The fallback exists because tracing is the only way to know: assert the signal."""
     from mjswan.compile.tracer import (

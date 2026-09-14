@@ -162,7 +162,8 @@ nothing: `site_xmat` on a 2038-site model is 18,342 floats a step read whole, 15
 the 17 sites a term uses. A read the build cannot pin down statically (an index computed
 from data, a boolean mask) ships the whole field.
 
-A term gets a `sim` slot by reading `entity.data.data.<field>` — a muscle model's
+A term gets a `sim` slot by reading a raw `mjData` field, as `entity.data.data.<field>`
+or as `env.sim.data.<field>` (one object in mjlab, so one slot) — a muscle model's
 activation state, the sim time — or by reading an `EntityData` property the browser has
 no native reader for, which is *traced through*: mjlab's own property math enters the
 graph and the raw fields it reads become `sim` slots. For the properties the browser's

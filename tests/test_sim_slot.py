@@ -107,6 +107,15 @@ def _act_scaled_by_step(env):
     return data.act * (env.physics_dt * env.cfg.decimation)
 
 
+def _qpos_via_entity(env):
+    return env.scene["robot"].data.data.qpos[:, :3]
+
+
+def _qpos_via_sim(env):
+    """The other spelling of the same object (issue #129's repro)."""
+    return env.sim.data.qpos[:, :3]
+
+
 def _time(env):
     return torch.as_tensor(env.scene["robot"].data.data.time).reshape(-1, 1)
 
@@ -176,6 +185,52 @@ def test_graph_matches_the_live_term_on_a_fresh_value(env):
 def test_sim_time_is_a_dynamic_slot(env):
     export = trace_term(_time, {}, env, name="time")
     assert export.input_slots == [("__sim__", "time")]
+
+
+class TestEnvSimData:
+    """``env.sim.data`` is ``entity.data.data``, so both spellings must record.
+
+    The first used to fall through to the real env, trace to a constant, and be baked
+    (issue #129).
+    """
+
+    def test_both_spellings_record_the_same_slot(self, env):
+        via_sim = trace_term(_qpos_via_sim, {}, env, name="probe")
+        via_entity = trace_term(_qpos_via_entity, {}, env, name="probe")
+        assert via_sim.input_slots == via_entity.input_slots == [("__sim__", "qpos")]
+        assert slots_json(via_sim) == slots_json(via_entity)
+
+    def test_the_graph_follows_the_sim(self, env):
+        export = trace_term(_qpos_via_sim, {}, env, name="probe")
+        for seed in (1, 2):
+            _move(env, seed)
+            live = _qpos_via_sim(env).detach().numpy()
+            np.testing.assert_allclose(_run(export, env), live, rtol=1e-6)
+
+    def test_the_rest_of_sim_is_refused(self, env):
+        from mjswan.compile.tracer import UnsupportedEnvRead
+
+        def reads_the_model(env):
+            return env.scene["robot"].data.joint_pos * env.sim.mj_model.nq
+
+        with pytest.raises(UnsupportedEnvRead, match="env.sim.mj_model"):
+            trace_term(reads_the_model, {}, env, name="nq")
+
+    def test_a_termination_reading_env_sim_data_is_traced(self, env, tmp_path):
+        """Not rewritten as the `time_out` rule, which is what a baked one became."""
+        from mjswan._onnx_build import serialize_terminations
+        from mjswan.managers.termination_manager import TerminationTermCfg
+
+        def deviation(env):
+            return env.sim.data.qpos[:, 2] < 0.5
+
+        entries = serialize_terminations(
+            {"deviation": TerminationTermCfg(func=deviation)}, env, tmp_path
+        )
+        entry = entries["deviation"]
+        assert "native" not in entry
+        assert entry["onnx"] == "term/deviation.onnx"
+        assert [s["sim"] for s in entry["input_slots"]] == ["qpos"]
 
 
 class TestTraceThrough:

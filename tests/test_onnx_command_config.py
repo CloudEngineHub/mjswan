@@ -611,8 +611,9 @@ def _tipped(env, *, limit=0.5):
     return env.scene["robot"].data.projected_gravity_b[:, 2] > -limit
 
 
-def _time_out(env):
-    """Native by construction: reads nothing off the env."""
+# Named `time_out` because the serializer classifies the native rule by `func.__name__`,
+# as it does `last_action`; mjlab's own reads step counters a fake env does not have.
+def time_out(env):
     del env
     return torch.zeros(1, dtype=torch.bool)
 
@@ -624,7 +625,7 @@ def test_terminations_fuse_into_one_graph_with_one_lane_per_term(tmp_path):
 
     entries = serialize_terminations(
         {
-            "time_out": TerminationTermCfg(func=_time_out, time_out=True),
+            "time_out": TerminationTermCfg(func=time_out, time_out=True),
             "too_low": TerminationTermCfg(func=_too_low),
             "tipped": TerminationTermCfg(func=_tipped),
         },
@@ -660,7 +661,7 @@ def test_a_lone_traced_termination_is_not_fused(tmp_path):
 
     entries = serialize_terminations(
         {
-            "time_out": TerminationTermCfg(func=_time_out, time_out=True),
+            "time_out": TerminationTermCfg(func=time_out, time_out=True),
             "too_low": TerminationTermCfg(func=_too_low),
         },
         _term_env(),
@@ -668,6 +669,85 @@ def test_a_lone_traced_termination_is_not_fused(tmp_path):
     )
     assert FUSED_TERMINATION_KEY not in entries
     assert entries["too_low"]["onnx"] == "term/too_low.onnx"
+
+
+# ---------------------------------------------------------------------------
+# Issue #129: a termination that traced to a constant was rewritten as the `time_out`
+# rule. The rule is now mjlab's `time_out` by name, and a constant termination fails.
+# ---------------------------------------------------------------------------
+
+
+def test_time_out_is_native_by_name_and_never_traced(tmp_path):
+    pytest.importorskip("mjlab")
+    from mjswan._onnx_build import serialize_terminations
+    from mjswan.managers.termination_manager import TerminationTermCfg
+
+    def time_out(env):
+        # mjlab's reads `env.episode_length_buf`, which no proxy serves: the classifier
+        # must decide before the body runs.
+        raise AssertionError("the native rule must not be traced")
+
+    entries = serialize_terminations(
+        {"time_out": TerminationTermCfg(func=time_out, time_out=True)},
+        _term_env(),
+        tmp_path,
+    )
+    assert entries["time_out"]["native"] == "elapsed_s >= episode_length_s"
+    assert entries["time_out"]["episode_length_s"] == 20.0
+    assert entries["time_out"]["time_out"] is True
+
+
+def _constant_false(env):
+    """The shape that used to become a 20 s timeout: reads nothing, flagged or not."""
+    del env
+    return torch.zeros(1, dtype=torch.bool)
+
+
+@pytest.mark.parametrize("flagged", [True, False])
+def test_a_termination_reading_nothing_fails_the_build(tmp_path, flagged):
+    pytest.importorskip("mjlab")
+    from mjswan._onnx_build import serialize_terminations
+    from mjswan.managers.termination_manager import TerminationTermCfg
+
+    with pytest.raises(ValueError, match="'deviation' reads no simulation state"):
+        serialize_terminations(
+            {"deviation": TerminationTermCfg(func=_constant_false, time_out=flagged)},
+            _term_env(),
+            tmp_path,
+        )
+
+
+def test_a_constant_termination_fails_the_fused_path_too(tmp_path):
+    """Two traced terms take the fused path; the constant one still has to be named."""
+    pytest.importorskip("mjlab")
+    from mjswan._onnx_build import serialize_terminations
+    from mjswan.managers.termination_manager import TerminationTermCfg
+
+    with pytest.raises(ValueError, match="'deviation' reads no simulation state"):
+        serialize_terminations(
+            {
+                "too_low": TerminationTermCfg(func=_too_low),
+                "deviation": TerminationTermCfg(func=_constant_false),
+            },
+            _term_env(),
+            tmp_path,
+        )
+
+
+def test_discovery_refuses_an_env_read_the_tracer_does_not_serve():
+    """The attribute exists on the real env, and the read used to fall through to it:
+    the term then traced to a constant with nothing said."""
+    from mjswan.compile.tracer import UnsupportedEnvRead, trace_term
+
+    def reads_the_horizon(env):
+        return env.scene["robot"].data.root_link_pos_w[:, 2] * env.max_episode_length_s
+
+    with pytest.raises(UnsupportedEnvRead, match="env.max_episode_length_s") as excinfo:
+        trace_term(reads_the_horizon, {}, _term_env(), name="horizon")
+    # An AttributeError, so a term probing with `hasattr` still gets an answer; the
+    # message names what a term may read instead.
+    assert isinstance(excinfo.value, AttributeError)
+    assert "env.sim.data" in str(excinfo.value)
 
 
 def test_fused_lanes_match_the_terms_run_individually(tmp_path):

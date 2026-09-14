@@ -121,9 +121,9 @@ class _TermCfg:
 
 
 # mjlab's wrappers with their real signatures: the defaults are what is under test, so
-# they must be defaults here too. The bodies write nothing, which is faithful — the real
-# ones write `env.sim.model`, which the recording proxy does not wrap, and that is why
-# these events fall through to the descriptor.
+# they must be defaults here too. The bodies write nothing; the real ones write
+# `env.sim.model`, and neither runs at build time — a model-field event is described
+# from its config before any tracing.
 
 
 def geom_friction(  # noqa: PLR0917 — mjlab's own arity; the signature is the fixture
@@ -482,6 +482,42 @@ def test_the_descriptor_carries_exactly_what_the_browser_declares():
     )
     # `name` and `mode` are attached by `serialize_event`, not by the descriptor.
     assert declared == set(descriptor) | {"name"}
+
+
+def test_a_model_field_event_is_described_without_running_its_body(tmp_path):
+    """mjlab's body writes `env.sim.model`: run under the recording proxy it would hit
+    the live model, and the proxy no longer forwards `env.sim` at all (issue #129)."""
+    pytest.importorskip("mjlab")
+    from mjswan._onnx_build import serialize_event
+
+    def geom_friction(env, env_ids, ranges, asset_cfg=None, operation="abs", **_):
+        raise AssertionError("the body must not run at build time")
+
+    geom_friction.recompute = 0
+
+    entry = serialize_event(
+        "friction",
+        _TermCfg(geom_friction, {"asset_cfg": _fingertips(), "ranges": (0.3, 1.5)}),
+        _Env(),
+        tmp_path,
+    )
+    assert entry["kind"] == "model_field"
+    assert entry["field"] == "geom_friction"
+
+
+def test_an_event_reading_an_unserved_env_attribute_fails_and_names_it(tmp_path):
+    """The fake env *has* `sim`; the read used to fall through to it."""
+    pytest.importorskip("mjlab")
+    from mjswan._onnx_build import serialize_event
+
+    def scale_model(env, env_ids):
+        env.sim.mj_model.nq  # noqa: B018 — the read is the point
+
+    with pytest.raises(ValueError, match="could not be traced") as excinfo:
+        serialize_event(
+            "scale", _TermCfg(scale_model, {}, mode="reset"), _Env(), tmp_path
+        )
+    assert "env.sim" in str(excinfo.value)
 
 
 def test_serialize_event_emits_the_descriptor_with_its_name_and_mode(tmp_path):
