@@ -848,7 +848,8 @@ def _fake_root_height_below_minimum(env, *, minimum_height, entity_name="robot",
     return env.scene[entity_name].data.root_link_pos_w[:, 2] < minimum_height
 
 
-def _fake_time_out(env, *, max_episode_length=1e9, **_):
+# Named `time_out` because the serializer classifies the native rule by `func.__name__`.
+def time_out(env, *, max_episode_length=1e9, **_):
     import torch
 
     del env, max_episode_length
@@ -960,7 +961,7 @@ class TestSaveWebPolicyJson:
             name="Policy",
             policy=minimal_onnx,
             terminations={
-                "time_out": TerminationTermCfg(func=_fake_time_out, time_out=True),
+                "time_out": TerminationTermCfg(func=time_out, time_out=True),
             },
         )
         data = self._policy_json(self._run(builder, tmp_path), "Policy")
@@ -1016,7 +1017,7 @@ class TestSaveWebPolicyJson:
             name="Policy",
             policy=minimal_onnx,
             terminations={
-                "time_out": TerminationTermCfg(func=_fake_time_out, time_out=True),
+                "time_out": TerminationTermCfg(func=time_out, time_out=True),
             },
         )
         data = self._policy_json(self._run(builder, tmp_path), "Policy")
@@ -1845,7 +1846,7 @@ class TestSaveWebPolicyJson:
             name="Policy",
             policy=minimal_onnx,
             terminations={
-                "time_out": TerminationTermCfg(func=_fake_time_out, time_out=True),
+                "time_out": TerminationTermCfg(func=time_out, time_out=True),
             },
         )
         data = self._policy_json(self._run(builder, tmp_path), "Policy")

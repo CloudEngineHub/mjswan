@@ -19,6 +19,8 @@ from .tracer import (
     WriteCaptures,
     _EventCaptureEnv,
     _flatten_captures,
+    is_native_termination,
+    native_observation_entry,
     read_slot,
     slot_label,
     trace_event_term,
@@ -73,10 +75,6 @@ class ParityReport:
                 )
         lines.append("PASS" if self.passed else "FAIL")
         return "\n".join(lines)
-
-
-# Terms handled natively by the runtime (no ONNX graph); ADR 0005 §2 table.
-_NATIVE_TERMINATIONS = {"time_out"}
 
 
 def _declared_feeds(
@@ -175,6 +173,20 @@ def run_parity(
 
     obs_terms = _iter_obs_terms(env, obs_group) if include_obs else []
     for term_name, func, params in obs_terms:
+        # Classified before tracing, as the build does: the recording proxy refuses
+        # `last_action`'s `env.action_manager` read.
+        native = native_observation_entry(term_name, func, params, env)
+        if native is not None:
+            report.terms.append(
+                TermReport(
+                    name=term_name,
+                    kind="observation",
+                    representation="native",
+                    passed=True,
+                    note=native["native"],
+                )
+            )
+            continue
         try:
             export = trace_term(
                 func, params, env, name=term_name, reader_fields=reader_fields
@@ -207,7 +219,7 @@ def run_parity(
 
     if include_obs:
         for term_name, func in _iter_termination_terms(env):
-            native = term_name in _NATIVE_TERMINATIONS
+            native = is_native_termination(func)
             report.terms.append(
                 TermReport(
                     name=term_name,

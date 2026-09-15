@@ -53,7 +53,8 @@ def _is_dynamic_field(field_name: str) -> bool:
 #   (entity_name, data_field)        -> env.scene[entity].data.<field>
 #   (_SENSOR_NS, sensor_name)        -> env.scene[sensor].data (a whole BuiltinSensor)
 #   (_COMMAND_NS, "cmd.attr")        -> env.command_manager.get_term(cmd).<attr>
-#   (_SIM_NS, field)                 -> env.sim.data.<field> (raw; maybe narrowed to rows)
+#   (_SIM_NS, field)                 -> env.sim.data.<field> == entity.data.data.<field>
+#                                       (raw; maybe narrowed to rows)
 SlotKey = tuple[str, str]
 
 # A tagged key identifies one value an event/command body reads off ``env``. Wider than
@@ -67,9 +68,40 @@ _SENSOR_NS = "__sensor__"
 _COMMAND_NS = "__command__"
 _SIM_NS = "__sim__"
 
-#: Env attributes a replay proxy forwards from the real env: trace-time constants a term
-#: may read for shapes or rates. Anything else raises rather than reading a stand-in.
+#: Env attributes every proxy forwards from the real env: trace-time constants a term
+#: may read for shapes or rates. Anything else is served by a proxy or raises, in
+#: discovery as in replay: a read reaching the real env would bake a silent constant.
 _FORWARDED_ENV_ATTRS = ("num_envs", "device", "physics_dt", "step_dt", "cfg")
+
+#: What a value-returning term may read off ``env``, for the error that names them.
+_TERM_ENV_READS = ("env.scene[...]", "env.command_manager", "env.sim.data.<field>")
+#: What an event or command body may read off ``env``.
+_EVENT_ENV_READS = ("env.scene[...]", "env.scene.<attr>")
+
+
+class UnsupportedEnvRead(AttributeError):
+    """A term read an ``env`` attribute the tracer neither serves nor forwards.
+
+    An ``AttributeError``, so ``hasattr`` and ``getattr(..., default)`` probes keep
+    working; its own class, so a caller can tell it from a proxy's missing attribute.
+    """
+
+    def __init__(self, attr: str, served: Sequence[str]):
+        super().__init__(
+            f"Term read `env.{attr}`, which the tracer neither serves nor forwards. "
+            f"A term may read {', '.join(served)}, and the constants "
+            f"{', '.join(_FORWARDED_ENV_ATTRS)}. Anything else would be read off the "
+            "trace-time env once and baked into the graph as a constant.",
+            name=attr,
+        )
+
+
+def _forward_env_attr(real_env: Any, name: str, served: Sequence[str]) -> Any:
+    """``real_env.<name>`` for a forwarded constant; raise for anything else."""
+    if name in _FORWARDED_ENV_ATTRS:
+        return getattr(real_env, name)
+    raise UnsupportedEnvRead(name, served)
+
 
 #: ``EntityData`` fields the browser's slot reader serves natively
 #: (``core/onnx/slotReader/fields/``): every ``EntityData`` property but
@@ -368,7 +400,7 @@ SimRows = dict[SlotKey, tuple[list[int], int]]
 
 
 class _RecordingSimData:
-    """Wraps the raw ``SimData`` behind ``env.sim.data`` — the object every
+    """Wraps the raw ``SimData`` — ``env.sim.data``, the object every
     ``Entity.data.data`` is — logging each field read and the rows the reads touch.
 
     One sim object is shared by every entity, hence its own namespace rather than the
@@ -426,6 +458,20 @@ def _sim_tensor(value: Any) -> Any:
     # `TorchArray.__getattr__` delegates to its tensor, so `detach()` is that tensor.
     detach = getattr(value, "detach", None)
     return detach() if callable(detach) else value
+
+
+class _SimStandIn:
+    """``env.sim`` for a term: ``.data`` is the pass's sim proxy, and nothing else.
+
+    The rest of ``Simulation`` (``mj_model``, ``forward()``) would act on the real env
+    mid-trace, so it raises.
+    """
+
+    def __init__(self, data: Any):
+        object.__setattr__(self, "data", data)
+
+    def __getattr__(self, name: str) -> Any:
+        raise UnsupportedEnvRead(f"sim.{name}", _TERM_ENV_READS)
 
 
 class _RecordingData:
@@ -568,7 +614,7 @@ class _RecordingCommandManager:
 
 class _RecordingEnv:
     """Proxy env recording the reads a term makes (entity data, sim data, sensors,
-    commands)."""
+    commands). Same contract as :class:`_ReplayEnv`: any other read raises."""
 
     def __init__(self, real: Any, reader_fields: Collection[str] = READER_FIELDS):
         object.__setattr__(self, "_real", real)
@@ -576,6 +622,7 @@ class _RecordingEnv:
         object.__setattr__(self, "_sensors", {})
         object.__setattr__(self, "_commands", {})
         object.__setattr__(self, "_sim", _RecordingSimData(real, self._log))
+        object.__setattr__(self, "sim", _SimStandIn(self._sim))
         object.__setattr__(
             self,
             "scene",
@@ -589,7 +636,7 @@ class _RecordingEnv:
             return _RecordingCommandManager(
                 self._real.command_manager, self._log, self._commands
             )
-        return getattr(self._real, name)
+        return _forward_env_attr(self._real, name, _TERM_ENV_READS)
 
 
 # --- Replay proxy: serves recorded slots to the term during tracing. ---
@@ -746,14 +793,12 @@ class _ReplayEnv:
             slots, sensors, real_env=real_env, reader_fields=reader_fields
         )
         self.command_manager = _ReplayCommandManager(slots, commands or {})
+        self.sim = _SimStandIn(_ReplaySimData(slots))
         self._real_env = real_env
 
     def __getattr__(self, name: str) -> Any:
-        # Forwarded, not copied, so nothing drifts from the real env. Anything else
-        # raises rather than silently reading a stand-in.
-        if name in _FORWARDED_ENV_ATTRS:
-            return getattr(self._real_env, name)
-        raise AttributeError(name)
+        # Forwarded, not copied, so nothing drifts from the real env.
+        return _forward_env_attr(self._real_env, name, _TERM_ENV_READS)
 
 
 # --- Shared trace mechanics: constants as buffers, and the export call itself. ---
@@ -937,10 +982,31 @@ class _TermModule(nn.Module):
 class ConstantTerm(ValueError):
     """A term that read no simulation state at all — its value is a constant.
 
-    Genuinely env-independent (a fixed-size padding term, say), so a caller may
-    safely bake the value. Distinct from :class:`UntraceableTerm` because the two
-    look identical from "no graph inputs" alone and must not be handled alike.
+    An observation so shaped is env-independent (a fixed-size padding term, say), so a
+    caller may bake the value; a termination so shaped fires every step or never, so a
+    caller must refuse it. Distinct from :class:`UntraceableTerm` because the two look
+    identical from "no graph inputs" alone and must not be handled alike.
     """
+
+    def __init__(self, term: str):
+        self.term = term
+        super().__init__(
+            f"Term {term!r} reads no simulation state at all; its value is a "
+            "constant (ADR 0005)."
+        )
+
+
+def warn_constant_observation(name: str, size: int) -> None:
+    """Name a baked term: right for a padding term, wrong for anything else, and the
+    tracer cannot tell the two apart."""
+    warnings.warn(
+        f"Observation term {name!r} reads no simulation state, so its {size} value(s) "
+        "are baked into the build and the policy sees the same numbers every step. "
+        "Right for a fixed padding term; a term meant to follow the simulation reads "
+        f"it by a path the tracer does not serve ({', '.join(_TERM_ENV_READS)}).",
+        category=RuntimeWarning,
+        stacklevel=3,
+    )
 
 
 class ConstantGroup(ValueError):
@@ -1126,7 +1192,7 @@ def trace_term(
     ``EntityData`` fields served as value slots; see :data:`READER_FIELDS`.
 
     Raises:
-        ConstantTerm: the term reads no simulation state (handle it as native).
+        ConstantTerm: the term reads no simulation state; its value is a constant.
         UntraceableTerm: the term reads state the tracer cannot follow.
     """
     readers = _reader_fields(reader_fields)
@@ -1150,10 +1216,7 @@ def trace_term(
             raise UntraceableTerm(
                 name, sorted({slot_label(k) for k, _ in recorder._log})
             )  # noqa: SLF001
-        raise ConstantTerm(
-            f"Term {name!r} reads no simulation state at all; handle it as a native "
-            "term (e.g. time_out) or bake its value (ADR 0005)."
-        )
+        raise ConstantTerm(name)
 
     sim_rows = _narrow_inputs(dynamic, [recorder._sim])  # noqa: SLF001
     dynamic_keys = sorted(dynamic)
@@ -1360,14 +1423,15 @@ class _EvRecScene:
 
 
 class _EventCaptureEnv:
-    """Proxy env for event tracing: records reads, captures writes, no sim mutation."""
+    """Proxy env for event tracing: records reads, captures writes, no sim mutation.
+    Same contract as :class:`_EventReplayEnv`: any other read raises."""
 
     def __init__(self, real, log, captures):
         object.__setattr__(self, "_real", real)
         object.__setattr__(self, "scene", _EvRecScene(real.scene, log, captures))
 
     def __getattr__(self, name: str) -> Any:
-        return getattr(self._real, name)
+        return _forward_env_attr(self._real, name, _EVENT_ENV_READS)
 
 
 class _EvReplayData:
@@ -1433,9 +1497,7 @@ class _EventReplayEnv:
 
     def __getattr__(self, name: str) -> Any:
         # Forwarded, not defaulted: replay must see the same N discovery ran against.
-        if name in _FORWARDED_ENV_ATTRS:
-            return getattr(self._real_env, name)
-        raise AttributeError(name)
+        return _forward_env_attr(self._real_env, name, _EVENT_ENV_READS)
 
 
 class _EventModule(nn.Module):
@@ -1937,9 +1999,18 @@ NATIVE_OBSERVATION_FUNCS: dict[str, str] = {
     "generated_commands": "command",
 }
 
+# mjlab's `time_out` compares `episode_length_buf` against the horizon; the runtime
+# owns that clock, so the term is native by name, as the observations above are.
+NATIVE_TERMINATION_FUNCS: frozenset[str] = frozenset({"time_out"})
+
 
 def _native_observation_kind(func: Callable[..., Any]) -> str | None:
     return NATIVE_OBSERVATION_FUNCS.get(getattr(func, "__name__", ""))
+
+
+def is_native_termination(func: Any) -> bool:
+    """Whether *func* is the runtime's native `time_out` rather than a traced body."""
+    return getattr(func, "__name__", "") in NATIVE_TERMINATION_FUNCS
 
 
 def native_observation_entry(
@@ -2168,6 +2239,7 @@ def trace_observation_group(
         sensors.update(recorder._sensors)  # noqa: SLF001 — internal proxy
         commands.update(recorder._commands)  # noqa: SLF001 — internal proxy
         sims.append(recorder._sim)  # noqa: SLF001 — internal proxy
+        size = int(recorded.reshape(1, -1).shape[-1])
         if not term_dynamic:
             # Nothing read means a constant; unfollowable reads mean live state.
             if recorder._log:  # noqa: SLF001 — internal proxy
@@ -2175,10 +2247,9 @@ def trace_observation_group(
                     term.name,
                     sorted({slot_label(k) for k, _ in recorder._log}),  # noqa: SLF001
                 )
+            warn_constant_observation(term.name, size)
             baked[term.name] = recorded.detach()
-        layout.append(
-            {"name": term.name, "size": int(recorded.reshape(1, -1).shape[-1])}
-        )
+        layout.append({"name": term.name, "size": size})
 
     if not dynamic:
         raise ConstantGroup(
@@ -2308,8 +2379,8 @@ def trace_termination_group(
     """Fuse termination terms into one graph, one bool lane each.
 
     Same mechanics as :func:`trace_observation_group`, but the output is a bool vector
-    so the manager keeps its per-term reasons. `time_out` never reaches here — it reads
-    no entity state and is classified native first.
+    so the manager keeps its per-term reasons. `time_out` never reaches here — it is
+    classified native by name first (:func:`is_native_termination`).
     """
     dynamic: dict[SlotKey, torch.Tensor] = {}
     constants: dict[SlotKey, torch.Tensor] = {}
@@ -2332,6 +2403,8 @@ def trace_termination_group(
         sims.append(recorder._sim)  # noqa: SLF001 — internal proxy
         if not term_dynamic:
             # Never baked: a termination blind to state never fires or always does.
+            if not recorder._log:  # noqa: SLF001 — internal proxy
+                raise ConstantTerm(term.name)
             raise UntraceableTerm(
                 term.name,
                 sorted({slot_label(k) for k, _ in recorder._log}),  # noqa: SLF001

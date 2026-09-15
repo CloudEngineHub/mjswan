@@ -348,12 +348,14 @@ terminations = {
 }
 ```
 
-`time_out` is classified **native** automatically: it reads no time-varying entity state,
-so there is nothing to trace. The build ships the task's `episode_length_s` alongside the
-marker, and the runtime compares it against episode time accumulated from `control_dt`.
+mjlab's `time_out` is classified **native** by function, as `last_action` is: it compares
+the episode step counter the runtime owns, so there is nothing to trace. The build ships
+the task's `episode_length_s` alongside the marker, and the runtime compares it against
+episode time accumulated from `control_dt`.
 
-Everything else is traced. Terminations in a group fuse into one graph emitting a bool
-*lane* per term, so the manager keeps per-term reset reasons and its
+Everything else is traced, and a termination that reads no simulation state fails the
+build: a constant fires every step or never. Terminations in a group fuse into one graph
+emitting a bool *lane* per term, so the manager keeps per-term reset reasons and its
 terminated-vs-truncated split. A group with a single traced term is deliberately left
 unfused — one graph out of one buys no call and costs a wire shape.
 

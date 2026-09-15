@@ -211,7 +211,7 @@ def serialize_observation_term(
     trained on, and baking a time-varying one freezes an input.
     """
     from .compile import trace_term
-    from .compile.tracer import ConstantTerm, slots_json
+    from .compile.tracer import ConstantTerm, slots_json, warn_constant_observation
 
     func = term_cfg.func
     if isinstance(func, ObservationBinding):
@@ -237,6 +237,7 @@ def serialize_observation_term(
         if not isinstance(value, torch.Tensor):
             raise
         values = value.detach().flatten().tolist()
+        warn_constant_observation(name, len(values))
         entry = {
             "name": name,
             "native": "constant",
@@ -549,14 +550,15 @@ def serialize_termination(
     if isinstance(func, TerminationBinding):
         _require_ts_src("Termination", name, func)
         return term_cfg.to_dict()
+    if _is_native_termination(term_cfg):
+        return _native_termination_entry(name, term_cfg, env)
 
     try:
         export = trace_term(
             func, _resolved_params(term_cfg.params, env), env, name=name
         )
-    except ConstantTerm:
-        # Narrow: `UntraceableTerm` is a ValueError too, and must fail the build.
-        return _native_termination_entry(name, term_cfg, env)
+    except ConstantTerm as exc:
+        raise _constant_termination_error(name) from exc
 
     ref = _onnx_ref("term", name, scope)
     _write_onnx(out_dir, ref, export.onnx_bytes, meta=_graph_meta("term", name, func))
@@ -592,27 +594,20 @@ def _native_termination_entry(
     return entry
 
 
-def _is_native_termination(name: str, term_cfg: TerminationTermCfg, env: Any) -> bool:
-    """Whether a term reads no time-varying state (so it cannot be traced).
+def _is_native_termination(term_cfg: TerminationTermCfg) -> bool:
+    """Whether the term is mjlab's `time_out`, decided by the function name."""
+    from .compile.tracer import is_native_termination
 
-    ponytail: discovers by tracing and discarding the export, so a fused term is traced
-    twice. `trace_term` raises before `torch.onnx.export`, so the second pass is one term
-    call; give the tracer a discovery-only entry point if that ever shows up in a build.
-    The real name is passed so an `UntraceableTerm` escaping here names the term.
-    """
-    from .compile import trace_term
-    from .compile.tracer import ConstantTerm
+    return is_native_termination(term_cfg.func)
 
-    try:
-        trace_term(
-            term_cfg.func,
-            _resolved_params(term_cfg.params, env),
-            env,
-            name=name,
-        )
-    except ConstantTerm:
-        return True
-    return False
+
+def _constant_termination_error(name: str) -> ValueError:
+    return ValueError(
+        f"Termination term {name!r} reads no simulation state, so it would fire every "
+        "step or never; a constant is not a termination rule and is not written to the "
+        "document. Read the state through env.scene[...], env.command_manager or "
+        "env.sim.data, or use mjlab's own `time_out` for the episode timeout."
+    )
 
 
 def serialize_terminations(
@@ -638,7 +633,7 @@ def serialize_terminations(
             _require_ts_src("Termination", name, func)
             result[name] = term_cfg.to_dict()
             continue
-        if _is_native_termination(name, term_cfg, env):
+        if _is_native_termination(term_cfg):
             result[name] = _native_termination_entry(name, term_cfg, env)
             continue
         fusable[name] = term_cfg
@@ -673,6 +668,7 @@ def _fused_termination_entry(
     scope: str | None = None,
 ) -> dict[str, Any]:
     from .compile.tracer import (
+        ConstantTerm,
         GroupTermSpec,
         slots_json,
         trace_termination_group,
@@ -684,7 +680,10 @@ def _fused_termination_entry(
         )
         for name, cfg in terms.items()
     ]
-    export = trace_termination_group(specs, env, name=group_name)
+    try:
+        export = trace_termination_group(specs, env, name=group_name)
+    except ConstantTerm as exc:
+        raise _constant_termination_error(exc.term) from exc
     ref = _onnx_ref("term", group_name, scope)
     _write_onnx(out_dir, ref, export.onnx_bytes, meta=_graph_meta("term", group_name))
     by_name = {spec.name: spec for spec in specs}
@@ -960,7 +959,7 @@ def serialize_event(
             'mode="interval" term if it should also fire on its own.'
         )
     from .compile import trace_event_term
-    from .compile.tracer import slots_json
+    from .compile.tracer import UnsupportedEnvRead, slots_json
 
     func = term_cfg.func
     if isinstance(func, EventBinding):
@@ -969,6 +968,11 @@ def serialize_event(
 
     resolved = _resolved_params(term_cfg.params, env)
     provenance = _provenance(func, resolved)
+    # Described, not traced: the body writes `env.sim.model`, perturbing the live model
+    # under every later trace. The browser draws from the seeded PRNG at load instead.
+    descriptor = model_field_dr_descriptor(term_cfg, env, resolved)
+    if descriptor is not None:
+        return {"name": name, "mode": term_cfg.mode, **descriptor, **provenance}
     try:
         export = trace_event_term(
             func,
@@ -977,12 +981,7 @@ def serialize_event(
             name=name,
             mode=term_cfg.mode,
         )
-    except ValueError as exc:
-        # An `mjModel` write captures nothing, so describe it and let the browser draw
-        # from the seeded PRNG at load.
-        descriptor = model_field_dr_descriptor(term_cfg, env, resolved)
-        if descriptor is not None:
-            return {"name": name, "mode": term_cfg.mode, **descriptor, **provenance}
+    except (ValueError, UnsupportedEnvRead) as exc:
         nothing_to_write = _event_writes_nothing_reason(term_cfg, env, resolved)
         if nothing_to_write is not None:
             return {
