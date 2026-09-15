@@ -20,6 +20,7 @@ from .tracer import (
     _EventCaptureEnv,
     _flatten_captures,
     is_native_termination,
+    native_observation_entry,
     read_slot,
     slot_label,
     trace_event_term,
@@ -172,6 +173,20 @@ def run_parity(
 
     obs_terms = _iter_obs_terms(env, obs_group) if include_obs else []
     for term_name, func, params in obs_terms:
+        # Classified before tracing, as the build does: `last_action` reads
+        # `env.action_manager`, which the recording proxy refuses rather than forwards.
+        native = native_observation_entry(term_name, func, params, env)
+        if native is not None:
+            report.terms.append(
+                TermReport(
+                    name=term_name,
+                    kind="observation",
+                    representation="native",
+                    passed=True,
+                    note=native["native"],
+                )
+            )
+            continue
         try:
             export = trace_term(
                 func, params, env, name=term_name, reader_fields=reader_fields
