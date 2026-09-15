@@ -162,13 +162,13 @@ nothing: `site_xmat` on a 2038-site model is 18,342 floats a step read whole, 15
 the 17 sites a term uses. A read the build cannot pin down statically (an index computed
 from data, a boolean mask) ships the whole field.
 
-A term gets a `sim` slot by reading a raw `mjData` field, as `entity.data.data.<field>`
-or as `env.sim.data.<field>` (one object in mjlab, so one slot) — a muscle model's
-activation state, the sim time — or by reading an `EntityData` property the browser has
-no native reader for, which is *traced through*: mjlab's own property math enters the
-graph and the raw fields it reads become `sim` slots. For the properties the browser's
-slot reader does reproduce in TypeScript, the build emits the property's value as one
-entity `data` slot instead and keeps the math out of the graph.
+A term gets a `sim` slot in two ways. One is reading a raw `mjData` field, spelled
+`entity.data.data.<field>` or `env.sim.data.<field>` (one object, one slot): a muscle
+model's activation state, the sim time. The other is reading an `EntityData` property
+the browser has no native reader for, which is *traced through*: mjlab's own property
+math enters the graph and the raw fields it reads become `sim` slots. For the properties
+the browser's slot reader does reproduce in TypeScript, the build emits the property's
+value as one entity `data` slot instead and keeps the math out of the graph.
 
 Anything model-derived and therefore constant — an entity's indices, `default_joint_pos`,
 `encoder_bias` — is baked into the graph instead of becoming a slot.

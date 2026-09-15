@@ -595,9 +595,7 @@ def _native_termination_entry(
 
 
 def _is_native_termination(term_cfg: TerminationTermCfg) -> bool:
-    """Whether the term is mjlab's `time_out`, decided by the function as the native
-    observations are. Deciding by "traces to a constant" instead rewrote any
-    termination that read nothing the tracer saw as the timeout rule (issue #129)."""
+    """Whether the term is mjlab's `time_out`, decided by the function name."""
     from .compile.tracer import is_native_termination
 
     return is_native_termination(term_cfg.func)
@@ -970,9 +968,8 @@ def serialize_event(
 
     resolved = _resolved_params(term_cfg.params, env)
     provenance = _provenance(func, resolved)
-    # Described, not traced: the body writes `env.sim.model`, which the tracer does not
-    # serve, and running it would perturb the live model under every later trace. The
-    # browser draws from the seeded PRNG at load instead.
+    # Described, not traced: the body writes `env.sim.model`, perturbing the live model
+    # under every later trace. The browser draws from the seeded PRNG at load instead.
     descriptor = model_field_dr_descriptor(term_cfg, env, resolved)
     if descriptor is not None:
         return {"name": name, "mode": term_cfg.mode, **descriptor, **provenance}

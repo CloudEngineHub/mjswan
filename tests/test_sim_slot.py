@@ -112,7 +112,7 @@ def _qpos_via_entity(env):
 
 
 def _qpos_via_sim(env):
-    """The other spelling of the same object (issue #129's repro)."""
+    """The other spelling of the same object."""
     return env.sim.data.qpos[:, :3]
 
 
@@ -188,11 +188,7 @@ def test_sim_time_is_a_dynamic_slot(env):
 
 
 class TestEnvSimData:
-    """``env.sim.data`` is ``entity.data.data``, so both spellings must record.
-
-    The first used to fall through to the real env, trace to a constant, and be baked
-    (issue #129).
-    """
+    """``env.sim.data`` is ``entity.data.data``, so both spellings must record one slot."""
 
     def test_both_spellings_record_the_same_slot(self, env):
         via_sim = trace_term(_qpos_via_sim, {}, env, name="probe")
@@ -217,7 +213,6 @@ class TestEnvSimData:
             trace_term(reads_the_model, {}, env, name="nq")
 
     def test_a_termination_reading_env_sim_data_is_traced(self, env, tmp_path):
-        """Not rewritten as the `time_out` rule, which is what a baked one became."""
         from mjswan._onnx_build import serialize_terminations
         from mjswan.managers.termination_manager import TerminationTermCfg
 

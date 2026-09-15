@@ -53,8 +53,7 @@ def _is_dynamic_field(field_name: str) -> bool:
 #   (entity_name, data_field)        -> env.scene[entity].data.<field>
 #   (_SENSOR_NS, sensor_name)        -> env.scene[sensor].data (a whole BuiltinSensor)
 #   (_COMMAND_NS, "cmd.attr")        -> env.command_manager.get_term(cmd).<attr>
-#   (_SIM_NS, field)                 -> env.sim.data.<field>, which is also
-#                                       env.scene[entity].data.data.<field>
+#   (_SIM_NS, field)                 -> env.sim.data.<field> == entity.data.data.<field>
 #                                       (raw; maybe narrowed to rows)
 SlotKey = tuple[str, str]
 
@@ -70,9 +69,8 @@ _COMMAND_NS = "__command__"
 _SIM_NS = "__sim__"
 
 #: Env attributes every proxy forwards from the real env: trace-time constants a term
-#: may read for shapes or rates. Any other ``env`` attribute is either served by a proxy
-#: or raises, in discovery as in replay: a read that fell through to the real env would
-#: bake the trace-time value into the graph without a word (issue #129).
+#: may read for shapes or rates. Anything else is served by a proxy or raises, in
+#: discovery as in replay: a read reaching the real env would bake a silent constant.
 _FORWARDED_ENV_ATTRS = ("num_envs", "device", "physics_dt", "step_dt", "cfg")
 
 #: What a value-returning term may read off ``env``, for the error that names them.
@@ -406,9 +404,8 @@ class _RecordingSimData:
     ``Entity.data.data`` is — logging each field read and the rows the reads touch.
 
     One sim object is shared by every entity, hence its own namespace rather than the
-    entity's, and one proxy serves both spellings. Fields are warp-backed ``TorchArray``
-    proxies; the tensor view is what gets logged, and the term gets it as a
-    :class:`_RecordingField`.
+    entity's. Fields are warp-backed ``TorchArray`` proxies; the tensor view is what
+    gets logged, and the term gets it as a :class:`_RecordingField`.
     """
 
     def __init__(self, env: Any, log: list[tuple[SlotKey, Any]]):
@@ -467,7 +464,7 @@ class _SimStandIn:
     """``env.sim`` for a term: ``.data`` is the pass's sim proxy, and nothing else.
 
     The rest of ``Simulation`` (``mj_model``, ``forward()``) would act on the real env
-    mid-trace, so it raises rather than being forwarded.
+    mid-trace, so it raises.
     """
 
     def __init__(self, data: Any):
@@ -1000,8 +997,8 @@ class ConstantTerm(ValueError):
 
 
 def warn_constant_observation(name: str, size: int) -> None:
-    """Say which observation terms were baked: right for a padding term, wrong for
-    anything else, and the tracer cannot tell the two apart (issue #129)."""
+    """Name a baked term: right for a padding term, wrong for anything else, and the
+    tracer cannot tell the two apart."""
     warnings.warn(
         f"Observation term {name!r} reads no simulation state, so its {size} value(s) "
         "are baked into the build and the policy sees the same numbers every step. "
@@ -2002,10 +1999,8 @@ NATIVE_OBSERVATION_FUNCS: dict[str, str] = {
     "generated_commands": "command",
 }
 
-# mjlab's `time_out` compares the episode step counter (`episode_length_buf`) against
-# the horizon; the runtime owns that clock, so the term is native by name, as the
-# observations above are. Every other termination is traced, and one that reads no
-# state is refused rather than rewritten as this rule (issue #129).
+# mjlab's `time_out` compares `episode_length_buf` against the horizon; the runtime
+# owns that clock, so the term is native by name, as the observations above are.
 NATIVE_TERMINATION_FUNCS: frozenset[str] = frozenset({"time_out"})
 
 
@@ -2014,7 +2009,7 @@ def _native_observation_kind(func: Callable[..., Any]) -> str | None:
 
 
 def is_native_termination(func: Any) -> bool:
-    """Whether *func* is the runtime's native `time_out` rule rather than a traced body."""
+    """Whether *func* is the runtime's native `time_out` rather than a traced body."""
     return getattr(func, "__name__", "") in NATIVE_TERMINATION_FUNCS
 
 

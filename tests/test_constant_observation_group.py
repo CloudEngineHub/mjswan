@@ -96,8 +96,7 @@ def test_group_with_one_dynamic_term_still_fuses(tmp_path):
 
 
 def test_a_baked_term_is_named_in_a_warning(tmp_path):
-    """Right for padding, wrong for a term that meant to read state; the tracer cannot
-    tell, so the build says which terms it baked (issue #129). Both bake sites."""
+    """Both bake sites: the lone term and the fused group."""
     from mjlab.envs.mdp import observations as obs_fns
 
     from mjswan._onnx_build import serialize_observation_group

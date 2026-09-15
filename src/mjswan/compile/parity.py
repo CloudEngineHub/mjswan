@@ -173,8 +173,8 @@ def run_parity(
 
     obs_terms = _iter_obs_terms(env, obs_group) if include_obs else []
     for term_name, func, params in obs_terms:
-        # Classified before tracing, as the build does: `last_action` reads
-        # `env.action_manager`, which the recording proxy refuses rather than forwards.
+        # Classified before tracing, as the build does: the recording proxy refuses
+        # `last_action`'s `env.action_manager` read.
         native = native_observation_entry(term_name, func, params, env)
         if native is not None:
             report.terms.append(

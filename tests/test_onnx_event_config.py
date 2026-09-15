@@ -121,9 +121,8 @@ class _TermCfg:
 
 
 # mjlab's wrappers with their real signatures: the defaults are what is under test, so
-# they must be defaults here too. The bodies write nothing; the real ones write
-# `env.sim.model`, and neither runs at build time — a model-field event is described
-# from its config before any tracing.
+# they must be defaults here too. The bodies write nothing and never run: a model-field
+# event is described from its config before any tracing.
 
 
 def geom_friction(  # noqa: PLR0917 — mjlab's own arity; the signature is the fixture
@@ -485,8 +484,7 @@ def test_the_descriptor_carries_exactly_what_the_browser_declares():
 
 
 def test_a_model_field_event_is_described_without_running_its_body(tmp_path):
-    """mjlab's body writes `env.sim.model`: run under the recording proxy it would hit
-    the live model, and the proxy no longer forwards `env.sim` at all (issue #129)."""
+    """mjlab's body writes `env.sim.model`: running it would hit the live model."""
     pytest.importorskip("mjlab")
     from mjswan._onnx_build import serialize_event
 
@@ -506,7 +504,7 @@ def test_a_model_field_event_is_described_without_running_its_body(tmp_path):
 
 
 def test_an_event_reading_an_unserved_env_attribute_fails_and_names_it(tmp_path):
-    """The fake env *has* `sim`; the read used to fall through to it."""
+    """The fake env *has* `sim`: refused by contract, not for being missing."""
     pytest.importorskip("mjlab")
     from mjswan._onnx_build import serialize_event
 

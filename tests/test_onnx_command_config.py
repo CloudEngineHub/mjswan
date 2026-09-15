@@ -611,8 +611,8 @@ def _tipped(env, *, limit=0.5):
     return env.scene["robot"].data.projected_gravity_b[:, 2] > -limit
 
 
-# Named `time_out` because the serializer classifies the native rule by `func.__name__`,
-# as it does `last_action`; mjlab's own reads step counters a fake env does not have.
+# Named `time_out` because the serializer classifies the native rule by `func.__name__`;
+# mjlab's own reads step counters a fake env does not have.
 def time_out(env):
     del env
     return torch.zeros(1, dtype=torch.bool)
@@ -672,8 +672,7 @@ def test_a_lone_traced_termination_is_not_fused(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Issue #129: a termination that traced to a constant was rewritten as the `time_out`
-# rule. The rule is now mjlab's `time_out` by name, and a constant termination fails.
+# `time_out` is native by name; a termination that reads nothing fails the build.
 # ---------------------------------------------------------------------------
 
 
@@ -683,8 +682,7 @@ def test_time_out_is_native_by_name_and_never_traced(tmp_path):
     from mjswan.managers.termination_manager import TerminationTermCfg
 
     def time_out(env):
-        # mjlab's reads `env.episode_length_buf`, which no proxy serves: the classifier
-        # must decide before the body runs.
+        # mjlab's body reads `env.episode_length_buf`, which no proxy serves.
         raise AssertionError("the native rule must not be traced")
 
     entries = serialize_terminations(
@@ -698,7 +696,6 @@ def test_time_out_is_native_by_name_and_never_traced(tmp_path):
 
 
 def _constant_false(env):
-    """The shape that used to become a 20 s timeout: reads nothing, flagged or not."""
     del env
     return torch.zeros(1, dtype=torch.bool)
 
@@ -718,7 +715,7 @@ def test_a_termination_reading_nothing_fails_the_build(tmp_path, flagged):
 
 
 def test_a_constant_termination_fails_the_fused_path_too(tmp_path):
-    """Two traced terms take the fused path; the constant one still has to be named."""
+    """Two terms take the fused path; the constant one must still be named."""
     pytest.importorskip("mjlab")
     from mjswan._onnx_build import serialize_terminations
     from mjswan.managers.termination_manager import TerminationTermCfg
@@ -735,8 +732,7 @@ def test_a_constant_termination_fails_the_fused_path_too(tmp_path):
 
 
 def test_discovery_refuses_an_env_read_the_tracer_does_not_serve():
-    """The attribute exists on the real env, and the read used to fall through to it:
-    the term then traced to a constant with nothing said."""
+    """The attribute exists on the real env, so forwarding it would bake a constant."""
     from mjswan.compile.tracer import UnsupportedEnvRead, trace_term
 
     def reads_the_horizon(env):
@@ -744,8 +740,7 @@ def test_discovery_refuses_an_env_read_the_tracer_does_not_serve():
 
     with pytest.raises(UnsupportedEnvRead, match="env.max_episode_length_s") as excinfo:
         trace_term(reads_the_horizon, {}, _term_env(), name="horizon")
-    # An AttributeError, so a term probing with `hasattr` still gets an answer; the
-    # message names what a term may read instead.
+    # An AttributeError, so a term probing with `hasattr` still gets an answer.
     assert isinstance(excinfo.value, AttributeError)
     assert "env.sim.data" in str(excinfo.value)
 
