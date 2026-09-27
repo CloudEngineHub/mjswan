@@ -50,7 +50,7 @@ Serve a pre-built `dist/` directory with the COOP/COEP headers set. Use this to 
 
 A `.swn` works too. A document holds the simulation but no engine, so mjswan expands it into a
 temporary directory, lays the packaged engine over it and serves that; the directory goes away when
-the command exits. A document built with custom-JS MDP terms is refused, since their runtime module
+the command exits. A document built with custom-TS MDP terms is refused, since their runtime module
 ships with the engine rather than in the document — serve its built directory instead.
 
 | Option | Default | Description |
@@ -148,7 +148,7 @@ of the engine. A `.swn` uploads exactly the file set its directory would.
 | `--api-base` | `$MJSWAN_API_BASE`, then `https://api.mjswan.com` | Cloud API base URL. |
 
 If you are not signed in and no token is supplied, the browser login runs first
-automatically. Builds that use custom-JavaScript MDP terms are rejected: Cloud cannot
+automatically. Builds that use custom-TS MDP terms are rejected: Cloud cannot
 execute author-supplied code.
 
 ## `mjswan login` / `whoami` / `logout`

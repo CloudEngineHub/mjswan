@@ -1115,10 +1115,10 @@ compiled JavaScript.
 | `api_base` | `str \| None` | `$MJSWAN_API_BASE`, then `https://api.mjswan.com` | Cloud API base URL. |
 
 **Raises**: `mjswan.cloud.publish.PublishError` on validation failure or server rejection,
-including a build that uses custom-JavaScript MDP terms (`uses_custom_js: true`), which
+including a build that uses custom-TS MDP terms (`uses_custom_js: true`), which
 Cloud cannot render.
 
-Limits: 50 MB per file, 200 MB total, 64 files.
+Limits: see "Service limits" in the [mjswan Cloud Terms](https://mjswan.com/terms).
 
 ---
 

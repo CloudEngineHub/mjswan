@@ -299,7 +299,7 @@ class ClientBuilder:
 
         esbuild = self.project_dir / "node_modules" / ".bin" / "esbuild"
         if not esbuild.exists():
-            # Custom-JS builds need Node; install if a cached SPA skipped it.
+            # Custom-TS builds need Node; install if a cached SPA skipped it.
             self.create_env()
             self.install_dependencies()
 

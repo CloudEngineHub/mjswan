@@ -30,7 +30,7 @@ What travels is exactly the [simulation document](../getting-started/core-concep
 so a `.swn` written by `app.save_document()` publishes the same file set as the directory
 it came from: `mjswan publish sim.swn`.
 
-Limits: 50 MB per file, 200 MB total, 64 files.
+Limits: see "Service limits" in the [mjswan Cloud Terms](https://mjswan.com/terms).
 
 Cloud takes `.mjz` scenes only, so `mjswan publish` refuses a build with a scene added
 as `add_scene(model=...)` (a `.mjb`). Add it with `spec=` to publish it.
@@ -47,7 +47,7 @@ text is carried and shown without comment. See
 [Licenses](../getting-started/core-concepts.md#licenses) for how the files get into the
 build.
 
-!!! warning "Custom-JavaScript builds are rejected"
+!!! warning "Custom-TS builds are rejected"
     A build whose `manifest.json` carries `uses_custom_js: true` — one using a
     `*Binding` with `ts_src`, i.e. an author-written TypeScript term class — cannot be
     published. Cloud will not execute author-supplied code in its own origin. Traced ONNX

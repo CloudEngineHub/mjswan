@@ -54,11 +54,11 @@ class MjswanApp:
         if not is_document(source):
             return cls(source.resolve())
 
-        # Custom-JS terms compile to a `plugins.js` that ships with the engine, not in
+        # Custom-TS terms compile to a `plugins.js` that ships with the engine, not in
         # the document, so the manifest would point at a module that is not there.
         if read_manifest(source).get("uses_custom_js") is True:
             raise DocumentError(
-                f"{source.name} was built with custom-JS MDP terms, whose runtime module "
+                f"{source.name} was built with custom-TS MDP terms, whose runtime module "
                 "ships with the engine rather than in the document (ADR 0006 §8). Serve "
                 "the built directory instead."
             )
@@ -104,7 +104,7 @@ class MjswanApp:
 
         Extracts only data files (manifest.json, scene/policy/motion/splat assets,
         traced MDP graphs) from the built ``dist/`` and uploads them via the
-        presigned-upload protocol. Refuses builds that use custom-JS MDP terms
+        presigned-upload protocol. Refuses builds that use custom-TS MDP terms
         (``uses_custom_js: true``), which mjswan Cloud cannot render.
 
         Args:

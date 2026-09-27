@@ -14,7 +14,7 @@ The platform renders only **declarative** builds (no author-supplied code), so
 ``publish`` refuses any build whose ``manifest.json`` reports
 ``uses_custom_js: true`` — a fast, local UX gate that prevents a guaranteed
 server-side rejection and the broken render it would otherwise produce. See
-mjswan ADR 0003 for the declarative/custom-JS split and the ``uses_custom_js``
+mjswan ADR 0003 for the declarative/custom-TS split and the ``uses_custom_js``
 marker.
 
 The upload root layout mirrors the build's ``dist/`` tree minus everything but
@@ -57,8 +57,8 @@ DATA_EXTENSIONS: frozenset[str] = frozenset(
 )
 
 MAX_FILE_BYTES: int = 50 * 1024 * 1024
-MAX_TOTAL_BYTES: int = 200 * 1024 * 1024
-MAX_FILES: int = 64
+MAX_TOTAL_BYTES: int = 100 * 1024 * 1024
+MAX_FILES: int = 200
 
 DEFAULT_API_BASE: str = "https://api.mjswan.com"
 DEFAULT_WEB_BASE: str = "https://mjswan.com"
@@ -249,7 +249,7 @@ def plan_publish(dist_dir: Path) -> PublishPlan:
     """Validate ``dist_dir`` and build the upload plan without any network I/O.
 
     Raises :class:`PublishError` on any client-side constraint violation:
-    missing/invalid config, custom-JS build, a ``.mjb`` scene, too many/too-large
+    missing/invalid config, custom-TS build, a ``.mjb`` scene, too many/too-large
     files, a path that escapes the upload root, or a license file whose terms forbid
     redistribution (ADR 0007 §3).
     """
@@ -265,7 +265,7 @@ def plan_publish(dist_dir: Path) -> PublishPlan:
 
     if config.get("uses_custom_js") is True:
         raise PublishError(
-            "This build uses custom-JS MDP terms (uses_custom_js: true) and "
+            "This build uses custom-TS MDP terms (uses_custom_js: true) and "
             "cannot be published to mjswan Cloud, which renders only declarative "
             "builds. Re-author the custom terms declaratively, or request the "
             "missing capability as an engine built-in. See mjswan ADR 0003.",

@@ -301,7 +301,7 @@ the bundled app's `?project=` / `?scene=` / `?policy=` parameters take. `sanitiz
 is the same function in TypeScript, pinned to the Python one by a shared table of cases,
 so a URL written from a display name resolves to the same entry on both sides.
 
-`pluginsPath` is set for a custom-JavaScript build: a trusted app imports that ESM and
+`pluginsPath` is set for a custom-TS build: a trusted app imports that ESM and
 passes its exports as `EnginePlugins`. mjswan Cloud ignores it — see
 [Publishing](../guides/publishing.md).
 

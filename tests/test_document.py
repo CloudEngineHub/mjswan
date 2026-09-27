@@ -219,7 +219,7 @@ class TestServingADocument:
         manifest.write_text(
             json.dumps({**json.loads(manifest.read_text()), "uses_custom_js": True})
         )
-        with pytest.raises(DocumentError, match="custom-JS"):
+        with pytest.raises(DocumentError, match="custom-TS"):
             MjswanApp.from_document(write_document(built))
 
     def test_a_missing_path_says_so(self, tmp_path):

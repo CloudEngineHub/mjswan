@@ -251,7 +251,7 @@ class TestPlanPublish:
         with pytest.raises(PublishError) as exc:
             plan_publish(_make_dist(tmp_path, uses_custom_js=True))
         assert exc.value.file == "manifest.json"
-        assert "custom-js" in str(exc.value).lower()
+        assert "custom-ts" in str(exc.value).lower()
 
     def test_refuses_an_mjb_scene_rather_than_publishing_it_without_one(
         self, tmp_path: Path
@@ -295,8 +295,8 @@ class TestPlanPublish:
 
     def test_default_caps_are_spec_values(self):
         assert MAX_FILE_BYTES == 50 * 1024 * 1024
-        assert MAX_TOTAL_BYTES == 200 * 1024 * 1024
-        assert MAX_FILES == 64
+        assert MAX_TOTAL_BYTES == 100 * 1024 * 1024
+        assert MAX_FILES == 200
         assert DATA_EXTENSIONS == frozenset(
             {".json", ".mjz", ".onnx", ".npz", ".ply", ".spz"}
         )
@@ -639,13 +639,13 @@ class TestPublishDist:
         transport = FakeTransport(
             session_status=422,
             session_error={
-                "error": "this term uses custom-JS and is not supported",
+                "error": "this term uses custom-TS and is not supported",
                 "file": "policy.json",
             },
         )
         with pytest.raises(PublishError) as exc:
             publish_dist(dist, token="tok", transport=transport)
-        assert "custom-JS" in str(exc.value)
+        assert "custom-TS" in str(exc.value)
         assert exc.value.file == "policy.json"
 
     def test_commit_missing_id(self, tmp_path: Path):
@@ -822,12 +822,12 @@ class TestPublishCli:
         from mjswan.cloud.publish import PublishError
 
         def fake_publish_dist(dist_dir, **kwargs):
-            raise PublishError("nope, custom-JS", file="policy.json")
+            raise PublishError("nope, custom-TS", file="policy.json")
 
         monkeypatch.setattr("mjswan.cloud.publish.publish_dist", fake_publish_dist)
         dist = _make_dist(tmp_path)
 
         result = self._runner().invoke(app, ["publish", str(dist), "--token", "tok"])
         assert result.exit_code == 1
-        assert "nope, custom-JS" in result.output
+        assert "nope, custom-TS" in result.output
         assert "policy.json" in result.output

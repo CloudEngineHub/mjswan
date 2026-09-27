@@ -118,7 +118,7 @@ export interface Manifest {
   format: number;
   version: string;
   uses_custom_js?: boolean;
-  /** Document-root-relative path to the runtime custom-MDP plugin ESM (custom-JS builds). */
+  /** Document-root-relative path to the runtime custom-MDP plugin ESM (custom-TS builds). */
   plugins?: string;
   projects: ManifestProject[];
 }

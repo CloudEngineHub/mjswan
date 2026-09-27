@@ -139,7 +139,7 @@ against the caller's file and hands the projects to `build.pipeline.write_app`.
 - `frontend.py`: the Python side of `template/`, which stays where npm, Vite, CI and hatch expect it. Manages a local `nodeenv` if Node isn't available system-wide, runs the Vite build, bundles author `ts_src` terms into `plugins.js` with esbuild; `uses_custom_js` is what the manifest's flag reads.
 
 ### `app.py` — `MjswanApp`
-Wraps a built `dist/` directory: the engine plus the expanded simulation document. `from_document()` takes either form: a directory is served where it sits, a `.swn` is unpacked to a temporary directory with the packaged engine (`build.frontend.install_spa`) laid over it, refusing a custom-JS document whose plugin module ships with the engine. `launch()` starts a stdlib HTTP server (COOP/COEP headers required for SharedArrayBuffer / MuJoCo WASM threading); detects Google Colab and displays an inline iframe instead. `save_document()` writes the document as one `.swn` via `document/`; `publish()` delegates to `cloud.publish`.
+Wraps a built `dist/` directory: the engine plus the expanded simulation document. `from_document()` takes either form: a directory is served where it sits, a `.swn` is unpacked to a temporary directory with the packaged engine (`build.frontend.install_spa`) laid over it, refusing a custom-TS document whose plugin module ships with the engine. `launch()` starts a stdlib HTTP server (COOP/COEP headers required for SharedArrayBuffer / MuJoCo WASM threading); detects Google Colab and displays an inline iframe instead. `save_document()` writes the document as one `.swn` via `document/`; `publish()` delegates to `cloud.publish`.
 
 ### `document/`: the `.swn` simulation document
 The built tree (`manifest.json` over `<project-id>/<scene-id>/`) *is* the document; `.swn` is that tree as a ZIP (manifest first, `.mjz`/`.npz`/`.spz` stored, the rest deflated). `container.py`: `document_files()` lists it off the manifest, never off what else is on disk, so the SPA's `assets/` is never mistaken for data; `unpack_document()` confines entries to the target; `as_directory()` gives `publish` and `mjswan info` one code path for either form (ADR 0006 §8). `manifest.py`: `DOCUMENT_FORMAT`, `MANIFEST_NAME` and the slot defaults (`DEFAULT_IN_KEYS`, `DEFAULT_OUT_KEYS`, `RUNTIME_INPUT_SLOTS`): the format constants `build/` writes and `app`/`cloud` read. `ids.py`: `name2id()` is the lowercase-underscore slug every project / scene / MDP / policy id derives from, `unique_id` the scoped `_N` suffix, `assign_name` the rename every listed object takes (name and id together, with a RuntimeWarning), and `assign_id` the id-only form MDP ids take (ADR 0006 §4).
@@ -243,7 +243,7 @@ The primary CLI is `mjswan` (Typer-based, defined in `cli.py:app`). Subcommands:
 | `mjswan new <name> [--template hello-world\|policy\|mjlab]` | Scaffold a new project from a template |
 | `mjswan demo [name]` | List the built-in demos, or run one (`main`, `simple`, `mujoco`) |
 | `mjswan info <dist-dir \| document.swn>` | Show a tree of projects/scenes/policies and asset sizes |
-| `mjswan publish <dist-dir>` | Upload a built dist's data files to mjswan Cloud (rejects custom-JS builds) |
+| `mjswan publish <dist-dir>` | Upload a built dist's data files to mjswan Cloud (rejects custom-TS builds) |
 | `mjswan login` / `whoami` / `logout` | mjswan Cloud session (loopback GitHub OAuth) |
 
 

@@ -743,7 +743,7 @@ class TestSaveConfigJson:
 # ===========================================================================
 class TestUsesCustomJsFlag:
     """Builds with any `ts_src`-bearing sentinel must mark themselves
-    custom-JS so mjswan Cloud can refuse them.  Declarative-only builds must
+    custom-TS so mjswan Cloud can refuse them.  Declarative-only builds must
     be marked clean.
     """
 
@@ -2129,7 +2129,7 @@ class TestMtHeaders:
 
 
 # ===========================================================================
-# L3 slow — Phase 4: cache reuse + custom-JS runtime plugin module Run with: pytest -m slow
+# L3 slow — Phase 4: cache reuse + custom-TS runtime plugin module Run with: pytest -m slow
 # ===========================================================================
 @pytest.mark.slow
 class TestFullBuildPhase4:
