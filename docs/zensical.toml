@@ -24,6 +24,11 @@ nav = [
     { "Publishing to Cloud" = "guides/publishing.md" },
     { "Embedding" = "guides/embedding.md" },
   ]},
+  # The bare index.md is the section's own page (navigation.indexes).
+  { "Skills" = [
+    "skills/index.md",
+    { "mjlab-to-mjswan" = "skills/mjlab-to-mjswan.md" },
+  ]},
   { "API Reference" = [
     { "Python API" = "api/core.md" },
     { "Engine API (TypeScript)" = "api/engine.md" },

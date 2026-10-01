@@ -19,6 +19,11 @@ without a single `set_trace_env` or `control_dt` of your own.
     Hub helpers the `hf` extra. It is needed at **build time** only, and nothing about it
     ships to the browser.
 
+!!! tip "Porting a whole repo?"
+    The [mjlab-to-mjswan skill](../skills/mjlab-to-mjswan.md) has a coding agent do the
+    port: it finds the tasks a repo registers, converts its checkpoints, writes the
+    builder script, and checks the result against mjlab.
+
 This page walks through three integration levels, from the one-line shortcut to the full manual form.
 
 ## 1. One-liner: `Builder.from_mjlab`

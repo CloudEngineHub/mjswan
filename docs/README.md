@@ -36,9 +36,13 @@ docs/
     ├── index.md
     ├── getting-started/   installation, quickstart, core concepts, examples, CLI
     ├── guides/            mjlab, MDP terms, build internals, deployment, cloud, embedding
+    ├── skills/            agent skills: an overview (index.md) and one page per skill
     ├── api/               Python and TypeScript API reference
     └── resources.md
 ```
 
 `adr/` is deliberately outside the site: ADRs are design records for contributors, and the
 guides link into them on GitHub where that context belongs.
+
+A new skill takes a page in `docs/skills/`, a row in the table on `skills/index.md`, and an
+entry under `Skills` in the nav.

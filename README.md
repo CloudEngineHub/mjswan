@@ -46,7 +46,7 @@
 - **Client-only**: All computation runs in the browser. No server for simulation is required.
 - **Easy Sharing**: Host as a static site for effortless demo distribution (e.g., GitHub Pages).
 - **Portable**: Embed the simulation in a web page or Google Colab notebook.
-- **mjlab-native**: Create a web demo of any [mjlab](https://github.com/mujocolab/mjlab) tasks with minimal effort.
+- **mjlab-native**: Port any [mjlab](https://github.com/mujocolab/mjlab) task to the web with the [`mjlab-to-mjswan`](https://mjswan.readthedocs.io/en/latest/skills/mjlab-to-mjswan/) skill.
 - **Customizable**: Visualize your mujoco models and onnx policies quickly.
 
 
