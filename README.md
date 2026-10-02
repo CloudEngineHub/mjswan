@@ -30,6 +30,7 @@
 
 ## News
 
+- **2026-10-01**: Released [mjswan Cloud 🦢☁️](https://mjswan.com) in open beta 🎉 [[X](https://x.com/ttktjmt/status/2105633962081333471), [LinkedIn](https://lnkd.in/p/gm7T2VY4)]
 - **2026-08-17**: Created [mjswan_playground](https://github.com/ttktjmt/mjswan_playground), a collection of mjswan demos
 - **2026-08-15**: Became mjlab-native, covering most [mjlab](https://github.com/mujocolab/mjlab) tasks
 - **2026-06-02**: Adopted for the [MuscleMimic](https://github.com/amathislab/musclemimic) live demo [[Demo](https://mjswan-musclemimic.pages.dev/), [X](https://x.com/ckli85/status/2100242247547572394)]
