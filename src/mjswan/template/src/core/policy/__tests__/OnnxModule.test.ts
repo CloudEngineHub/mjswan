@@ -37,7 +37,7 @@ describe('OnnxModule.init', () => {
 describe('OnnxModule.dispose', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  /** Timer-held like a wasm run, which yields mid-run; `started` marks the body running. */
+  /** Yields mid-run, as ORT's wasm run does; `started` resolves once the body runs. */
   function heldSession() {
     let running = false;
     let onStart!: () => void;

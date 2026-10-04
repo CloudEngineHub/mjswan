@@ -365,7 +365,7 @@ test('the rebuild on entry keeps the policy sessions, and support is asked for b
       cleared += 1;
       await clear();
     };
-    // Stands in for a policy's OnnxModule: what is under test is who releases it, not ORT.
+    // A stand-in OnnxModule: the test is about who releases it, not ORT.
     let released = 0;
     const kept = { initInput: () => ({}), dispose: async () => void (released += 1) };
     engine.runtime.onnxModule = kept;

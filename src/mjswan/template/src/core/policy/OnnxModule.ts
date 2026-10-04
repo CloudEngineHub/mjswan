@@ -104,16 +104,13 @@ export class OnnxModule {
     return [result, carry];
   }
 
-  /**
-   * Release the ONNX Runtime session, freeing its WASM memory. Through `queueOrtRun`, so a
-   * run in flight finishes first: `setPolicy` swaps the module while the loop is live.
-   */
+  /** Free the session's WASM memory once any run in flight ends: `setPolicy` swaps mid-loop. */
   async dispose(): Promise<void> {
     const session = this.session;
     this.session = null;
     if (!session) return;
     await queueOrtRun(async () => {
-      // Warned, not thrown: callers await this on their way to freeing the rest.
+      // Warned, not thrown: callers await this and must still finish.
       try {
         await session.release();
       } catch (error) {
