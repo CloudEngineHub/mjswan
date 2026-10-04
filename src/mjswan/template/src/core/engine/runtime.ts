@@ -1243,7 +1243,7 @@ export class mjswanRuntime {
     this.eventManager = null;
     // Before the releases below: `setPolicy` runs live.
     this.commandManager.clear();
-    if (outgoing && outgoing !== kept?.module) await outgoing.dispose();
+    await outgoing?.dispose();
     if (!kept) await this.policyGraphs.clear();
     this.jointBias.clear();
     this.clipActions = null;

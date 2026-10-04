@@ -37,7 +37,7 @@ describe('OnnxModule.init', () => {
 describe('OnnxModule.dispose', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  /** Yields mid-run, as ORT's wasm run does; `started` resolves once the body runs. */
+  /** Yields mid-run, as ORT's wasm run does. */
   function heldSession() {
     let running = false;
     let onStart!: () => void;
@@ -83,7 +83,6 @@ describe('OnnxModule.dispose', () => {
     const { session, started } = heldSession();
     const module = await moduleOn(session);
     const actor = new ort.Tensor('float32', new Float32Array([0]), [1, 1]);
-    // Not awaited: the release must queue behind the run, not race it.
     const run = module.runInference({ actor });
     await started;
     await module.dispose();
