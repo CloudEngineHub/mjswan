@@ -1818,23 +1818,24 @@ export class mjswanRuntime {
   }
 
   private async runOnnxInference(obs: Record<string, Float32Array>): Promise<void> {
-    if (!this.onnxModule || !this.policyRunner || this.onnxInferencing) {
+    const module = this.onnxModule;
+    if (!module || !this.policyRunner || this.onnxInferencing) {
       return;
     }
 
     this.onnxInferencing = true;
     try {
       if (!this.onnxInputDict) {
-        this.onnxInputDict = this.onnxModule.initInput();
+        this.onnxInputDict = module.initInput();
       }
       const input: Record<string, ort.Tensor> = { ...this.onnxInputDict };
-      if (this.onnxModule.inKeys.includes('time_step')) {
+      if (module.inKeys.includes('time_step')) {
         input.time_step = new ort.Tensor('float32', new Float32Array([this.onnxTimeStep]), [1, 1]);
       }
       for (const [key, value] of Object.entries(obs)) {
         input[key] = new ort.Tensor('float32', value, [1, value.length]);
       }
-      for (const key of this.onnxModule.inKeys) {
+      for (const key of module.inKeys) {
         if (!input[key]) {
           console.warn('[PolicyRunner] Missing ONNX input:', {
             key,
@@ -1844,15 +1845,19 @@ export class mjswanRuntime {
         }
       }
 
-      const [result, carry] = await this.onnxModule.runInference(input);
+      const [result, carry] = await module.runInference(input);
+      // `setPolicy` swapped the policy mid-run: this output is the old one's.
+      if (this.onnxModule !== module) {
+        return;
+      }
       if (Object.keys(carry).length > 0) {
         this.onnxInputDict = { ...this.onnxInputDict, ...carry };
       }
-      if (this.onnxModule.inKeys.includes('time_step')) {
+      if (module.inKeys.includes('time_step')) {
         this.onnxTimeStep += 1;
       }
 
-      const outKey = this.onnxModule.outKeys[0];
+      const outKey = module.outKeys[0];
       const actionTensor = result.action ?? (outKey ? result[outKey] : null) ?? result.policy ?? null;
       if (!actionTensor) {
         return;
