@@ -88,7 +88,8 @@ export class OnnxModule {
     const result: Record<string, ort.Tensor> = {};
     for (let i = 0; i < this.outKeys.length; i++) {
       const key = this.outKeys[i];
-      const name = this.session.outputNames[i];
+      // Not `this.session`: a `dispose()` during the run has already dropped it.
+      const name = session.outputNames[i];
       if (name && onnxOutput[name]) {
         result[key] = onnxOutput[name];
       }
@@ -103,10 +104,22 @@ export class OnnxModule {
     return [result, carry];
   }
 
-  /** Release the ONNX Runtime session, freeing its WASM memory. */
-  dispose(): void {
-    void this.session?.release?.();
+  /**
+   * Release the ONNX Runtime session, freeing its WASM memory. Through `queueOrtRun`, so a
+   * run in flight finishes first: `setPolicy` swaps the module while the loop is live.
+   */
+  async dispose(): Promise<void> {
+    const session = this.session;
     this.session = null;
+    if (!session) return;
+    await queueOrtRun(async () => {
+      // Warned, not thrown: callers await this on their way to freeing the rest.
+      try {
+        await session.release();
+      } catch (error) {
+        console.warn('[OnnxModule] session release failed:', error);
+      }
+    });
   }
 
   /**
