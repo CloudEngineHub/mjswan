@@ -153,6 +153,10 @@ obs = ObservationGroupCfg(
 
 Other mjlab fields (`noise`, `delay_*`, `enable_corruption`, `nan_policy`) are accepted
 for config compatibility and ignored — there is no training in the browser.
+A field that would change the layout is refused instead: the build fails, naming it,
+when an mjlab config sets `flatten_history_dim=False` with history, a `concatenate_dim`
+other than the feature axis, or a field of its own that mjswan does not carry. Reset
+such a field to its default if it does not change the observation.
 
 !!! note "History disables fusion for its group"
     mjlab stacks a term's history *before* concatenating the group, so a group with any

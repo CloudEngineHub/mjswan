@@ -1224,6 +1224,12 @@ ignored — there is no training in the browser.
 `concatenate_terms`, `enable_corruption`, and `flatten_history_dim` are accepted and
 ignored.
 
+An mjlab config (or a task's subclass of one) is adapted field by field, and the build
+fails on a field mjswan does not carry that holds a non-default value, since dropping
+it could reorder the observation the policy reads: a subclass's own field (PAC-MAN's
+`history_ordering="time"`), `flatten_history_dim=False` with history, or a
+`concatenate_dim` other than the feature axis. Training-only fields are ignored.
+
 ### TerminationTermCfg
 
 | Field | Type | Default | Description |

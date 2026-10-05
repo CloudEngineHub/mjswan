@@ -603,6 +603,30 @@ shortcuts.
 
 ### Fixed
 
+- **An mjlab observation config that sets a field mjswan cannot carry fails the build**
+  instead of having it dropped. The adapter copied the fields it knows and nothing else,
+  so a task's subclass adding a layout flag (PAC-MAN's `history_ordering="time"`, which
+  stacks a group time-major) built clean and fed its policy a same-width, reordered
+  observation. Each term and group is now walked as a dataclass; a field the adapter
+  drops that holds a non-default value raises, naming it. That covers mjlab's own
+  `flatten_history_dim=False` with history and a `concatenate_dim` off the feature axis.
+  Training-only fields (`noise`, `delay_*`, `nan_policy`) are still ignored.
+
+- **An event that writes only constants applies its write in the browser.** When every
+  value an output carries is baked, the exporter folds it into an initializer and the
+  graph output keeps the initializer's name (`"14"`) rather than the one requested.
+  The bundle's `write_targets` still named the requested output, so the browser found
+  no value and skipped that write without a word (a joint parked at a fixed position got
+  its zero velocity but not the position), and `run_parity` failed with `Invalid output
+  name`. Every traced graph now gets its requested output names back through an
+  `Identity`.
+
+- **`run_command_parity` checks a command that draws nothing.** It fed every command
+  graph a `rand` input, but the export prunes one the body never reads, so ORT refused
+  the feed (`Invalid input name: rand`) for a draw-free resample such as mjlab's
+  `LiftingCommandCfg(difficulty="fixed")` without an object reset. Feeds now go
+  through `_declared_feeds`, as `run_parity`'s already do.
+
 - **Switching scenes frees the scene it leaves.** The engine dropped its references to
   the old `MjModel` and `MjData` before handing them to the loader that was to delete
   them, so each switch kept the previous model on the WASM heap for the life of the

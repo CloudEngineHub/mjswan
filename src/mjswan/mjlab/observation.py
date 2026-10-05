@@ -6,6 +6,7 @@ mjlab's own term function is kept and traced at build time (ADR 0005); an author
 
 from __future__ import annotations
 
+import dataclasses
 import warnings
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -66,14 +67,102 @@ def _sanitize_obs_params(params: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+#: Fields each adapter carries over to mjswan's config.
+_TERM_FIELDS = frozenset({"func", "params", "scale", "clip", "history_length"})
+_GROUP_FIELDS = frozenset(
+    {"terms", "concatenate_terms", "enable_corruption", "history_length"}
+)
+
+#: mjlab fields that only affect training, so the browser's observation ignores them.
+_TRAINING_ONLY_FIELDS = frozenset(
+    {
+        "noise",
+        "delay_min_lag",
+        "delay_max_lag",
+        "delay_per_env",
+        "delay_hold_prob",
+        "delay_update_period",
+        "delay_per_env_phase",
+        "nan_policy",
+        "nan_check_per_term",
+    }
+)
+
+#: Layout fields mjswan builds only at these values: history flattened term-major, and
+#: terms concatenated on the feature axis (``0`` or ``-1`` for a flat observation).
+_LAYOUT_DEFAULTS: dict[str, tuple[Any, ...]] = {
+    "flatten_history_dim": (True,),
+    "concatenate_dim": (-1, 0),
+}
+
+
+def _field_default(f: dataclasses.Field[Any]) -> Any:
+    if f.default is not dataclasses.MISSING:
+        return f.default
+    if f.default_factory is not dataclasses.MISSING:
+        return f.default_factory()
+    return dataclasses.MISSING
+
+
+def _differs(value: Any, default: Any) -> bool:
+    try:
+        return bool(value != default)
+    except Exception:  # noqa: BLE001 (an ambiguous comparison is not the default)
+        return value is not default
+
+
+def _refuse_dropped_fields(
+    cfg: Any, carried: frozenset[str], where: str, *, has_history: bool
+) -> None:
+    """Raise if *cfg* sets a field the adapter drops to a non-default value.
+
+    A dropped layout field (a subclass's ``history_ordering="time"``, say) would build
+    clean and feed the policy a reordered observation of the same width. Duck-typed
+    configs have no fields to walk and pass.
+    """
+    if not dataclasses.is_dataclass(cfg):
+        return
+    offending = []
+    for f in dataclasses.fields(cfg):
+        if f.name in carried or f.name in _TRAINING_ONLY_FIELDS:
+            continue
+        value = getattr(cfg, f.name, dataclasses.MISSING)
+        if f.name in _LAYOUT_DEFAULTS:
+            # The stack layout is moot without history.
+            if f.name == "flatten_history_dim" and not has_history:
+                continue
+            if all(_differs(value, ok) for ok in _LAYOUT_DEFAULTS[f.name]):
+                offending.append(f"{f.name}={value!r}")
+            continue
+        default = _field_default(f)
+        if default is dataclasses.MISSING or _differs(value, default):
+            offending.append(f"{f.name}={value!r}")
+    if offending:
+        raise ValueError(
+            f"Observation {where} sets {', '.join(offending)}, which mjswan does not "
+            "carry: it stacks history term-major, flattened, and concatenated along the "
+            "feature axis, so building would feed the policy an observation laid out "
+            "differently from the one it was trained on. If the field does not change "
+            "the observation, reset it to its default in the config passed to mjswan."
+        )
+
+
 def _adapt_obs_term(
-    term: Any, term_name: str | None = None
+    term: Any, term_name: str | None = None, *, group_history: int | None = None
 ) -> MjswanObservationTermCfg:
     """Convert a single mjlab ``ObservationTermCfg`` to mjswan.
 
     Params are sanitized only for an ``ObservationBinding``, whose params go verbatim
     into the browser JSON; a traced func needs the real ``SceneEntityCfg``.
+    *group_history* is the group's history count, which overrides the term's count and
+    ``flatten_history_dim`` when set, as in mjlab.
     """
+    _refuse_dropped_fields(
+        term,
+        _TERM_FIELDS,
+        f"term {term_name!r}" if term_name else "term",
+        has_history=group_history is None and bool(getattr(term, "history_length", 0)),
+    )
     raw_params = dict(getattr(term, "params", None) or {})
     func = _adapt_obs_func(term.func, term_name=term_name)
     params = (
@@ -90,11 +179,21 @@ def _adapt_obs_term(
     )
 
 
-def _adapt_obs_group(group: Any) -> MjswanObservationGroupCfg:
+def _adapt_obs_group(group: Any, name: str | None = None) -> MjswanObservationGroupCfg:
     """Convert a single mjlab ``ObservationGroupCfg`` to mjswan."""
+    group_history = getattr(group, "history_length", None)
+    _refuse_dropped_fields(
+        group,
+        _GROUP_FIELDS,
+        f"group {name!r}" if name else "group",
+        has_history=bool(group_history),
+    )
     raw_terms = getattr(group, "terms", None) or {}
     terms = {
-        name: _adapt_obs_term(cfg, term_name=name) for name, cfg in raw_terms.items()
+        term_name: _adapt_obs_term(
+            cfg, term_name=term_name, group_history=group_history
+        )
+        for term_name, cfg in raw_terms.items()
     }
     return MjswanObservationGroupCfg(
         terms=terms,
@@ -211,7 +310,7 @@ def adapt_observations(
         if isinstance(group, MjswanObservationGroupCfg):
             adapted[key] = group
         elif is_from_mjlab(group):
-            adapted[key] = _adapt_obs_group(group)
+            adapted[key] = _adapt_obs_group(group, key)
         else:
             adapted[key] = group
     return adapted
