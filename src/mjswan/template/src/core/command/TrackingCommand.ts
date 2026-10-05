@@ -57,7 +57,7 @@ function splitFrames(entry: NpzEntry): Float32Array[] {
   return frames;
 }
 
-/** mjlab's `MotionCommandCfg.VizCfg.ghost_color`, for a config that names none. */
+/** mjlab's default `viz.ghost_color`. */
 const DEFAULT_GHOST_COLOR: readonly number[] = [0.5, 0.7, 0.5, 0.5];
 
 function setGhostMaterial(material: THREE.Material, rgba: readonly number[]): THREE.Material {
@@ -136,7 +136,7 @@ export class TrackingCommand implements CommandTerm {
   private datasetQposAdr: number[];
   private frameAccumulator: number;
   private justReset: boolean;
-  /** mjlab's `_debug_vis_enabled`: the ghost's own Debug Viz switch. */
+  /** mjlab's `_debug_vis_enabled`. */
   private debugVisOn: boolean;
   private readonly samplingMode: string;
   /** Look-ahead/look-back offsets the `ref_*` window state fields are sampled at. */
@@ -187,7 +187,7 @@ export class TrackingCommand implements CommandTerm {
     const ghostColor = Array.isArray(config.ghost_color)
       ? (config.ghost_color as unknown[]).map(Number)
       : DEFAULT_GHOST_COLOR;
-    // Only an explicit false: a document written before `debug_vis` was carried drew the ghost.
+    // Absent means on: documents without the field always drew the ghost.
     this.ghostRoot = config.debug_vis === false ? null : this.createGhostRoot(ghostColor);
     this.refBodyPosW = [];
     this.refBodyQuatW = [];
@@ -313,7 +313,6 @@ export class TrackingCommand implements CommandTerm {
     this.debugVisOn = enabled;
   }
 
-  /** The ghost is mjlab's `_debug_vis_impl` in `"ghost"` mode, so both switches gate it. */
   updateDebugVisuals(shown = true): void {
     if (this.ghostRoot) {
       this.ghostRoot.visible = shown && this.debugVisOn && this.isReady();

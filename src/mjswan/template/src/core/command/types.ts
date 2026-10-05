@@ -110,7 +110,7 @@ export interface CommandTerm {
   /** Episode reset — the resample for a traced term, hence async and awaited. */
   reset?(): void | Promise<void>;
   update?(dt: number): void;
-  /** `shown` is the viewer's Debug Viz switch: off hides the drawing whatever the term's own says. */
+  /** `shown`: the viewer's Debug Viz "Enabled"; false hides the drawing regardless of the term's own switch. */
   updateDebugVisuals?(shown?: boolean): void;
   /** mjlab's `_debug_vis_enabled`; `null` when the term draws nothing. */
   debugVisEnabled?(): boolean | null;

@@ -145,7 +145,7 @@ function AppContent() {
       }
       engineRef.current = engine;
       engine.subscribe(setEngineState);
-      // A viewer setting: it holds across every scene and policy load after this.
+      // Set once: the engine keeps it across scene and policy loads.
       engine.debugVis.setEnabled(debugVisEnabled);
       try {
         setLoadingMessage('Loading scene…');

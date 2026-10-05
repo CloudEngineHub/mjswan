@@ -120,10 +120,7 @@ export class CommandManager {
   private context: CommandTermContext | null = null;
   /** Buttons already reported as unhandled, so a repeated press is not a repeated log. */
   private warnedButtons: Set<string> = new Set();
-  /**
-   * mjlab's Debug Viz "Enabled", the viewer's switch over every term's own. A viewer
-   * setting, so it outlives `clear()` and the policy loads behind it.
-   */
+  /** mjlab's Debug Viz "Enabled"; a viewer setting, so `clear()` keeps it. */
   private debugVisShown = true;
 
   initialize(
