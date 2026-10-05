@@ -73,8 +73,7 @@ _GROUP_FIELDS = frozenset(
     {"terms", "concatenate_terms", "enable_corruption", "history_length"}
 )
 
-#: mjlab fields that shape training only, so whatever they hold the browser's
-#: observation is the same.
+#: mjlab fields that only affect training, so the browser's observation ignores them.
 _TRAINING_ONLY_FIELDS = frozenset(
     {
         "noise",
@@ -89,9 +88,8 @@ _TRAINING_ONLY_FIELDS = frozenset(
     }
 )
 
-#: Layout fields mjswan reproduces at their default only: it always flattens history
-#: term-major and concatenates along the feature axis (``0`` and ``-1`` are that axis
-#: for the flat observations it builds).
+#: Layout fields mjswan builds only at these values: history flattened term-major, and
+#: terms concatenated on the feature axis (``0`` or ``-1`` for a flat observation).
 _LAYOUT_DEFAULTS: dict[str, tuple[Any, ...]] = {
     "flatten_history_dim": (True,),
     "concatenate_dim": (-1, 0),
@@ -116,12 +114,11 @@ def _differs(value: Any, default: Any) -> bool:
 def _refuse_dropped_fields(
     cfg: Any, carried: frozenset[str], where: str, *, has_history: bool
 ) -> None:
-    """Fail on a field the adapter would drop while it holds a non-default value.
+    """Raise if *cfg* sets a field the adapter drops to a non-default value.
 
-    A task may subclass an mjlab config and add a field that changes the layout
-    (PAC-MAN's ``history_ordering="time"`` stacks a group time-major). Dropping it
-    builds clean and feeds the policy a same-width, reordered observation, so the
-    build refuses to guess. Duck-typed configs, which have no fields to walk, pass.
+    A dropped layout field (a subclass's ``history_ordering="time"``, say) would build
+    clean and feed the policy a reordered observation of the same width. Duck-typed
+    configs have no fields to walk and pass.
     """
     if not dataclasses.is_dataclass(cfg):
         return
@@ -131,7 +128,7 @@ def _refuse_dropped_fields(
             continue
         value = getattr(cfg, f.name, dataclasses.MISSING)
         if f.name in _LAYOUT_DEFAULTS:
-            # Without history, how a stack would be laid out says nothing.
+            # The stack layout is moot without history.
             if f.name == "flatten_history_dim" and not has_history:
                 continue
             if all(_differs(value, ok) for ok in _LAYOUT_DEFAULTS[f.name]):
@@ -157,9 +154,9 @@ def _adapt_obs_term(
 
     Params are sanitized only for an ``ObservationBinding``, whose params go verbatim
     into the browser JSON; a traced func needs the real ``SceneEntityCfg``.
-    *group_history* is the group's count, which replaces the term's when set.
+    *group_history* is the group's history count, which overrides the term's count and
+    ``flatten_history_dim`` when set, as in mjlab.
     """
-    # A group count also replaces the term's `flatten_history_dim`, as mjlab does.
     _refuse_dropped_fields(
         term,
         _TERM_FIELDS,

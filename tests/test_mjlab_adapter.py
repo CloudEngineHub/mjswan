@@ -1090,7 +1090,7 @@ class TestResolveRunnerDefaults:
 
 
 # ---------------------------------------------------------------------------
-# A field the adapter does not carry must not be dropped while it means something (#98)
+# A non-default field the adapter would drop fails the build
 # ---------------------------------------------------------------------------
 
 
@@ -1129,7 +1129,7 @@ _DataclassObsGroupCfg.__module__ = "mjlab.fake"
 
 @dataclass
 class _TaskGroupCfg(_DataclassObsGroupCfg):
-    """A task's subclass carrying a layout flag mjlab has no notion of (PAC-MAN's)."""
+    """A task's subclass adding a layout flag mjlab does not have."""
 
     history_ordering: str = "term"
 

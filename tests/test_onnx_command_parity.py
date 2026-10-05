@@ -183,7 +183,7 @@ def _fixed_lift(cmd_cfg: Any) -> None:
 
 
 def test_a_draw_free_command_matches_the_live_term():
-    """A command that draws nothing exports no `rand` input, so none is fed (#139)."""
+    """A command that draws nothing exports no `rand` input, so none is fed."""
     from mjswan.compile import run_command_parity
 
     env, (term, pending) = _traced_command(

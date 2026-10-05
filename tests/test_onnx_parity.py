@@ -275,9 +275,9 @@ def test_push_robot_is_a_graph_over_a_dynamic_slot(push_robot_report):
 
 
 # ---------------------------------------------------------------------------
-# Reset events that draw nothing: their graphs have no `rand` input, since the export
-# prunes it, so the harness must not feed one (#102). One writes only constants, which
-# the exporter folds into an initializer that must still carry the output's name (#140).
+# Reset events that draw nothing: the export prunes their `rand` input, so the harness
+# must not feed one. `park_slider` writes only constants, which fold into an
+# initializer that must keep the output's name.
 # ---------------------------------------------------------------------------
 
 

@@ -76,9 +76,8 @@ def _export_onnx(
 def _restore_output_names(onnx_bytes: bytes, output_names: list[str]) -> bytes:
     """Give every graph output the name it was exported under.
 
-    An output that constant-folds to an initializer keeps the initializer's own name
-    (``"14"``), and every consumer looks outputs up by name: the browser would skip
-    that write without a word. An ``Identity`` restores the name.
+    An output that constant-folds to an initializer is named after it (``"14"``), but
+    consumers look outputs up by the requested name, so an ``Identity`` restores it.
     """
     import onnx
     from onnx import helper

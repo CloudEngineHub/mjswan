@@ -2,10 +2,9 @@
 
 Layer: L2 (torch + onnx + onnxruntime, no mjlab or MuJoCo).
 
-An output that constant-folds to an initializer comes out of the TorchScript exporter
-named after the initializer (``"8"``), while every consumer looks outputs up by the
-requested name: `run_parity` refused the run, and the browser's `entityWrite` skipped
-the write without a word (#140).
+The TorchScript exporter names an output that constant-folds to an initializer after
+the initializer (``"8"``), while `run_parity` and the browser look outputs up by the
+requested name.
 """
 
 from __future__ import annotations
