@@ -72,7 +72,7 @@ def adapt_commands(
 
     adapted: dict[str, MjswanCommandTermConfig] = {}
     for key, term in commands.items():
-        if term is None:  # mjlab skips a term set to None.
+        if term is None:
             continue
         if isinstance(term, MjswanCommandTermConfig):
             adapted[key] = term

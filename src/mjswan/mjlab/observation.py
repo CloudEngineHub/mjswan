@@ -194,7 +194,6 @@ def _adapt_obs_group(group: Any, name: str | None = None) -> MjswanObservationGr
             cfg, term_name=term_name, group_history=group_history
         )
         for term_name, cfg in raw_terms.items()
-        # mjlab skips a term set to None.
         if cfg is not None
     }
     return MjswanObservationGroupCfg(

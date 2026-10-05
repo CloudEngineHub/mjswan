@@ -90,7 +90,7 @@ def adapt_actions(
         return None
     result: dict[str, MjswanActionTermCfg] = {}
     for key, term in actions.items():
-        if term is None:  # mjlab skips a term set to None.
+        if term is None:
             continue
         if isinstance(term, MjswanActionTermCfg):
             result[key] = term
