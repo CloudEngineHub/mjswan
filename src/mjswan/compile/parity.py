@@ -359,7 +359,7 @@ def run_command_parity(
         feeds.update(dyn_feeds)
         feeds["resample_mask"] = np.ones((term.num_envs,), dtype=bool)
         feeds["rand"] = _to_numpy(rec.rand_vector)
-        outs = session.run(export.output_names, feeds)
+        outs = session.run(export.output_names, _declared_feeds(session, feeds))
         refs = [ref_next[f] for f in state_fields] + list(ref_writes)
         for out, ref in zip(outs, refs):
             ref_np = _to_numpy(ref)
@@ -381,7 +381,7 @@ def run_command_parity(
     feeds.update(dyn_feeds)
     feeds["resample_mask"] = np.zeros((term.num_envs,), dtype=bool)
     feeds["rand"] = _to_numpy(export.reference_rand)
-    outs = session.run(export.output_names, feeds)
+    outs = session.run(export.output_names, _declared_feeds(session, feeds))
     # State fields only: the mask does not gate the write outputs, so there is no
     # reference to compare them against (`OnnxCommand`'s tests cover that half).
     for f, out in zip(state_fields, outs[: len(state_fields)]):

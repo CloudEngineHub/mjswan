@@ -603,6 +603,12 @@ shortcuts.
 
 ### Fixed
 
+- **`run_command_parity` checks a command that draws nothing.** It fed every command
+  graph a `rand` input, but the export prunes one the body never reads, so ORT refused
+  the feed (`Invalid input name: rand`) for a draw-free resample such as mjlab's
+  `LiftingCommandCfg(difficulty="fixed")` without an object reset. Feeds now go
+  through `_declared_feeds`, as `run_parity`'s already do.
+
 - **Switching scenes frees the scene it leaves.** The engine dropped its references to
   the old `MjModel` and `MjData` before handing them to the loader that was to delete
   them, so each switch kept the previous model on the WASM heap for the life of the

@@ -88,8 +88,13 @@ def _registrations():
         _custom_registry["LiftingCommandCfg"] = previous
 
 
-def _traced_command(task_id: str, command_name: str) -> tuple[Any, Any]:
-    """The live term and its pending trace, resolved as the Builder resolves them."""
+def _traced_command(
+    task_id: str, command_name: str, configure: Any = None
+) -> tuple[Any, Any]:
+    """The live term and its pending trace, resolved as the Builder resolves them.
+
+    *configure*, if given, edits the command's cfg before the env is built.
+    """
     from mjlab.envs import ManagerBasedRlEnv
     from mjlab.tasks.registry import load_env_cfg
 
@@ -98,6 +103,8 @@ def _traced_command(task_id: str, command_name: str) -> tuple[Any, Any]:
     cfg = load_env_cfg(task_id, play=True)
     cfg.scene.num_envs = 1
     cfg.sim.nconmax = 200_000
+    if configure is not None:
+        configure(cfg.commands[command_name])
     with contextlib.redirect_stdout(io.StringIO()):
         env = ManagerBasedRlEnv(cfg, device="cpu")
         env.reset()
@@ -167,3 +174,32 @@ def test_the_command_actually_draws_randomness(command_report):
         f"{command_report.name} traced with rand_dim={command_report.rand_dim}; "
         "the replay harness then has no randomness to replay"
     )
+
+
+def _fixed_lift(cmd_cfg: Any) -> None:
+    """mjlab's own fixed-target mode with the object reset off: nothing is drawn."""
+    cmd_cfg.difficulty = "fixed"
+    cmd_cfg.object_pose_range = None
+
+
+def test_a_draw_free_command_matches_the_live_term():
+    """A command that draws nothing exports no `rand` input, so none is fed (#139)."""
+    from mjswan.compile import run_command_parity
+
+    env, (term, pending) = _traced_command(
+        "Mjlab-Lift-Cube-Yam", "lift_height", configure=_fixed_lift
+    )
+    try:
+        report = run_command_parity(
+            term,
+            pending.state_fields,
+            name="lift_height",
+            command_field=pending.command_field,
+            n_draws=4,
+        )
+    finally:
+        env.close()
+    assert report.rand_dim == 0
+    assert report.passed, "\n" + str(report.note)
+    assert report.steps_checked == 4
+    assert report.max_abs_diff <= 1e-5
