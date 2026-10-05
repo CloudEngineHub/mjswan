@@ -603,6 +603,13 @@ shortcuts.
 
 ### Fixed
 
+- **A term set to `None` is switched off, as in mjlab.** mjlab's managers skip an
+  observation term or group, event, termination, command or action set to `None` (how a
+  play config or subclass drops an inherited term). The observation adapter crashed on
+  one with `AttributeError: 'NoneType' object has no attribute 'func'`, and the
+  termination, command and action adapters passed the `None` on. Every adapter now
+  skips it, so the built observation has mjlab's `active_terms`.
+
 - **An mjlab observation config that sets a field mjswan cannot carry fails the build**
   instead of having it dropped. The adapter copied the fields it knows and nothing else,
   so a task's subclass adding a layout flag (PAC-MAN's `history_ordering="time"`, which

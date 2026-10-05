@@ -90,6 +90,8 @@ def adapt_actions(
         return None
     result: dict[str, MjswanActionTermCfg] = {}
     for key, term in actions.items():
+        if term is None:
+            continue
         if isinstance(term, MjswanActionTermCfg):
             result[key] = term
         elif is_from_mjlab(term) or _has_mjswan_action(term):

@@ -194,6 +194,7 @@ def _adapt_obs_group(group: Any, name: str | None = None) -> MjswanObservationGr
             cfg, term_name=term_name, group_history=group_history
         )
         for term_name, cfg in raw_terms.items()
+        if cfg is not None
     }
     return MjswanObservationGroupCfg(
         terms=terms,
@@ -297,6 +298,8 @@ def adapt_observations(
     # `Any`-valued while filling: the last branch passes a duck-typed group through.
     adapted: dict[str, Any] = {}
     for key, group in observations.items():
+        if group is None:
+            continue
         if key in _TRAINING_ONLY_OBS_GROUPS:
             if DEFAULT_OBS_GROUP_KEY not in observations:
                 warnings.warn(
