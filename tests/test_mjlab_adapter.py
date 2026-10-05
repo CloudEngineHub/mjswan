@@ -28,6 +28,7 @@ from mjswan.mjlab import (
     DEFAULT_OBS_GROUP_KEY,
     adapt_actions,
     adapt_commands,
+    adapt_events,
     adapt_observations,
     adapt_terminations,
     resolve_action_scales,
@@ -1203,3 +1204,52 @@ class TestRefuseDroppedFields:
             nan_policy="sanitize",
         )
         assert adapt_observations({"actor": group}) is not None
+
+
+# ---------------------------------------------------------------------------
+# A term or group set to None is switched off, as mjlab's managers treat it
+# ---------------------------------------------------------------------------
+
+
+class TestNoneEntriesAreSkipped:
+    def test_observation_term(self):
+        group = FakeMjlabObsGroupCfg(
+            terms={
+                "jp": FakeMjlabObsTermCfg(func=_make_mjlab_obs_func("joint_pos_rel")),
+                "off": None,
+            }
+        )
+        result = adapt_observations({"actor": group})
+        assert result is not None
+        assert list(result["actor"].terms) == ["jp"]
+
+    def test_observation_group(self):
+        group = FakeMjlabObsGroupCfg(
+            terms={
+                "jp": FakeMjlabObsTermCfg(func=_make_mjlab_obs_func("joint_pos_rel"))
+            }
+        )
+        result = adapt_observations({"actor": group, "extra": None})
+        assert result is not None
+        assert list(result) == ["actor"]
+
+    def test_termination(self):
+        fallen = FakeMjlabTermTermCfg(func=_make_mjlab_term_func("bad_orientation"))
+        result = adapt_terminations({"fallen": fallen, "off": None})
+        assert result is not None
+        assert list(result) == ["fallen"]
+
+    def test_action(self):
+        result = adapt_actions(
+            {"joint_pos": FakeMjlabJointPositionActionCfg(), "off": None}
+        )
+        assert result is not None
+        assert list(result) == ["joint_pos"]
+
+    def test_command(self):
+        result = adapt_commands({"motion": FakeMjlabMotionCommandCfg(), "off": None})
+        assert result is not None
+        assert list(result) == ["motion"]
+
+    def test_event(self):
+        assert adapt_events({"off": None}) is None

@@ -89,6 +89,8 @@ def adapt_terminations(
         if is_from_mjlab(term)
         else term
         for key, term in terminations.items()
+        # mjlab skips a term set to None.
+        if term is not None
     }
 
 
