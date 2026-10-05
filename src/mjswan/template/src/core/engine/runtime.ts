@@ -186,7 +186,6 @@ export type XrRequest = {
 
 type MotionCommandTerm = {
   setSelectedMotion(name: string | null): Promise<boolean> | boolean;
-  setReferenceVisible?(visible: boolean): void;
   getSelectedMotionName?(): string | null;
 };
 
@@ -303,8 +302,6 @@ export class mjswanRuntime {
   private scenePrefixed = false;
   /** Loaded again onto the new model by a rebuild. */
   private currentPolicy: ResolvedPolicy | null = null;
-  /** Restored by a rebuild, since the policy load shows the reference again. */
-  private referenceVisible = true;
   /** Parent of the camera and hands: what XR locomotion moves. Identity outside a session. */
   private readonly xrRig: THREE.Group;
   private readonly xrClock = new THREE.Clock(false);
@@ -605,15 +602,6 @@ export class mjswanRuntime {
       return null;
     }
     return term.getSelectedMotionName?.() ?? null;
-  }
-
-  setReferenceVisible(visible: boolean): void {
-    this.referenceVisible = visible;
-    const term = this.commandManager.getTerm('motion');
-    if (!isMotionCommandTerm(term) || typeof term.setReferenceVisible !== 'function') {
-      return;
-    }
-    term.setReferenceVisible(visible);
   }
 
   private async buildScene(modelPath: string): Promise<void> {
@@ -1029,17 +1017,15 @@ export class mjswanRuntime {
 
   /**
    * Recompile the loaded scene with or without the hand bones, keeping the policy, motion,
-   * reference ghost, command values, debug drawings, event schedules, splat and camera. The
-   * simulation restarts as after a reset. The hands are appended, so original body ids (and
-   * a camera tracking one) stay valid.
+   * command values, debug drawings, event schedules, splat and camera. The simulation
+   * restarts as after a reset. The hands are appended, so original body ids (and a camera
+   * tracking one) stay valid.
    */
   private async rebuildModel(hands: boolean): Promise<void> {
     const wasRunning = this.running;
     await this.stop();
     this.interaction.cancel();
     const motion = this.getSelectedMotionName();
-    // Before the policy reload, which shows the ghost again.
-    const reference = this.referenceVisible;
     const values = this.commandManager.getValues();
     const drawings = this.commandManager.getDebugVisTerms();
     const schedules = this.eventManager?.controls().filter((c) => c.kind === 'interval') ?? [];
@@ -1070,7 +1056,6 @@ export class mjswanRuntime {
     if (this.mjModel) this.modelFieldDefaults = new ModelFieldDefaults(this.mjModel);
     await this.loadPolicyConfig(this.currentPolicy, kept);
     if (motion !== null) await this.setSelectedMotion(motion);
-    this.setReferenceVisible(reference);
     for (const [id, value] of Object.entries(values)) this.commandManager.setValue(id, value);
     for (const { name, enabled } of drawings) this.commandManager.setDebugVisEnabled(name, enabled);
     for (const { name, armed } of schedules) this.setEventArmed(name, armed);
@@ -1353,8 +1338,6 @@ export class mjswanRuntime {
               ?? config.motions?.[0]?.name
               ?? null
           );
-          // Through the setter, so a rebuild restores the ghost as shown.
-          this.setReferenceVisible(true);
         }
         this.mujoco.mj_forward(this.mjModel, this.mjData);
         this.updateCachedState();

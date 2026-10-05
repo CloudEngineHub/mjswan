@@ -351,4 +351,35 @@ describe('CommandManager: debug-vis toggles', () => {
     mgr.setDebugVisEnabled('twist', true);
     expect(seen).toContain('debug_vis');
   });
+
+  it('hides every drawing under "Enabled", leaving each term its own checkbox', async () => {
+    const mgr = await managerWith(VIZ_CFG);
+    const marker = mgr.getContext()!.scene.children[0];
+    const seen: string[] = [];
+    mgr.addEventListener(event => seen.push(event.type));
+    mgr.updateDebugVisuals();
+    expect(marker.visible).toBe(true);
+
+    mgr.setDebugVisShown(false);
+    expect(marker.visible).toBe(false);
+    expect(seen).toContain('debug_vis');
+    // mjlab's "Enabled" sits over the term's checkbox rather than unticking it.
+    expect(mgr.getDebugVisTerms()).toEqual([{ name: 'twist', enabled: true }]);
+    mgr.setDebugVisEnabled('twist', true);
+    expect(marker.visible).toBe(false);
+
+    mgr.setDebugVisShown(true);
+    expect(marker.visible).toBe(true);
+  });
+
+  it('keeps "Enabled" off across a policy load', async () => {
+    const mgr = await managerWith(VIZ_CFG);
+    mgr.setDebugVisShown(false);
+    const context = await contextWithSession('command/twist.onnx', fakeSession(() => ({})));
+    context.scene = new THREE.Scene();
+    mgr.initialize({ twist: VIZ_CFG }, context);
+    mgr.updateDebugVisuals();
+    expect(mgr.isDebugVisShown()).toBe(false);
+    expect(context.scene.children[0].visible).toBe(false);
+  });
 });

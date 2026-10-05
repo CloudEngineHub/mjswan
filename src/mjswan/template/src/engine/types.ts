@@ -116,6 +116,8 @@ export interface DebugVisDescriptor {
 }
 
 export interface DebugVisControls {
+  /** mjlab's Debug Viz "Enabled": every drawing at once, leaving each term's own switch as it is. */
+  setEnabled(enabled: boolean): void;
   set(term: string, enabled: boolean): void;
 }
 
@@ -228,6 +230,8 @@ export interface MjswanEngineState {
   commandValues: Readonly<Record<string, number>>;
   /** Terms with a debug drawing to toggle; empty when the policy has none. */
   debugVis: ReadonlyArray<DebugVisDescriptor>;
+  /** {@link DebugVisControls.setEnabled}'s switch: a term draws only while it and its own are on. */
+  debugVisEnabled: boolean;
   /** Event terms the operator can drive; empty when the scene has none. */
   events: ReadonlyArray<EventDescriptor>;
   /** Every pointer mode, with whether this scene can run it. */
@@ -262,7 +266,6 @@ export interface MjswanEngine {
   setPolicy(input: PolicyInput | null): Promise<void>;  // live, keeps model
   setSplat(input: SplatInput | null): Promise<void>;    // live
   setMotion(name: string | null): Promise<boolean>;     // live; returns whether accepted
-  setReferenceVisible(visible: boolean): void;          // motion ghost toggle
   /** Live-update the current splat's placement (dev calibration; no reload). */
   calibrateSplat(transform: SplatTransform): void;
 

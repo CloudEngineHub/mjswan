@@ -72,8 +72,6 @@ interface ControlPanelProps {
   motions: SelectOption[];
   motionValue: string | null;
   onMotionChange: (value: string | null) => void;
-  showReferenceMotion: boolean;
-  onShowReferenceMotionChange: (value: boolean) => void;
   /** Whether command controls are enabled */
   commandsEnabled?: boolean;
   /** Command descriptors from the engine state snapshot. */
@@ -94,6 +92,10 @@ interface ControlPanelProps {
   debugVis?: DebugVisDescriptor[];
   /** Show or hide one term's debug drawing (engine.debugVis.set). */
   onDebugVisChange?: (term: string, enabled: boolean) => void;
+  /** mjlab's Debug Viz "Enabled", over every term's own checkbox. */
+  debugVisEnabled?: boolean;
+  /** engine.debugVis.setEnabled. */
+  onDebugVisEnabledChange?: (enabled: boolean) => void;
   /** Reset the simulation (engine.reset). */
   onReset?: () => void;
   /** Pointer modes the viewer offers, as the engine reports them. */
@@ -245,8 +247,6 @@ function ControlPanel(props: ControlPanelProps) {
     motions,
     motionValue,
     onMotionChange,
-    showReferenceMotion,
-    onShowReferenceMotionChange,
     commandsEnabled = false,
     commands,
     commandValues,
@@ -257,6 +257,8 @@ function ControlPanel(props: ControlPanelProps) {
     onEventArmedChange,
     debugVis = [],
     onDebugVisChange,
+    debugVisEnabled = true,
+    onDebugVisEnabledChange,
     onReset,
     interactions = [],
     interactionMode = 'pull',
@@ -591,33 +593,23 @@ function ControlPanel(props: ControlPanelProps) {
           )}
 
           {motions.length > 0 && (
-            <>
-              <LabeledInput id="motion-select" label="Motion">
-                <Select
-                  id="motion-select"
-                  placeholder="Select motion"
-                  data={motions}
-                  value={motionValue}
-                  onChange={onMotionChange}
-                  size="xs"
-                  radius="xs"
-                  searchable
-                  clearable
-                  styles={{
-                    input: { minHeight: '1.625rem', height: '1.625rem', padding: '0.5em' },
-                  }}
-                  comboboxProps={{ zIndex: 1000 }}
-                />
-              </LabeledInput>
-              <Box pb="0.5em" px="xs">
-                <Checkbox
-                  label="Show reference"
-                  checked={showReferenceMotion}
-                  onChange={(event) => onShowReferenceMotionChange(event.currentTarget.checked)}
-                  size="xs"
-                />
-              </Box>
-            </>
+            <LabeledInput id="motion-select" label="Motion">
+              <Select
+                id="motion-select"
+                placeholder="Select motion"
+                data={motions}
+                value={motionValue}
+                onChange={onMotionChange}
+                size="xs"
+                radius="xs"
+                searchable
+                clearable
+                styles={{
+                  input: { minHeight: '1.625rem', height: '1.625rem', padding: '0.5em' },
+                }}
+                comboboxProps={{ zIndex: 1000 }}
+              />
+            </LabeledInput>
           )}
 
           {/* Command Groups - only show if there are commands */}
@@ -723,15 +715,24 @@ function ControlPanel(props: ControlPanelProps) {
             </CommandSection>
           )}
 
-          {/* Debug Viz — mjlab's own folder, one checkbox per drawing term. */}
+          {/* Debug Viz: mjlab's folder, its "Enabled" over one checkbox per drawing term. */}
           {debugVis.length > 0 && onDebugVisChange && (
             <CommandSection label="Debug Viz" expandByDefault={true}>
+              {onDebugVisEnabledChange && (
+                <LabeledInput id="debugvis-enabled" label="Enabled">
+                  <Checkbox
+                    id="debugvis-enabled"
+                    checked={debugVisEnabled}
+                    onChange={(event) => onDebugVisEnabledChange(event.currentTarget.checked)}
+                    size="xs"
+                  />
+                </LabeledInput>
+              )}
               {debugVis.map((term) => (
                 <LabeledInput
                   key={term.term}
                   id={`debugvis:${term.term}`}
-                  // The section names what is toggled; the term only tells several apart.
-                  label={debugVis.length > 1 ? `Enable ${formatGroupName(term.term)}` : 'Enable'}
+                  label={formatGroupName(term.term)}
                 >
                   <Checkbox
                     id={`debugvis:${term.term}`}

@@ -113,3 +113,72 @@ describe('TrackingCommand ref window', () => {
     close(term.getStateField('ref_root_pos_w')!, [2, 0, 0]);
   });
 });
+
+/**
+ * The ghost is mjlab's `_debug_vis_impl` in `"ghost"` mode: drawn only while the viewer's
+ * Debug Viz "Enabled" and the term's own checkbox are both on.
+ */
+describe('TrackingCommand ghost', () => {
+  function ghostCommand(config: Record<string, unknown> = {}): { term: TrackingCommand; scene: THREE.Scene } {
+    const scene = new THREE.Scene();
+    const link = new THREE.Group();
+    link.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial()));
+    const context = {
+      mujoco: { MjData: class {} },
+      // Body 1 hangs off a joint, so the ghost clones it.
+      mjModel: { nbody: 2, body_jntnum: [0, 1], body_parentid: [0, 0] },
+      mjData: null,
+      scene,
+      bodies: { 1: link },
+    } as unknown as CommandTermContext;
+    const term = new TrackingCommand(
+      'motion',
+      { name: 'TrackingCommand', ...config } as unknown as CommandConfigEntry,
+      context,
+    );
+    (term as unknown as { selectedMotion: unknown }).selectedMotion = {};
+    term.refLen = 1;
+    return { term, scene };
+  }
+
+  const ghostOf = (scene: THREE.Scene) => scene.getObjectByName('Tracking Ghost')!;
+
+  it('draws only while Debug Viz and its own checkbox are both on', () => {
+    const { term, scene } = ghostCommand({ debug_vis: true });
+    term.updateDebugVisuals(true);
+    expect(ghostOf(scene).visible).toBe(true);
+
+    term.updateDebugVisuals(false);
+    expect(ghostOf(scene).visible).toBe(false);
+
+    term.setDebugVisEnabled(false);
+    term.updateDebugVisuals(true);
+    expect(ghostOf(scene).visible).toBe(false);
+    expect(term.debugVisEnabled()).toBe(false);
+  });
+
+  it('stays hidden with no motion selected', () => {
+    const { term, scene } = ghostCommand();
+    (term as unknown as { selectedMotion: unknown }).selectedMotion = null;
+    term.updateDebugVisuals(true);
+    expect(ghostOf(scene).visible).toBe(false);
+  });
+
+  it('builds no ghost and offers no checkbox when the task leaves debug_vis off', () => {
+    const { term, scene } = ghostCommand({ debug_vis: false });
+    expect(term.debugVisEnabled()).toBeNull();
+    expect(scene.getObjectByName('Tracking Ghost')).toBeUndefined();
+  });
+
+  it('draws for a document written before debug_vis was carried', () => {
+    expect(ghostCommand().term.debugVisEnabled()).toBe(true);
+  });
+
+  it("paints the ghost in the task's ghost_color", () => {
+    const { scene } = ghostCommand({ ghost_color: [1, 0, 0, 0.25] });
+    const mesh = ghostOf(scene).getObjectByProperty('type', 'Mesh') as THREE.Mesh;
+    const material = mesh.material as THREE.MeshStandardMaterial;
+    expect(material.color.toArray()).toEqual([1, 0, 0]);
+    expect(material.opacity).toBe(0.25);
+  });
+});

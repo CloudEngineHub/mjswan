@@ -8,7 +8,7 @@ import { signalReady, signalError } from './core/utils/readySignal';
 import { createEngine } from './engine';
 import type { EnginePlugins, MjswanEngine, MjswanEngineState, SceneInput } from './engine';
 import { parseManifest, sanitizeName, type Catalog, type ProjectCatalog, type ByteSource } from './manifest';
-import { applyUrlState, PANEL_PARAM, POLICY_PARAM, PROJECT_PARAM, REF_PARAM, SCENE_PARAM } from './urlState';
+import { applyUrlState, PANEL_PARAM, POLICY_PARAM, PROJECT_PARAM, SCENE_PARAM, VIZ_PARAM } from './urlState';
 import './App.css';
 
 function paramFlag(param: string): boolean {
@@ -64,7 +64,7 @@ function AppContent() {
   const [policyName, setPolicyName] = useState<string | null>(null);
   const [motionName, setMotionName] = useState<string | null>(null);
   const [splatName, setSplatName] = useState<string | null>(null);
-  const [showReference, setShowReference] = useState(() => paramFlag(REF_PARAM));
+  const [debugVisEnabled, setDebugVisEnabled] = useState(() => paramFlag(VIZ_PARAM));
   const [panelVisible, setPanelVisible] = useState(() => paramFlag(PANEL_PARAM));
   const [engineState, setEngineState] = useState<MjswanEngineState | null>(null);
 
@@ -145,6 +145,8 @@ function AppContent() {
       }
       engineRef.current = engine;
       engine.subscribe(setEngineState);
+      // A viewer setting: it holds across every scene and policy load after this.
+      engine.debugVis.setEnabled(debugVisEnabled);
       try {
         setLoadingMessage('Loading scene…');
         const input = await sceneEntry.buildScene({
@@ -153,7 +155,6 @@ function AppContent() {
         });
         await engine.loadScene(withPlugins(input));
         if (motionName) await engine.setMotion(motionName);
-        engine.setReferenceVisible(showReference);
         hideLoading();
         signalReady();
       } catch (err) {
@@ -198,11 +199,11 @@ function AppContent() {
       scene: scene?.id ?? null,
       policy: scene?.policies.find((p) => p.name === policyName)?.id ?? null,
       panel: panelVisible,
-      ref: showReference,
+      viz: debugVisEnabled,
     });
     const url = `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`;
     window.history.replaceState({}, '', url);
-  }, [catalog, projectName, sceneName, policyName, panelVisible, showReference]);
+  }, [catalog, projectName, sceneName, policyName, panelVisible, debugVisEnabled]);
 
   const loadScene = useCallback(async (scene: ProjectCatalog['scenes'][number]) => {
     const engine = engineRef.current;
@@ -220,13 +221,12 @@ function AppContent() {
         withPlugins(await scene.buildScene({ policy: policy?.id, splat: splat?.id ?? null })),
       );
       if (motion) await engine.setMotion(motion.name);
-      engine.setReferenceVisible(showReference);
     } catch (err) {
       console.error('Failed to load scene:', err);
     } finally {
       hideLoading();
     }
-  }, [showReference, showLoading, hideLoading, withPlugins]);
+  }, [showLoading, hideLoading, withPlugins]);
 
   const handleSceneChange = useCallback(async (value: string | null) => {
     const scene = project?.scenes.find((s) => s.name === value);
@@ -253,13 +253,12 @@ function AppContent() {
       if (input && pluginsRef.current) input.plugins = pluginsRef.current;
       await engine.setPolicy(input);
       if (motion) await engine.setMotion(motion.name);
-      engine.setReferenceVisible(showReference);
     } catch (err) {
       console.error('Failed to load policy:', err);
     } finally {
       hideLoading();
     }
-  }, [sceneEntry, showReference, showLoading, hideLoading]);
+  }, [sceneEntry, showLoading, hideLoading]);
 
   const handleMotionChange = useCallback(async (value: string | null) => {
     const engine = engineRef.current;
@@ -292,9 +291,9 @@ function AppContent() {
     }
   }, [sceneEntry, showLoading, hideLoading]);
 
-  const handleShowReferenceChange = useCallback((value: boolean) => {
-    setShowReference(value);
-    engineRef.current?.setReferenceVisible(value);
+  const handleDebugVisEnabledChange = useCallback((enabled: boolean) => {
+    setDebugVisEnabled(enabled);
+    engineRef.current?.debugVis.setEnabled(enabled);
   }, []);
 
   const handlePanelVisibleChange = useCallback((visible: boolean) => {
@@ -351,8 +350,6 @@ function AppContent() {
             motions={options(sceneEntry.policies.find((p) => p.name === policyName)?.motions ?? [])}
             motionValue={motionName}
             onMotionChange={handleMotionChange}
-            showReferenceMotion={showReference}
-            onShowReferenceMotionChange={handleShowReferenceChange}
             commandsEnabled={!!policyName}
             commands={engineState?.commands ? [...engineState.commands] : []}
             commandValues={engineState?.commandValues ?? {}}
@@ -363,6 +360,8 @@ function AppContent() {
             onEventArmedChange={(name, armed) => engineRef.current?.events.setArmed(name, armed)}
             debugVis={engineState?.debugVis ? [...engineState.debugVis] : []}
             onDebugVisChange={(term, enabled) => engineRef.current?.debugVis.set(term, enabled)}
+            debugVisEnabled={debugVisEnabled}
+            onDebugVisEnabledChange={handleDebugVisEnabledChange}
             interactions={engineState?.interactions ? [...engineState.interactions] : []}
             interactionMode={engineState?.interactionMode ?? 'pull'}
             interactionParams={engineState?.interactionParams ?? {}}

@@ -80,12 +80,11 @@ call order, and `dispose` waits for the one running.
 | `setPolicy` | `(input: PolicyInput \| null) => Promise<void>` | Live; keeps the model loaded. |
 | `setSplat` | `(input: SplatInput \| null) => Promise<void>` | Live. |
 | `setMotion` | `(name: string \| null) => Promise<boolean>` | Live. Resolves to whether the name was accepted. |
-| `setReferenceVisible` | `(visible: boolean) => void` | Motion-tracking ghost toggle. |
 | `calibrateSplat` | `(transform: SplatTransform) => void` | Live splat placement, for a calibration UI. |
 | `play` / `pause` / `reset` | `() => void` | Playback. |
 | `camera` | `CameraControls` | `set(partial)`, `get()`, `frame()`. |
 | `commands` | `CommandControls` | `set(id, value)`, `trigger(id)`. |
-| `debugVis` | `DebugVisControls` | `set(term, enabled)`: show or hide a command term's drawing, such as the velocity arrows. |
+| `debugVis` | `DebugVisControls` | mjlab's Debug Viz: `set(term, enabled)` for one command term's drawing, such as the velocity arrows or the motion-tracking ghost, and `setEnabled(enabled)` for its **Enabled** switch over all of them. A drawing shows only while both are on. |
 | `events` | `EventControls` | `fire(name)` for a `manual` term, `setArmed(name, armed)` for an `interval` one. |
 | `interaction` | `InteractionControls` | `setMode(id)`, `getMode()`, `setParam(mode, name, value)`, `getParams(mode)`, `cancel()`. See [Pointer interaction](#pointer-interaction). |
 | `xr` | `XrControls` | `enter(id)`, `exit()`, `setHandTracking(enabled)`. See [WebXR](#webxr). |
@@ -108,6 +107,8 @@ interface MjswanEngineState {
   commandValues: Readonly<Record<string, number>>;
   /** Terms with a debug drawing to toggle; empty when the policy has none. */
   debugVis: ReadonlyArray<DebugVisDescriptor>;
+  /** `debugVis.setEnabled`'s switch: a term draws only while it and its own are on. */
+  debugVisEnabled: boolean;
   /** Event terms the operator can drive; empty when the scene has none. */
   events: ReadonlyArray<EventDescriptor>;
   /** Every pointer mode, with whether this scene can run it. */

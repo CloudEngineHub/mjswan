@@ -7,7 +7,7 @@ const SELECTED: UrlState = {
   scene: 'humanoid',
   policy: 'walk',
   panel: true,
-  ref: true,
+  viz: true,
 };
 
 describe('applyUrlState', () => {
@@ -35,10 +35,10 @@ describe('applyUrlState', () => {
   });
 
   it('pins the chrome flags only when they are off', () => {
-    expect(applyUrlState('', { ...SELECTED, panel: false, ref: false })).toBe(
-      'project=demo_two&scene=humanoid&policy=walk&panel=0&ref=0',
+    expect(applyUrlState('', { ...SELECTED, panel: false, viz: false })).toBe(
+      'project=demo_two&scene=humanoid&policy=walk&panel=0&viz=0',
     );
-    expect(applyUrlState('?panel=0&ref=0', SELECTED)).toBe(
+    expect(applyUrlState('?panel=0&viz=0', SELECTED)).toBe(
       'project=demo_two&scene=humanoid&policy=walk',
     );
   });

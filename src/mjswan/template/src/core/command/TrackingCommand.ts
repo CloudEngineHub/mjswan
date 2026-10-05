@@ -57,19 +57,22 @@ function splitFrames(entry: NpzEntry): Float32Array[] {
   return frames;
 }
 
-function setGhostMaterial(material: THREE.Material): THREE.Material {
+/** mjlab's `MotionCommandCfg.VizCfg.ghost_color`, for a config that names none. */
+const DEFAULT_GHOST_COLOR: readonly number[] = [0.5, 0.7, 0.5, 0.5];
+
+function setGhostMaterial(material: THREE.Material, rgba: readonly number[]): THREE.Material {
   const next = material.clone();
   if ('transparent' in next) {
     next.transparent = true;
   }
   if ('opacity' in next) {
-    next.opacity = 0.5;
+    next.opacity = rgba[3] ?? 1;
   }
   if ('depthWrite' in next) {
     next.depthWrite = false;
   }
   if ('color' in next && next.color instanceof THREE.Color) {
-    next.color = new THREE.Color(0.5, 0.7, 0.5);
+    next.color = new THREE.Color(rgba[0], rgba[1], rgba[2]);
   }
   return next;
 }
@@ -133,7 +136,8 @@ export class TrackingCommand implements CommandTerm {
   private datasetQposAdr: number[];
   private frameAccumulator: number;
   private justReset: boolean;
-  private referenceVisible: boolean;
+  /** mjlab's `_debug_vis_enabled`: the ghost's own Debug Viz switch. */
+  private debugVisOn: boolean;
   private readonly samplingMode: string;
   /** Look-ahead/look-back offsets the `ref_*` window state fields are sampled at. */
   private readonly timeSteps: number[];
@@ -165,7 +169,7 @@ export class TrackingCommand implements CommandTerm {
     this.datasetQposAdr = [];
     this.frameAccumulator = 0.0;
     this.justReset = true;
-    this.referenceVisible = true;
+    this.debugVisOn = true;
     this.samplingMode = typeof config.sampling_mode === 'string' ? config.sampling_mode : 'start';
     this.timeSteps = Array.isArray(config.time_steps)
       ? (config.time_steps as unknown[]).map((step) => Math.trunc(Number(step) || 0))
@@ -180,7 +184,11 @@ export class TrackingCommand implements CommandTerm {
 
     this.ghostBodies = new Map();
     this.ghostData = context.mjModel ? new context.mujoco.MjData(context.mjModel) : null;
-    this.ghostRoot = this.createGhostRoot();
+    const ghostColor = Array.isArray(config.ghost_color)
+      ? (config.ghost_color as unknown[]).map(Number)
+      : DEFAULT_GHOST_COLOR;
+    // Only an explicit false: a document written before `debug_vis` was carried drew the ghost.
+    this.ghostRoot = config.debug_vis === false ? null : this.createGhostRoot(ghostColor);
     this.refBodyPosW = [];
     this.refBodyQuatW = [];
     this.refBodyLinVelW = [];
@@ -250,13 +258,6 @@ export class TrackingCommand implements CommandTerm {
     return true;
   }
 
-  setReferenceVisible(visible: boolean): void {
-    this.referenceVisible = visible;
-    if (this.ghostRoot) {
-      this.ghostRoot.visible = visible && this.selectedMotion !== null;
-    }
-  }
-
   reset(): void {
     this.refIdx = this.sampleInitialFrame(this.refLen);
     this.frameAccumulator = 0.0;
@@ -303,9 +304,19 @@ export class TrackingCommand implements CommandTerm {
     this.updateGhostPose();
   }
 
-  updateDebugVisuals(): void {
+  /** Whether the ghost is on, or `null` when the task draws none. */
+  debugVisEnabled(): boolean | null {
+    return this.ghostRoot ? this.debugVisOn : null;
+  }
+
+  setDebugVisEnabled(enabled: boolean): void {
+    this.debugVisOn = enabled;
+  }
+
+  /** The ghost is mjlab's `_debug_vis_impl` in `"ghost"` mode, so both switches gate it. */
+  updateDebugVisuals(shown = true): void {
     if (this.ghostRoot) {
-      this.ghostRoot.visible = this.referenceVisible && this.selectedMotion !== null;
+      this.ghostRoot.visible = shown && this.debugVisOn && this.isReady();
     }
   }
 
@@ -542,7 +553,7 @@ export class TrackingCommand implements CommandTerm {
     return bodyId;
   }
 
-  private createGhostRoot(): THREE.Group | null {
+  private createGhostRoot(color: readonly number[]): THREE.Group | null {
     const bodies = this.context.bodies ?? null;
     const mjModel = this.context.mjModel;
     if (!bodies || !mjModel) {
@@ -560,9 +571,9 @@ export class TrackingCommand implements CommandTerm {
       clone.traverse((obj) => {
         if (obj instanceof THREE.Mesh) {
           if (Array.isArray(obj.material)) {
-            obj.material = obj.material.map(setGhostMaterial);
+            obj.material = obj.material.map((material) => setGhostMaterial(material, color));
           } else {
-            obj.material = setGhostMaterial(obj.material);
+            obj.material = setGhostMaterial(obj.material, color);
           }
           obj.renderOrder = 2;
         }
@@ -885,11 +896,9 @@ export class TrackingCommand implements CommandTerm {
     return -1;
   }
 
+  /** Pose only: `updateDebugVisuals` decides whether the ghost is drawn. */
   private updateGhostPose(): void {
     if (!this.ghostRoot || !this.ghostData || !this.context.mjModel || !this.selectedMotion || !this.refLen) {
-      if (this.ghostRoot) {
-        this.ghostRoot.visible = false;
-      }
       return;
     }
 
@@ -903,7 +912,6 @@ export class TrackingCommand implements CommandTerm {
         getPosition(this.ghostData.xpos, bodyId, body.position);
         getQuaternion(this.ghostData.xquat, bodyId, body.quaternion);
       }
-      this.ghostRoot.visible = this.referenceVisible;
       return;
     }
 
@@ -935,7 +943,6 @@ export class TrackingCommand implements CommandTerm {
       getPosition(this.ghostData.xpos, bodyId, body.position);
       getQuaternion(this.ghostData.xquat, bodyId, body.quaternion);
     }
-    this.ghostRoot.visible = this.referenceVisible;
   }
 
   private findFreeJointIndex(): number {

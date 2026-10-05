@@ -14,6 +14,12 @@ shortcuts.
 
 ### Added
 
+- **mjlab's Debug Viz "Enabled" switch**: the first checkbox of the panel's **Debug Viz**
+  section, `engine.debugVis.setEnabled(enabled)` and `state.debugVisEnabled` for a host's
+  own UI, and `?viz=0` to open a page with it off. It hides every debug drawing at once
+  and leaves each term's own checkbox as it was, so turning it back on brings back what
+  was shown. It holds across scene and policy loads, as a viewer setting does.
+
 - **WebXR entry through the engine API**: `engine.xr` (`enter(id)`, `exit()`,
   `setHandTracking(enabled)`), `state.xrSessions` and `state.handTracking`. The host draws
   its own buttons from `state.xrSessions` and calls `enter` from its click, the gesture the
@@ -250,6 +256,16 @@ shortcuts.
 - The `mjlab-to-mjswan` agent skill ([skills/mjlab-to-mjswan/](skills/mjlab-to-mjswan/)), published from this repo as the `mjswan` Claude Code plugin (`/mjswan:mjlab-to-mjswan`): it ports one mjlab task from any repo into a browser app.
 
 ### Changed
+
+- **The motion-tracking ghost is a Debug Viz drawing, as in mjlab.** It is what mjlab's
+  `MotionCommand._debug_vis_impl` draws, so it now sits in the **Debug Viz** section as
+  **Motion**, beside the other drawing terms, and shows only while both that checkbox and
+  **Enabled** are on, as in mjlab's viewer. Each term's checkbox is named after the term
+  rather than "Enable". The build carries `MotionCommandCfg.debug_vis` and
+  `viz.ghost_color`: a task that leaves `debug_vis` off gets no ghost, as mjlab draws none,
+  and the ghost takes the task's color. `viz.mode="frames"` warns at build time, since the
+  browser draws the ghost either way. A document built before this draws the ghost in
+  mjlab's default color, as it did.
 
 - **The engine no longer draws ENTER VR / START AR.** They sat on `document.body`, over the
   host's own controls; a host driving `createEngine` now draws its own from
@@ -550,6 +566,11 @@ shortcuts.
   weekly CI parity sweep catches upstream drift. The `examples` extra adds `onnxruntime`.
 
 ### Removed
+
+- **`engine.setReferenceVisible`, the "Show reference" checkbox and `?ref=0`.** The ghost
+  is the `motion` term's debug drawing: `engine.debugVis.set('motion', enabled)` toggles it
+  alone, and `engine.debugVis.setEnabled` or `?viz=0` every drawing. A link still carrying
+  `ref=0` opens with the ghost shown.
 
 - **`?hands=1`.** Use the **Hand tracking** switch in the control panel's WebXR section
   instead. It starts off on every page load and is not written to the URL.

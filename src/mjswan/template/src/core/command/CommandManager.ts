@@ -120,6 +120,11 @@ export class CommandManager {
   private context: CommandTermContext | null = null;
   /** Buttons already reported as unhandled, so a repeated press is not a repeated log. */
   private warnedButtons: Set<string> = new Set();
+  /**
+   * mjlab's Debug Viz "Enabled", the viewer's switch over every term's own. A viewer
+   * setting, so it outlives `clear()` and the policy loads behind it.
+   */
+  private debugVisShown = true;
 
   initialize(
     commandsConfig: CommandsConfig,
@@ -184,8 +189,18 @@ export class CommandManager {
 
   updateDebugVisuals(): void {
     for (const term of this.terms.values()) {
-      term.updateDebugVisuals?.();
+      term.updateDebugVisuals?.(this.debugVisShown);
     }
+  }
+
+  isDebugVisShown(): boolean {
+    return this.debugVisShown;
+  }
+
+  setDebugVisShown(shown: boolean): void {
+    this.debugVisShown = shown;
+    this.updateDebugVisuals();
+    this.emit({ type: 'debug_vis', commandId: '*' });
   }
 
   /** The terms offering a debug drawing, as mjlab's `create_debug_vis_gui` lists them. */
@@ -203,7 +218,7 @@ export class CommandManager {
     if (!term?.setDebugVisEnabled) return;
     term.setDebugVisEnabled(enabled);
     // The next frame would do this, but a paused sim has no next frame.
-    term.updateDebugVisuals?.();
+    term.updateDebugVisuals?.(this.debugVisShown);
     this.emit({ type: 'debug_vis', commandId: name, groupName: name });
   }
 

@@ -125,6 +125,7 @@ class Engine implements MjswanEngine {
       trigger: (id) => this.runtime.commands.triggerButton(id),
     };
     this.debugVis = {
+      setEnabled: (enabled) => this.runtime.commands.setDebugVisShown(enabled),
       set: (term, enabled) => this.runtime.commands.setDebugVisEnabled(term, enabled),
     };
     this.events = {
@@ -170,6 +171,7 @@ class Engine implements MjswanEngine {
       commands: cm.getCommands().map(toDescriptor),
       commandValues: cm.getValues(),
       debugVis: cm.getDebugVisTerms().map(({ name, enabled }) => ({ term: name, enabled })),
+      debugVisEnabled: cm.isDebugVisShown(),
       events: this.runtime.eventControls(),
       interactions: this.runtime.interactionModes().map((mode) => ({
         ...mode,
@@ -294,10 +296,6 @@ class Engine implements MjswanEngine {
 
   setMotion(name: string | null): Promise<boolean> {
     return this.exclusive(() => this.runtime.setSelectedMotion(name), false);
-  }
-
-  setReferenceVisible(visible: boolean): void {
-    this.runtime.setReferenceVisible(visible);
   }
 
   calibrateSplat(transform: SplatTransform): void {

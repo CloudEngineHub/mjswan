@@ -20,6 +20,7 @@ parity harness cannot: that only ever checks "graph == override".
 from __future__ import annotations
 
 import types
+import warnings
 from typing import Any
 
 from ...managers.command_manager import (
@@ -285,7 +286,20 @@ def serialize_motion_command(cfg: Any) -> dict[str, Any]:
             for key, value in (getattr(cfg, "velocity_range", None) or {}).items()
         },
         "joint_position_range": list(getattr(cfg, "joint_position_range", (0.0, 0.0))),
+        "debug_vis": bool(getattr(cfg, "debug_vis", False)),
     }
+    viz = getattr(cfg, "viz", None)
+    ghost_color = getattr(viz, "ghost_color", None)
+    if ghost_color is not None:
+        data["ghost_color"] = [float(c) for c in ghost_color]
+    mode = getattr(viz, "mode", "ghost")
+    if data["debug_vis"] and mode != "ghost":
+        warnings.warn(
+            f"MotionCommandCfg has viz.mode={mode!r}, but mjswan draws only the ghost, "
+            "so the browser shows the ghost where mjlab's viewer draws body frames.",
+            category=RuntimeWarning,
+            stacklevel=2,
+        )
     entity_name = getattr(cfg, "entity_name", None)
     if entity_name:
         data["entity_name"] = entity_name
