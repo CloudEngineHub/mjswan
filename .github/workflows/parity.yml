@@ -67,4 +67,4 @@ jobs:
         run: |
           pytest tests/test_onnx_parity.py tests/test_onnx_command_parity.py \
             tests/test_onnx_command_config.py tests/test_onnx_event_config.py \
-            tests/test_action_clip.py --tb=short -q
+            tests/test_onnx_export_names.py tests/test_action_clip.py --tb=short -q

@@ -603,6 +603,15 @@ shortcuts.
 
 ### Fixed
 
+- **An event that writes only constants applies its write in the browser.** When every
+  value an output carries is baked, the exporter folds it into an initializer and the
+  graph output keeps the initializer's name (`"14"`) rather than the one requested.
+  The bundle's `write_targets` still named the requested output, so the browser found
+  no value and skipped that write without a word (a joint parked at a fixed position got
+  its zero velocity but not the position), and `run_parity` failed with `Invalid output
+  name`. Every traced graph now gets its requested output names back through an
+  `Identity`.
+
 - **`run_command_parity` checks a command that draws nothing.** It fed every command
   graph a `rand` input, but the export prunes one the body never reads, so ORT refused
   the feed (`Invalid input name: rand`) for a draw-free resample such as mjlab's

@@ -70,7 +70,29 @@ def _export_onnx(
             opset_version=opset,
             dynamo=False,
         )
-    return buffer.getvalue()
+    return _restore_output_names(buffer.getvalue(), output_names)
+
+
+def _restore_output_names(onnx_bytes: bytes, output_names: list[str]) -> bytes:
+    """Give every graph output the name it was exported under.
+
+    An output that constant-folds to an initializer keeps the initializer's own name
+    (``"14"``), and every consumer looks outputs up by name: the browser would skip
+    that write without a word. An ``Identity`` restores the name.
+    """
+    import onnx
+    from onnx import helper
+
+    model = onnx.load_from_string(onnx_bytes)
+    graph = model.graph
+    renamed = False
+    for output, wanted in zip(graph.output, output_names):
+        if output.name == wanted:
+            continue
+        graph.node.append(helper.make_node("Identity", [output.name], [wanted]))
+        output.name = wanted
+        renamed = True
+    return model.SerializeToString() if renamed else onnx_bytes
 
 
 def _narrow_slots(slots: dict[SlotKey, torch.Tensor], sim_rows: SimRows) -> None:

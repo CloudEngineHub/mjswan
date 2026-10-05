@@ -275,8 +275,9 @@ def test_push_robot_is_a_graph_over_a_dynamic_slot(push_robot_report):
 
 
 # ---------------------------------------------------------------------------
-# A reset event that draws nothing: its graph has no `rand` input, since the export
-# prunes it, so the harness must not feed one (#102).
+# Reset events that draw nothing: their graphs have no `rand` input, since the export
+# prunes it, so the harness must not feed one (#102). One writes only constants, which
+# the exporter folds into an initializer that must still carry the output's name (#140).
 # ---------------------------------------------------------------------------
 
 
@@ -296,6 +297,22 @@ def _hold_joints(env, env_ids, *, asset_cfg) -> None:
     )
 
 
+def _park_joints(env, env_ids, *, asset_cfg) -> None:
+    """Park the joints a fixed offset from their default, at rest: every value baked."""
+    import torch
+    from mjlab.envs.mdp.events import resolve_env_ids
+
+    env_ids = resolve_env_ids(env, env_ids)
+    asset = env.scene[asset_cfg.name]
+    joint_pos = asset.data.default_joint_pos[env_ids][:, asset_cfg.joint_ids] + 0.05
+    asset.write_joint_state_to_sim(
+        joint_pos,
+        torch.zeros_like(joint_pos),
+        env_ids=env_ids,
+        joint_ids=torch.tensor(asset_cfg.joint_ids, device=env.device),
+    )
+
+
 @pytest.fixture(scope="module")
 def draw_free_report():
     from mjlab.envs import ManagerBasedRlEnv
@@ -306,12 +323,10 @@ def draw_free_report():
     from mjswan.compile import run_parity
 
     cfg = cartpole_balance_env_cfg(play=True)
+    slider = {"asset_cfg": SceneEntityCfg("cartpole", joint_names=("slider",))}
     cfg.events = {
-        "hold_slider": EventTermCfg(
-            func=_hold_joints,
-            mode="reset",
-            params={"asset_cfg": SceneEntityCfg("cartpole", joint_names=("slider",))},
-        )
+        "hold_slider": EventTermCfg(func=_hold_joints, mode="reset", params=slider),
+        "park_slider": EventTermCfg(func=_park_joints, mode="reset", params=slider),
     }
     env = ManagerBasedRlEnv(cfg, device="cpu")
     try:
@@ -320,13 +335,14 @@ def draw_free_report():
         env.close()
 
 
-def test_draw_free_event_matches_mjlab(draw_free_report):
+@pytest.mark.parametrize("name", ["hold_slider", "park_slider"])
+def test_draw_free_event_matches_mjlab(draw_free_report, name):
     assert draw_free_report.passed, "\n" + draw_free_report.summary()
-    hold = next(t for t in draw_free_report.terms if t.name == "hold_slider")
-    assert hold.representation == "onnx"
-    assert hold.rand_dim == 0
-    assert hold.steps_checked > 0
-    assert hold.max_abs_diff <= draw_free_report.atol
+    event = next(t for t in draw_free_report.terms if t.name == name)
+    assert event.representation == "onnx"
+    assert event.rand_dim == 0
+    assert event.steps_checked > 0
+    assert event.max_abs_diff <= draw_free_report.atol
 
 
 # ---------------------------------------------------------------------------
