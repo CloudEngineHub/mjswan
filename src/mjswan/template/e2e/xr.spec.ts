@@ -39,6 +39,9 @@ interface HarnessEngine {
     renderer: { xr: { setSession(session: unknown): Promise<void> } };
     handMocap: { bind(...args: unknown[]): void };
     policyGraphs: { clear(): Promise<void> };
+    onnxModule: unknown;
+    policyRunner: unknown;
+    policyStateBuilder: unknown;
     loadPolicyConfig: Fn;
     rebuildModel: Fn;
   };
@@ -364,11 +367,86 @@ test('the rebuild on entry keeps the policy sessions, and support is asked for b
       cleared += 1;
       await clear();
     };
+    // A stand-in OnnxModule: the test is about who releases it, not ORT.
+    let released = 0;
+    const kept = { initInput: () => ({}), dispose: async () => void (released += 1) };
+    engine.runtime.onnxModule = kept;
+    let handed: unknown = null;
+    const load = engine.runtime.loadPolicyConfig.bind(engine.runtime);
+    engine.runtime.loadPolicyConfig = (policy: unknown, keep?: unknown) => {
+      handed = (keep as { module: unknown } | undefined)?.module;
+      return load(policy, keep);
+    };
     engine.xr.setHandTracking(true);
     await engine.xr.enter('vr');
-    return { cleared, maxChecks: window.__xrMaxChecks };
+    return { cleared, released, handed: handed === kept, maxChecks: window.__xrMaxChecks };
   });
-  expect(result).toEqual({ cleared: 0, maxChecks: 2 });
+  expect(result).toEqual({ cleared: 0, released: 0, handed: true, maxChecks: 2 });
+
+  expect(errors).toEqual([]);
+});
+
+test('a policy switch and a scene load release the outgoing policy session', async ({ page }) => {
+  const errors: string[] = [];
+  await openHarness(page, errors);
+
+  const released = await page.evaluate(async () => {
+    const engine = window.__engine as HarnessEngine;
+    let released = 0;
+    const policyModule = () => ({ initInput: () => ({}), dispose: async () => void (released += 1) });
+    const counts: number[] = [];
+
+    engine.runtime.onnxModule = policyModule();
+    await engine.setPolicy(null);
+    counts.push(released);
+
+    engine.runtime.onnxModule = policyModule();
+    const model = await (await fetch('/fixtures/blocks.mjz')).arrayBuffer();
+    await engine.loadScene({ model });
+    counts.push(released);
+    return counts;
+  });
+  expect(released).toEqual([1, 2]);
+
+  expect(errors).toEqual([]);
+});
+
+test('a policy switch during an inference drops its output instead of failing the step', async ({ page }) => {
+  const errors: string[] = [];
+  const failures: string[] = [];
+  page.on('console', (message) => {
+    if (message.text().includes('ONNX inference failed')) failures.push(message.text());
+  });
+  await openHarness(page, errors);
+
+  await page.evaluate(async () => {
+    const engine = window.__engine as HarnessEngine;
+    let started!: () => void;
+    const running = new Promise<void>((resolve) => (started = resolve));
+    let finish!: () => void;
+    const held = new Promise<void>((resolve) => (finish = resolve));
+    engine.runtime.policyStateBuilder = { build: () => ({}) };
+    engine.runtime.policyRunner = {
+      collectObservationsByKey: async () => ({ actor: new Float32Array(1) }),
+      getLastActions: () => new Float32Array(0),
+    };
+    engine.runtime.onnxModule = {
+      inKeys: ['actor'],
+      outKeys: ['action'],
+      initInput: () => ({}),
+      dispose: async () => {},
+      runInference: async () => {
+        started();
+        await held;
+        return [{ action: { data: new Float32Array([1]) } }, {}];
+      },
+    };
+    await running;
+    await engine.setPolicy(null);
+    finish();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+  expect(failures).toEqual([]);
 
   expect(errors).toEqual([]);
 });

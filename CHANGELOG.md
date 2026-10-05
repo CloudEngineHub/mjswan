@@ -609,6 +609,18 @@ shortcuts.
   page, where a session of switches between large scenes ends in `WasmMemoryLimitError`.
   The engine now frees them itself, on a switch and in `dispose()`.
 
+- **Switching policies or scenes frees the policy it leaves.** `setPolicy` and
+  `loadScene` dropped the previous policy network's ONNX Runtime session without
+  releasing it, so every switch left one on ORT's WASM heap for the life of the page.
+  The swap now releases it, behind any inference still running, since `setPolicy` swaps
+  policies while the simulation runs. The traced term graphs were already released.
+
+- **A policy switch during an inference no longer fails that step.** The simulation loop
+  read the policy network again after waiting on its inference, so a `setPolicy` that
+  landed mid-run made the step throw on the cleared network and log
+  `ONNX inference failed`. The loop now drops an output whose policy was switched out
+  while it ran.
+
 - **A scene added with `add_scene(model=...)` opens in the browser.** The build saves such
   a scene as a compiled `.mjb`, but the engine opened every scene as a zipped `.mjz`, so
   JSZip rejected it before MuJoCo saw it. The build names the file for the argument
