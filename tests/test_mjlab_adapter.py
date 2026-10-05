@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import sys
 import warnings
+from dataclasses import dataclass, field
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
@@ -1086,3 +1087,119 @@ class TestResolveRunnerDefaults:
         # mjlab's default is `{"actor": ("actor",), "critic": ("critic",)}`; if upstream
         # renames or restructures it, this fails and says so.
         assert result.obs_groups["actor"] == ("actor",)
+
+
+# ---------------------------------------------------------------------------
+# A field the adapter does not carry must not be dropped while it means something (#98)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _DataclassObsTermCfg:
+    """mjlab's `ObservationTermCfg` fields, as a real dataclass the adapter can walk."""
+
+    func: Any
+    params: dict = field(default_factory=dict)
+    noise: Any = None
+    clip: Any = None
+    scale: Any = None
+    delay_min_lag: int = 0
+    delay_max_lag: int = 0
+    history_length: int = 0
+    flatten_history_dim: bool = True
+
+
+@dataclass
+class _DataclassObsGroupCfg:
+    """mjlab's `ObservationGroupCfg` fields, as a real dataclass the adapter can walk."""
+
+    terms: dict
+    concatenate_terms: bool = True
+    concatenate_dim: int = -1
+    enable_corruption: bool = False
+    history_length: int | None = None
+    flatten_history_dim: bool = True
+    nan_policy: str = "disabled"
+    nan_check_per_term: bool = True
+
+
+_DataclassObsTermCfg.__module__ = "mjlab.fake"
+_DataclassObsGroupCfg.__module__ = "mjlab.fake"
+
+
+@dataclass
+class _TaskGroupCfg(_DataclassObsGroupCfg):
+    """A task's subclass carrying a layout flag mjlab has no notion of (PAC-MAN's)."""
+
+    history_ordering: str = "term"
+
+
+@dataclass
+class _TaskTermCfg(_DataclassObsTermCfg):
+    stride: int = 1
+
+
+def _dc_terms(**overrides: Any) -> dict:
+    jp = _DataclassObsTermCfg(func=_make_mjlab_obs_func("joint_pos_rel"))
+    return {"jp": jp, **overrides}
+
+
+class TestRefuseDroppedFields:
+    def test_a_subclass_field_left_at_its_default_adapts(self):
+        group = _TaskGroupCfg(terms=_dc_terms(), history_length=3)
+        result = adapt_observations({"actor": group})
+        assert result is not None
+        assert result["actor"].history_length == 3
+
+    def test_a_subclass_field_that_changes_the_layout_fails_naming_it(self):
+        group = _TaskGroupCfg(
+            terms=_dc_terms(), history_length=3, history_ordering="time"
+        )
+        with pytest.raises(ValueError, match=r"group 'actor' sets history_ordering"):
+            adapt_observations({"actor": group})
+
+    def test_a_term_subclass_field_fails_naming_the_term(self):
+        terms = _dc_terms(
+            jv=_TaskTermCfg(func=_make_mjlab_obs_func("joint_vel_rel"), stride=2)
+        )
+        with pytest.raises(ValueError, match=r"term 'jv' sets stride=2"):
+            adapt_observations({"actor": _DataclassObsGroupCfg(terms=terms)})
+
+    def test_an_unflattened_history_fails(self):
+        group = _DataclassObsGroupCfg(
+            terms=_dc_terms(), history_length=3, flatten_history_dim=False
+        )
+        with pytest.raises(ValueError, match="flatten_history_dim=False"):
+            adapt_observations({"actor": group})
+
+    def test_flattening_says_nothing_without_history(self):
+        group = _DataclassObsGroupCfg(terms=_dc_terms(), flatten_history_dim=False)
+        assert adapt_observations({"actor": group}) is not None
+
+    def test_a_group_count_overrides_the_terms_flattening(self):
+        """mjlab replaces a term's `flatten_history_dim` with the group's."""
+        unflat = _DataclassObsTermCfg(
+            func=_make_mjlab_obs_func("joint_vel_rel"),
+            history_length=2,
+            flatten_history_dim=False,
+        )
+        group = _DataclassObsGroupCfg(terms=_dc_terms(jv=unflat), history_length=3)
+        assert adapt_observations({"actor": group}) is not None
+
+    def test_another_concatenation_axis_fails(self):
+        group = _DataclassObsGroupCfg(terms=_dc_terms(), concatenate_dim=1)
+        with pytest.raises(ValueError, match="concatenate_dim=1"):
+            adapt_observations({"actor": group})
+
+    def test_training_only_fields_are_still_ignored(self):
+        noisy = _DataclassObsTermCfg(
+            func=_make_mjlab_obs_func("joint_vel_rel"),
+            noise=object(),
+            delay_max_lag=3,
+        )
+        group = _DataclassObsGroupCfg(
+            terms=_dc_terms(jv=noisy),
+            enable_corruption=True,
+            nan_policy="sanitize",
+        )
+        assert adapt_observations({"actor": group}) is not None

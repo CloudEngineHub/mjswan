@@ -603,6 +603,15 @@ shortcuts.
 
 ### Fixed
 
+- **An mjlab observation config that sets a field mjswan cannot carry fails the build**
+  instead of having it dropped. The adapter copied the fields it knows and nothing else,
+  so a task's subclass adding a layout flag (PAC-MAN's `history_ordering="time"`, which
+  stacks a group time-major) built clean and fed its policy a same-width, reordered
+  observation. Each term and group is now walked as a dataclass; a field the adapter
+  drops that holds a non-default value raises, naming it. That covers mjlab's own
+  `flatten_history_dim=False` with history and a `concatenate_dim` off the feature axis.
+  Training-only fields (`noise`, `delay_*`, `nan_policy`) are still ignored.
+
 - **An event that writes only constants applies its write in the browser.** When every
   value an output carries is baked, the exporter folds it into an initializer and the
   graph output keeps the initializer's name (`"14"`) rather than the one requested.
