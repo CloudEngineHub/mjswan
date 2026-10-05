@@ -275,6 +275,61 @@ def test_push_robot_is_a_graph_over_a_dynamic_slot(push_robot_report):
 
 
 # ---------------------------------------------------------------------------
+# A reset event that draws nothing: its graph has no `rand` input, since the export
+# prunes it, so the harness must not feed one (#102).
+# ---------------------------------------------------------------------------
+
+
+def _hold_joints(env, env_ids, *, asset_cfg) -> None:
+    """Write the joints' current position back at rest: a reset with no draw."""
+    import torch
+    from mjlab.envs.mdp.events import resolve_env_ids
+
+    env_ids = resolve_env_ids(env, env_ids)
+    asset = env.scene[asset_cfg.name]
+    joint_pos = asset.data.joint_pos[env_ids][:, asset_cfg.joint_ids].clone()
+    asset.write_joint_state_to_sim(
+        joint_pos,
+        torch.zeros_like(joint_pos),
+        env_ids=env_ids,
+        joint_ids=torch.tensor(asset_cfg.joint_ids, device=env.device),
+    )
+
+
+@pytest.fixture(scope="module")
+def draw_free_report():
+    from mjlab.envs import ManagerBasedRlEnv
+    from mjlab.managers.event_manager import EventTermCfg
+    from mjlab.managers.scene_entity_config import SceneEntityCfg
+    from mjlab.tasks.cartpole.cartpole_env_cfg import cartpole_balance_env_cfg
+
+    from mjswan.compile import run_parity
+
+    cfg = cartpole_balance_env_cfg(play=True)
+    cfg.events = {
+        "hold_slider": EventTermCfg(
+            func=_hold_joints,
+            mode="reset",
+            params={"asset_cfg": SceneEntityCfg("cartpole", joint_names=("slider",))},
+        )
+    }
+    env = ManagerBasedRlEnv(cfg, device="cpu")
+    try:
+        yield run_parity(env, n_steps=2, seed=0, include_obs=False)
+    finally:
+        env.close()
+
+
+def test_draw_free_event_matches_mjlab(draw_free_report):
+    assert draw_free_report.passed, "\n" + draw_free_report.summary()
+    hold = next(t for t in draw_free_report.terms if t.name == "hold_slider")
+    assert hold.representation == "onnx"
+    assert hold.rand_dim == 0
+    assert hold.steps_checked > 0
+    assert hold.max_abs_diff <= draw_free_report.atol
+
+
+# ---------------------------------------------------------------------------
 # The Builder serializes from the task config while the harness above reads the env's
 # prepared managers — two sources for the same terms, which diverged once when an
 # unresolved `SceneEntityCfg` widened `ee_to_cube` from 3 to 6. Pinned here to the width
