@@ -29,7 +29,7 @@ def main() -> None:
     contributors_data = [
         {"login": c["login"], "html_url": c["html_url"]}
         for c in contributors_json
-        if isinstance(c, dict) and c.get("type") == "User"
+        if isinstance(c, dict) and c.get("type") == "User" and c["login"] != "claude"
     ]
     print(f"Fetched {len(contributors_data)} contributors from GitHub")
 

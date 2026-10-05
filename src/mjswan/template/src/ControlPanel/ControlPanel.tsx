@@ -372,6 +372,10 @@ function ControlPanel(props: ControlPanelProps) {
           <Anchor href="https://mjswan.readthedocs.io" target="_blank" style={{ fontWeight: '600' }}>
             Documentation
           </Anchor>
+          &nbsp;&nbsp;&bull;&nbsp;&nbsp;
+          <Anchor href="https://mjswan.com" target="_blank" style={{ fontWeight: '600' }}>
+            Platform
+          </Anchor>
         </Box>
         <Divider w="100%" />
         <Box

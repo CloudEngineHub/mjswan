@@ -20,10 +20,6 @@ export const GITHUB_CONTRIBUTORS: Contributor[] = [
     html_url: "https://github.com/ttktjmt",
   },
   {
-    login: "claude",
-    html_url: "https://github.com/claude",
-  },
-  {
     login: "Axellwppr",
     html_url: "https://github.com/Axellwppr",
   },
