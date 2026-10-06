@@ -14,6 +14,13 @@ shortcuts.
 
 ### Added
 
+- **`JointVelocityActionCfg` runs in the browser**, as the `joint_velocity` control type:
+  the processed action `scale * a + offset` is a velocity target, written as `ctrl` to a
+  velocity actuator and turned into `damping * (target - qvel)` for a motor. mjlab's
+  `use_default_offset` comes from the entity's `init_state.joint_vel`, and a motor's
+  damping from its `IdealPdActuatorCfg`, so an mjlab task needs no extra argument. A
+  wheeled robot that drives its wheels by velocity and its legs by position now ports.
+
 - **The control panel reproduces mjlab's viewer Scene section, and its Debug Viz draws
   what mjlab's does.** The build records the section from mjlab's own
   `MjlabViserScene.create_scene_gui` and ships it as the manifest's `viewer_gui`:
@@ -642,6 +649,11 @@ shortcuts.
   the registries held `ts_src` terms described the design they replaced.
 
 ### Fixed
+
+- **A term that branches on a sensor field the sensor does not compute now traces.**
+  mjlab's `illegal_contact` checks `force_history is not None` first; on a contact
+  sensor without `history_length` the replay pass raised "was not recorded during
+  discovery" instead of answering `None` as the sensor does.
 
 - **A traced term that reads a command with `get_command()` gets it in the browser.** The
   build records `get_command(name)` as the input `{command: name, field: "command"}`,

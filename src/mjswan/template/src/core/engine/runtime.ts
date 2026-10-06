@@ -1499,8 +1499,9 @@ export class mjswanRuntime {
       // Pattern-keyed, unlike the exact-name siblings above.
       const { clipLo, clipHi } = resolveActionClip(configClip, subsetJointNames, n);
 
-      // Position actuators (biastype=affine) take a target and run their PD in MuJoCo;
-      // motor actuators (biastype=none) take a torque and need the PD computed here.
+      // Position and velocity actuators (biastype=affine) take a target and run their
+      // own feedback in MuJoCo; motor actuators (biastype=none) take a torque and need
+      // it computed here.
       const positionActuator: boolean[] = mapping.ctrlAdr.map((adr) => {
         if (adr < 0 || !this.mjModel) return false;
         return this.mjModel.actuator_biastype[adr] === affineBiasValue;
@@ -1511,15 +1512,17 @@ export class mjswanRuntime {
       if (isPosition && isMotor) {
         console.warn(`[PolicyRunner] Action term "${termKey}": mixed actuator types detected.`);
       }
-      if (isMotor && controlType !== 'torque' && kp.every((v) => v === 0)) {
+      const gain = controlType === 'joint_velocity' ? kd : kp;
+      if (isMotor && controlType !== 'torque' && gain.every((v) => v === 0)) {
         console.error(
-          `[PolicyRunner] Action term "${termKey}": motor actuators with no stiffness — ` +
-          'every ctrl will be zero. Set `stiffness`/`damping` on the action term.'
+          `[PolicyRunner] Action term "${termKey}": motor actuators with no ` +
+          `${controlType === 'joint_velocity' ? 'damping' : 'stiffness'}, so every ctrl ` +
+          'will be zero. Set `stiffness`/`damping` on the action term.'
         );
       }
       console.log(
         `[PolicyRunner] Action term "${termKey}" (${controlType}): ${n} joint(s), ` +
-        `mode: ${isPosition ? 'position (ctrl=target_pos)' : 'motor (ctrl=torque, external PD)'}`
+        `mode: ${isPosition ? 'actuator (ctrl=target)' : 'motor (ctrl=torque, external PD)'}`
       );
 
       return {
@@ -1580,6 +1583,7 @@ export class mjswanRuntime {
       if (
         controlType !== 'joint_position' &&
         controlType !== 'joint_position_reference' &&
+        controlType !== 'joint_velocity' &&
         controlType !== 'torque' &&
         controlType !== 'muscle_activation'
       ) {
@@ -1667,9 +1671,12 @@ export class mjswanRuntime {
         }
       }
 
-      const useDefaultOffset = actionTerm.use_default_offset !== undefined
-        ? actionTerm.use_default_offset
-        : controlType === 'joint_position';
+      // `joint_velocity`'s default offset is a velocity, already folded into `offset`.
+      const useDefaultOffset = controlType === 'joint_velocity'
+        ? false
+        : actionTerm.use_default_offset !== undefined
+          ? actionTerm.use_default_offset
+          : controlType === 'joint_position';
 
       const entry = buildEntry(
         termKey,

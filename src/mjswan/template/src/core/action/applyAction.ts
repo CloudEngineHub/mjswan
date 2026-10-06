@@ -13,6 +13,7 @@ type MjData = import('mujoco').MjData;
 export type ControlType =
   | 'joint_position'
   | 'joint_position_reference'
+  | 'joint_velocity'
   | 'torque'
   | 'muscle_activation';
 
@@ -126,6 +127,23 @@ function applyActionTerm(
         const qvel = mjData.qvel[qvelAdr[i]];
         ctrl[ctrlIndex] = kp[i] * (target - qpos) + kd[i] * (0 - qvel);
       }
+    }
+    return;
+  }
+
+  if (controlType === 'joint_velocity') {
+    for (let i = 0; i < numJoints; i++) {
+      const ctrlIndex = ctrlAdr[i];
+      if (ctrlIndex < 0) continue;
+      const target = clamp(
+        actionScale[i] * (actions[actionIndices[i]] ?? 0) + actionOffset[i],
+        term.clipLo[i],
+        term.clipHi[i],
+      );
+      // A velocity actuator (`biastype=affine`) runs its own damping on `ctrl`.
+      ctrl[ctrlIndex] = positionActuator[i]
+        ? target
+        : kd[i] * (target - mjData.qvel[qvelAdr[i]]);
     }
     return;
   }
