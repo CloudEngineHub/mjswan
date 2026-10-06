@@ -43,6 +43,7 @@ import {
   type ViewerConfig,
   type ViewerState,
   applyViewerConfig,
+  cameraAngles,
   computeCameraPosition,
   updateCameraFromData,
 } from './viewer_config';
@@ -1085,18 +1086,11 @@ export class mjswanRuntime {
   // ── camera (spherical, MuJoCo coordinates) ──────────────────────────────
   /** Read the current camera pose back in spherical MuJoCo coordinates. */
   getCameraView(): CameraView {
-    const offsetThree = this.camera.position.clone().sub(this.controls.target);
-    const distance = offsetThree.length();
-    const offset = threeToMjcCoordinate(offsetThree);
+    const offset = threeToMjcCoordinate(this.camera.position.clone().sub(this.controls.target));
     const target = threeToMjcCoordinate(this.controls.target.clone());
-    const RAD2DEG = 180 / Math.PI;
-    const elevation = distance > 1e-9 ? Math.asin(-offset.z / distance) * RAD2DEG : 0;
-    const azimuth = Math.atan2(offset.y, offset.x) * RAD2DEG;
     return {
       lookat: [target.x, target.y, target.z],
-      distance,
-      azimuth,
-      elevation,
+      ...cameraAngles(offset),
       fovy: this.camera.fov,
     };
   }

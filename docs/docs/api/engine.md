@@ -82,7 +82,7 @@ call order, and `dispose` waits for the one running.
 | `setMotion` | `(name: string \| null) => Promise<boolean>` | Live. Resolves to whether the name was accepted. |
 | `calibrateSplat` | `(transform: SplatTransform) => void` | Live splat placement, for a calibration UI. |
 | `play` / `pause` / `reset` | `() => void` | Playback. |
-| `camera` | `CameraControls` | `set(partial)`, `get()`, `frame()`, and `setTracking(enabled)`, mjlab's **Track camera**: follow the viewer config's tracked body. |
+| `camera` | `CameraControls` | `set(partial)` and `get()` of a `CameraView`, whose `azimuth` and `elevation` are MuJoCo's free camera's (the direction it looks), `frame()`, and `setTracking(enabled)`, mjlab's **Track camera**: follow the viewer config's tracked body. |
 | `commands` | `CommandControls` | `set(id, value)`, `trigger(id)`. |
 | `debugVis` | `DebugVisControls` | mjlab's Debug Viz: `set(id, enabled)` for one drawing and `setEnabled(enabled)` for its **Enabled** switch over all of them. A drawing shows only while both are on. See [Debug Viz](#debug-viz). |
 | `events` | `EventControls` | `fire(name)` for a `manual` term, `setArmed(name, armed)` for an `interval` one. |

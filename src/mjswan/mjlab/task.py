@@ -97,7 +97,7 @@ def adapt_viewer_config(config: Any | None) -> ViewerConfig | None:
         distance=float(getattr(config, "distance", 4.0)),
         fovy=getattr(config, "fovy", None),
         elevation=float(getattr(config, "elevation", -30.0)),
-        azimuth=float(getattr(config, "azimuth", 45.0)),
+        azimuth=float(getattr(config, "azimuth", defaults.azimuth)),
         origin_type=origin_type or defaults.origin_type,
         entity_name=entity_name,
         body_name=body_name,

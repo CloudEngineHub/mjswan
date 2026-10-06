@@ -166,7 +166,7 @@ A scene owns one MuJoCo model (as `MjModel` → binary `.mjb` or `MjSpec` → XM
 Configures a 3D Gaussian Splat (`.spz` format) background: scale, position offsets, Euler rotations, optional collider mesh URL, and a `control` flag exposing live calibration sliders.
 
 ### `viewer.py` — `ViewerConfig`
-Camera parameters (lookat, distance, fovy, elevation, azimuth) + tracking mode (`OriginType`: AUTO / WORLD / ASSET_ROOT / ASSET_BODY). `ViewerConfig.from_position()` computes spherical params from a Cartesian viewer position.
+Camera parameters (lookat, distance, fovy, elevation, azimuth) + tracking mode (`OriginType`: AUTO / WORLD / ASSET_ROOT / ASSET_BODY). Elevation and azimuth are MuJoCo's free camera's, the direction the camera looks, so an mjlab task's values carry over as they are. `ViewerConfig.from_position()` computes spherical params from a Cartesian viewer position.
 
 ### `mjlab/`: everything that reads mjlab's own objects
 mjlab stays a soft dependency: it is imported lazily inside the functions that need it, and `onnx_meta.py` needs it not at all.

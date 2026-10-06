@@ -282,6 +282,15 @@ shortcuts.
   ghost in mjlab's default color, as it did.
 - **`DebugVisDescriptor` is `{ id, label, enabled }`**, where it was `{ term, enabled }`
   for command terms alone, and `engine.debugVis.set` takes that `id`.
+- **`ViewerConfig.azimuth` is MuJoCo's: the direction the camera looks.** mjswan measured
+  it the other way, toward the camera, so an mjlab task opened from the side opposite the
+  one mjlab's viewers show, and the `upright` reward's arrows, which mjlab draws 0.3 m
+  along world +y, stood in front of the robot instead of behind it. The azimuth now reads
+  as MuJoCo's free camera and mjlab's `ViewerConfig` read it, in
+  `ViewerConfig.from_position`, `engine.camera.set` and `get`, and the manifest, which
+  moves to document format 3. To keep a view set the old way, add 180° to its azimuth, as
+  the default and this repository's examples now do. An engine reads a format 1 or 2
+  document's azimuth 180° around, so a build made before this opens as it did.
 
 - **The engine no longer draws ENTER VR / START AR.** They sat on `document.body`, over the
   host's own controls; a host driving `createEngine` now draws its own from
