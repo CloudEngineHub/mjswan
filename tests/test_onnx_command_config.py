@@ -570,6 +570,46 @@ def test_structured_sensor_fields_become_one_slot_each():
     assert export.reference_output.shape == (1, 2)
 
 
+def test_a_sensor_field_left_uncomputed_replays_as_none():
+    """mjlab's `illegal_contact` branches on `force_history is not None`.
+
+    A contact sensor without `history_length` leaves the field `None`, which discovery
+    does not record, so the replay pass has to answer `None` too rather than raise.
+    """
+    from mjswan.compile.slot import slot_to_json
+    from mjswan.compile.term import trace_term
+
+    class _ContactData:
+        def __init__(self):
+            self.found = torch.tensor([[0, 1, 0]])
+            self.force_history = None
+
+    class _Sensor:
+        def __init__(self):
+            self.data = _ContactData()
+
+    class _Scene:
+        def __init__(self):
+            self.sensors = {"touch": _Sensor()}
+
+        def __getitem__(self, name):
+            return self.sensors[name]
+
+    class _Env:
+        def __init__(self):
+            self.scene = _Scene()
+
+    def illegal_contact(env, *, sensor_name="touch"):
+        data = env.scene[sensor_name].data
+        if data.force_history is not None:
+            return (data.force_history.norm(dim=-1) > 10.0).any(dim=-1).any(dim=-1)
+        return torch.any(data.found, dim=-1)
+
+    export = trace_term(illegal_contact, {}, _Env(), name="illegal_contact")
+    assert [slot_to_json(k)["field"] for k in export.input_slots] == ["found"]
+    assert export.reference_output.tolist() == [True]
+
+
 # ---------------------------------------------------------------------------
 # Termination fusion, whose payoff scales with the traced-term count: the locomotion and
 # manipulation tasks have 0-1, the tracking tasks three beside the native `time_out`.
