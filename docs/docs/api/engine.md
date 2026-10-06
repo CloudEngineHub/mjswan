@@ -82,9 +82,9 @@ call order, and `dispose` waits for the one running.
 | `setMotion` | `(name: string \| null) => Promise<boolean>` | Live. Resolves to whether the name was accepted. |
 | `calibrateSplat` | `(transform: SplatTransform) => void` | Live splat placement, for a calibration UI. |
 | `play` / `pause` / `reset` | `() => void` | Playback. |
-| `camera` | `CameraControls` | `set(partial)` and `get()` of a `CameraView`, whose `azimuth` and `elevation` are MuJoCo's free camera's (the direction it looks), `frame()`, and `setTracking(enabled)`, mjlab's **Track camera**: follow the viewer config's tracked body. |
+| `camera` | `CameraControls` | `set(partial)`, `get()`, `frame()`, and `setTracking(enabled)`, mjlab's **Track camera** (follow the tracked body). A `CameraView`'s `azimuth` and `elevation` are MuJoCo's: the direction the camera looks. |
 | `commands` | `CommandControls` | `set(id, value)`, `trigger(id)`. |
-| `debugVis` | `DebugVisControls` | mjlab's Debug Viz: `set(id, enabled)` for one drawing and `setEnabled(enabled)` for its **Enabled** switch over all of them. A drawing shows only while both are on. See [Debug Viz](#debug-viz). |
+| `debugVis` | `DebugVisControls` | `set(id, enabled)` for one drawing, `setEnabled(enabled)` for mjlab's Debug Viz **Enabled** over all of them. See [Debug Viz](#debug-viz). |
 | `events` | `EventControls` | `fire(name)` for a `manual` term, `setArmed(name, armed)` for an `interval` one. |
 | `interaction` | `InteractionControls` | `setMode(id)`, `getMode()`, `setParam(mode, name, value)`, `getParams(mode)`, `cancel()`. See [Pointer interaction](#pointer-interaction). |
 | `xr` | `XrControls` | `enter(id)`, `exit()`, `setHandTracking(enabled)`. See [WebXR](#webxr). |
@@ -135,9 +135,9 @@ through `engine.commands`.
 
 ### Debug Viz
 
-What mjlab's viewer draws to show what a policy is doing, under one switch each, in the
-order its Debug Viz folder lists them. Each `DebugVisDescriptor` is an `id`, the `label`
-mjlab's checkbox reads, and whether it is `enabled`:
+What mjlab's viewer draws to show what a policy is doing, one switch per drawing, in its
+Debug Viz folder's order. Each `DebugVisDescriptor` is an `id`, the `label` mjlab's
+checkbox reads, and whether it is `enabled`:
 
 | `id` | `label` | Draws |
 |---|---|---|

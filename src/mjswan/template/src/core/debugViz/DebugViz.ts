@@ -1,7 +1,6 @@
 /**
- * mjlab's Debug Viz folder: the viewer's "Enabled" over one switch per drawing, in its
- * viser viewer's order (command terms, raycast sensors, reward terms). A drawing shows
- * only while both are on.
+ * mjlab's Debug Viz folder: "Enabled" over one switch per drawing (command terms, then
+ * raycast sensors, then reward terms). A drawing shows only while both are on.
  */
 
 import type * as THREE from 'three';

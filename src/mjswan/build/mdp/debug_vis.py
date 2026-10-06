@@ -1,8 +1,4 @@
-"""The Debug Viz drawings mjlab makes beside the command terms: sensors and rewards.
-
-mjlab draws them from the live env every frame (``update_visualizers``), so the build
-restates what to draw as data, read off the trace env.
-"""
+"""Debug Viz's sensor and reward drawings, as data read off the trace env."""
 
 from __future__ import annotations
 
@@ -18,7 +14,6 @@ def _body_name(env: Any, body_id: int) -> str:
 
 
 def _upright_entry(func: Any, env: Any) -> dict[str, Any]:
-    """mjlab's ``upright`` reward: terrain normal and body up, from its own params."""
     asset_cfg = func._asset_cfg
     entity = env.scene[asset_cfg.name]
     indexing = entity.indexing
@@ -56,8 +51,7 @@ def _reward_entry(name: str, func: Any, env: Any) -> dict[str, Any] | None:
 def debug_vis_entry(env: Any) -> dict[str, Any] | None:
     """The sensors and reward terms mjlab's Debug Viz lists, or None if there are none.
 
-    A sensor is listed as mjlab's viewer lists it: a raycast sensor with ``debug_vis``.
-    One a reward drawing reads is shipped too, unlisted.
+    A sensor only a reward drawing reads ships too, with ``debug_vis`` False.
     """
     if env is None:
         return None

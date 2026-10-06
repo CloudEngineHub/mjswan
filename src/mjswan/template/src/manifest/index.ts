@@ -109,10 +109,7 @@ export interface ManifestProject {
   default?: boolean;
   scenes: ManifestScene[];
 }
-/**
- * One node of mjlab's viewer GUI as the build recorded it from mjlab's own declaration:
- * a folder, a control with mjlab's defaults, or a slot the app fills from engine state.
- */
+/** A node of mjlab's viewer GUI as recorded at build time; the app fills a `slot` from engine state. */
 export type ViewerGuiNode =
   | { type: 'folder'; label: string; children: ViewerGuiNode[] }
   | { type: 'checkbox'; label: string; default?: boolean; hint?: string }

@@ -1,7 +1,4 @@
-/**
- * The Debug Viz folder as mjlab's viser viewer builds it: "Enabled" over one switch per
- * drawing, command terms first, then raycast sensors, then reward terms.
- */
+/** `DebugViz` as mjlab's viser viewer builds the folder: "Enabled" over one switch per drawing. */
 import * as THREE from 'three';
 import { beforeAll, describe, expect, it } from 'vitest';
 

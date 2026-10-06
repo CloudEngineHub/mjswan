@@ -214,7 +214,6 @@ class TestMotionGhost:
         assert data["ghost_color"] == [0.2, 0.4, 0.6, 0.8]
 
     def test_debug_vis_defaults_off_as_mjlabs_does(self):
-        """`CommandTermCfg.debug_vis` is False unless the task turns it on."""
         from mjswan.envs.mdp.commands import serialize_motion_command
 
         class MotionCommandCfg:

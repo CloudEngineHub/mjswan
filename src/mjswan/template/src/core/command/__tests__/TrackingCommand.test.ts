@@ -114,10 +114,7 @@ describe('TrackingCommand ref window', () => {
   });
 });
 
-/**
- * The ghost is mjlab's `_debug_vis_impl` in `"ghost"` mode: drawn only while the viewer's
- * Debug Viz "Enabled" and the term's own checkbox are both on.
- */
+/** mjlab's `_debug_vis_impl` in `"ghost"` mode. */
 describe('TrackingCommand ghost', () => {
   function ghostCommand(config: Record<string, unknown> = {}): { term: TrackingCommand; scene: THREE.Scene } {
     const scene = new THREE.Scene();

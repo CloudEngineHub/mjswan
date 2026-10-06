@@ -306,7 +306,6 @@ export class TrackingCommand implements CommandTerm {
     this.updateGhostPose();
   }
 
-  /** Whether the ghost is on, or `null` when the task draws none. */
   debugVisEnabled(): boolean | null {
     return this.ghostRoot || this.frames ? this.debugVisOn : null;
   }

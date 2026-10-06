@@ -1,13 +1,9 @@
-/**
- * The spherical camera pose, read as MuJoCo's free camera reads it: azimuth and elevation
- * are the direction the camera looks, so an mjlab `ViewerConfig` opens on the same side.
- */
+/** Camera poses as MuJoCo's free camera reads them, so an mjlab view opens on the same side. */
 import { describe, expect, it } from 'vitest';
 
 import { threeToMjcCoordinate } from '../../scene/coordinate';
 import { cameraAngles, computeCameraPosition } from '../viewer_config';
 
-/** Where MuJoCo puts the camera, in MuJoCo coordinates. */
 function mujocoPosition(distance: number, elevation: number, azimuth: number): number[] {
   return threeToMjcCoordinate(computeCameraPosition([0, 0, 0], distance, elevation, azimuth)).toArray();
 }

@@ -309,8 +309,7 @@ function ControlPanel(props: ControlPanelProps) {
   // Command groups derived from the engine-supplied descriptors.
   const commandGroups = Array.from(new Set(commands.map((c) => c.group)));
 
-  // The Scene section's controls mjswan has a counterpart for, by recorded path;
-  // `tests/test_mjlab_gui.py` holds each path to mjlab's own declaration.
+  // Keyed by recorded path; `tests/test_mjlab_gui.py` holds each to mjlab's declaration.
   const viewerBindings: Record<string, ViewerGuiBinding> = {};
   if (camera && onCameraTrackingChange) {
     viewerBindings[VIEWER_GUI_PATHS.track_camera] = {

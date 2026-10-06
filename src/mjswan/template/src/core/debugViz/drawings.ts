@@ -1,7 +1,4 @@
-/**
- * The Debug Viz drawings that are not command terms: mjlab's raycast sensors and its
- * `upright` reward, redrawn from the live state every frame as mjlab's viewer does.
- */
+/** The Debug Viz drawings that are not command terms: raycast sensors and the `upright` reward. */
 
 import * as THREE from 'three';
 
@@ -16,7 +13,7 @@ export interface RaycastVizConfig {
   hit_color: Rgba;
   miss_color: Rgba;
   hit_sphere_color: Rgba;
-  /** Multiple of the model's `meansize`, as are `normal_length` and the widths. */
+  /** In units of the model's `meansize`, as is `normal_length`. */
   hit_sphere_radius: number;
   show_rays: boolean;
   show_normals: boolean;
@@ -30,7 +27,7 @@ export interface DebugVisSensorConfig extends RaycastSensorDescriptor {
   viz: RaycastVizConfig;
 }
 
-/** mjlab's `upright` reward term: its entity's root body, the body it rates, its sensors. */
+/** mjlab's `upright` reward term: it rates `body`, or `root_body` when null. */
 export interface UprightDrawingConfig {
   kind: 'upright';
   root_body: string;
@@ -218,7 +215,7 @@ function findBody(mjModel: MjModel, wanted: string): number {
 const TERRAIN_NORMAL_COLOR: Rgba = [0.8, 0.2, 0.8, 0.8];
 const BODY_UP_COLOR: Rgba = [1.0, 0.5, 0.0, 0.8];
 
-/** mjlab's `upright.debug_vis`: terrain normal and body up, side by side over the root. */
+/** mjlab's `upright.debug_vis`: terrain normal and body up. */
 export class UprightDrawing implements Drawing {
   enabled = true;
   private readonly arrows: ArrowBatch;
