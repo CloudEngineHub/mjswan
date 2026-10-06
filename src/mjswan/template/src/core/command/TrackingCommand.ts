@@ -466,8 +466,7 @@ export class TrackingCommand implements CommandTerm {
    *
    * The `ref_*` fields and `is_ready` are the look-ahead window, which mjlab has no
    * equivalent of: each is the `time_steps` offsets' frames concatenated, and the
-   * traced term slices out the ones it wants. `command` is what `get_command("motion")`
-   * reads.
+   * traced term slices out the ones it wants.
    */
   getStateField(field: string): Float32Array | null {
     switch (field) {

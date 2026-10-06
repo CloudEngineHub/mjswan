@@ -128,9 +128,8 @@ export class OnnxCommand implements CommandTerm {
 
   /**
    * One traced state field, for a `{command, field}` slot on another term's graph. The
-   * command itself, read as `get_command(name)` (field `command`) or by its own field,
-   * carries the UI override, since mjlab's joystick writes into that state; the other
-   * fields are raw.
+   * command, by field `command` (what `get_command()` reads) or its own name, carries the
+   * UI override, as mjlab's joystick writes into that state.
    */
   getStateField(field: string): Float32Array | null {
     if (field === 'command' || field === this.cfg.command_field) {
@@ -142,9 +141,8 @@ export class OnnxCommand implements CommandTerm {
   }
 
   /**
-   * Advance the timer and kick off inference; never blocks (see class docs). After an
-   * auto-reset in the same step it does nothing: `reset()` already ran the one update
-   * mjlab gives a reset env, with `dt` 0.
+   * Advance the timer and kick off inference; never blocks (see class docs). A no-op
+   * after an auto-reset: `reset()` already ran the `dt` 0 update mjlab gives a reset env.
    */
   update(dt: number, afterReset = false): void {
     if (afterReset) return;
@@ -167,9 +165,6 @@ export class OnnxCommand implements CommandTerm {
    * Resample **now**, as mjlab's `CommandTerm.reset` does — before the step's single
    * forward, so an `entity_write` it emits is published by that forward rather than
    * leaving the next observation on a stale `xpos`.
-   *
-   * The graph runs `_update_command` after the resample, the one update mjlab gives a
-   * reset env, so the step's own `update()` skips it after an auto-reset.
    */
   async reset(): Promise<void> {
     this.timeLeft = this.sampleResampleTime();

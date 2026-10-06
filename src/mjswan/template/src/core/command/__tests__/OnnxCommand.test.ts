@@ -256,7 +256,6 @@ describe('OnnxCommand: resample timer (scalar, ADR §5)', () => {
   });
 
   it('after an auto-reset, the same step\'s update leaves the state alone', async () => {
-    // mjlab updates a reset env once, with dt 0, and the reset graph already ran it.
     const session = new FakeSession(() => velocityOutputs(0, 0, 0));
     const cmd = new OnnxCommand(
       'twist',
@@ -383,7 +382,6 @@ describe('OnnxCommand: UI override (mjlab play parity, §3a)', () => {
   });
 
   it('serves other graphs the command with the override, by `command` and by its field', async () => {
-    // mjlab's joystick writes into the state, so `get_command()` and the field both see it.
     const session = new FakeSession(() => velocityOutputs(0.4, 0.1, -0.2));
     const cmd = new OnnxCommand('twist', UI_CFG, null, { session, rng: new SeededRng(1) });
     await cmd.step(true);
