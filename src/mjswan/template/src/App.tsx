@@ -8,7 +8,7 @@ import { signalReady, signalError } from './core/utils/readySignal';
 import { createEngine } from './engine';
 import type { EnginePlugins, MjswanEngine, MjswanEngineState, SceneInput } from './engine';
 import { parseManifest, sanitizeName, type Catalog, type ProjectCatalog, type ByteSource } from './manifest';
-import { applyUrlState, PANEL_PARAM, POLICY_PARAM, PROJECT_PARAM, SCENE_PARAM, VIZ_PARAM } from './urlState';
+import { applyUrlState, DEBUG_PARAM, PANEL_PARAM, POLICY_PARAM, PROJECT_PARAM, SCENE_PARAM } from './urlState';
 import './App.css';
 
 function paramFlag(param: string): boolean {
@@ -64,7 +64,7 @@ function AppContent() {
   const [policyName, setPolicyName] = useState<string | null>(null);
   const [motionName, setMotionName] = useState<string | null>(null);
   const [splatName, setSplatName] = useState<string | null>(null);
-  const [debugVisEnabled, setDebugVisEnabled] = useState(() => paramFlag(VIZ_PARAM));
+  const [debugVisEnabled, setDebugVisEnabled] = useState(() => paramFlag(DEBUG_PARAM));
   const [panelVisible, setPanelVisible] = useState(() => paramFlag(PANEL_PARAM));
   const [engineState, setEngineState] = useState<MjswanEngineState | null>(null);
 
@@ -199,7 +199,7 @@ function AppContent() {
       scene: scene?.id ?? null,
       policy: scene?.policies.find((p) => p.name === policyName)?.id ?? null,
       panel: panelVisible,
-      viz: debugVisEnabled,
+      debug: debugVisEnabled,
     });
     const url = `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`;
     window.history.replaceState({}, '', url);

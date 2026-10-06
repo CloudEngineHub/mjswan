@@ -33,7 +33,7 @@ shortcuts.
   drawn opaque.
 
   For a host's own UI: `engine.debugVis.setEnabled(enabled)` and `state.debugVisEnabled`
-  (the Enabled switch, also `?viz=0` in the app), `engine.debugVis.set(id, enabled)` with
+  (the Enabled switch, also `?debug=0` in the app), `engine.debugVis.set(id, enabled)` with
   ids `command:<term>`, `sensor:<name>`, `reward:<term>`, `engine.camera.setTracking`,
   and `state.camera` (`tracking`, `fovy`). `RaycastSensor` also serves `normals_w`.
 
@@ -585,7 +585,7 @@ shortcuts.
 
 - **`engine.setReferenceVisible`, the "Show reference" checkbox and `?ref=0`.** The ghost
   is the `motion` term's debug drawing: `engine.debugVis.set('command:motion', enabled)`
-  toggles it alone, and `engine.debugVis.setEnabled` or `?viz=0` every drawing. A link
+  toggles it alone, and `engine.debugVis.setEnabled` or `?debug=0` every drawing. A link
   still carrying `ref=0` opens with the ghost shown.
 
 - **`?hands=1`.** Use the **Hand tracking** switch in the control panel's WebXR section
