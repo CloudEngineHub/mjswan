@@ -469,6 +469,8 @@ export class TrackingCommand implements CommandTerm {
    */
   getStateField(field: string): Float32Array | null {
     switch (field) {
+      case 'command':
+        return this.getCommand();
       case 'is_ready':
         return new Float32Array([this.isReady() ? 1.0 : 0.0]);
       case 'ref_root_pos_w':

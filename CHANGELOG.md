@@ -643,6 +643,21 @@ shortcuts.
 
 ### Fixed
 
+- **A traced term that reads a command with `get_command()` gets it in the browser.** The
+  build records `get_command(name)` as the input `{command: name, field: "command"}`,
+  which the browser did not serve, so the term's graph never ran: an observation stayed at
+  its starting zeros while `run_parity` passed. `OnnxCommand` and `TrackingCommand` now
+  serve `command` as `getCommand()`.
+
+- **A traced term that reads a command sees the joystick, as mjlab's does.** mjlab's
+  velocity command writes the joystick into `vel_command_b`, so a term reading it there
+  follows the sliders; the browser served such a read the raw autonomous value. The
+  command's own field now carries the UI override.
+
+- **An auto-reset updates a traced command once, as mjlab does.** `OnnxCommand.reset()`
+  already runs `_update_command` after the resample, and the step's own update ran it
+  again, so the observation after a termination saw the command one update ahead.
+
 - **A term set to `None` is switched off, as in mjlab.** mjlab's managers skip an
   observation term or group, event, termination, command or action set to `None` (how a
   play config or subclass drops an inherited term). The observation adapter crashed on

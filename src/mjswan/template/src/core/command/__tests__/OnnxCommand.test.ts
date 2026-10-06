@@ -244,15 +244,33 @@ describe('OnnxCommand: resample timer (scalar, ADR §5)', () => {
     await settle();
     expect(session.calls[1].resample_mask.data[0]).toBe(0);
 
-    // `reset` *is* `_resample`, run before the forward — so here, not next frame.
     await cmd.reset();
     expect(session.calls.length).toBe(3);
     expect(session.calls[2].resample_mask.data[0]).toBe(1);
 
-    // The later `update()` is `_update_command` alone, as mjlab splits them.
+    // A later step's `update()` is `_update_command` alone.
     cmd.update(0.1);
     await settle();
     expect(session.calls[3].resample_mask.data[0]).toBe(0);
+  });
+
+  it('after an auto-reset, the same step\'s update leaves the state alone', async () => {
+    const session = new FakeSession(() => velocityOutputs(0, 0, 0));
+    const cmd = new OnnxCommand(
+      'twist',
+      { ...VELOCITY_CFG, resampling_time_range: [10.0, 10.0] },
+      null,
+      { session, rng: new SeededRng(1) },
+    );
+    await cmd.reset();
+    cmd.update(0.1, true);
+    await settle();
+    expect(session.calls.length).toBe(1);
+
+    cmd.update(0.1);
+    await settle();
+    expect(session.calls.length).toBe(2);
+    expect(session.calls[1].resample_mask.data[0]).toBe(0);
   });
 
   it('without resampling_time_range, resamples only on reset', async () => {
@@ -360,6 +378,19 @@ describe('OnnxCommand: UI override (mjlab play parity, §3a)', () => {
     expect(out[0]).toBeCloseTo(0.9, 6);
     expect(out[1]).toBeCloseTo(0, 6); // slider default, not the graph's 0.1
     expect(out[2]).toBeCloseTo(0.5, 6);
+  });
+
+  it('serves other graphs the command with the override, by `command` and by its field', async () => {
+    const session = new FakeSession(() => velocityOutputs(0.4, 0.1, -0.2));
+    const cmd = new OnnxCommand('twist', UI_CFG, null, { session, rng: new SeededRng(1) });
+    await cmd.step(true);
+    cmd.setValue('enabled', 1);
+    cmd.setValue('lin_vel_x', 0.9);
+    const command = Array.from(cmd.getCommand());
+    expect(command[0]).toBeCloseTo(0.9, 6);
+    expect(Array.from(cmd.getStateField('command')!)).toEqual(command);
+    expect(Array.from(cmd.getStateField('vel_command_b')!)).toEqual(command);
+    expect(Array.from(cmd.getStateField('is_standing_env')!)).toEqual([0]);
   });
 
   it('never skips the autonomous computation while enabled (mjlab parity)', async () => {

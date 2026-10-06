@@ -127,17 +127,23 @@ export class OnnxCommand implements CommandTerm {
   }
 
   /**
-   * One traced state field, for a `{command, field}` slot on another term's graph. Raw
-   * state, not `getCommand()`, since the UI override does not reach what mjlab reads.
+   * One traced state field, for a `{command, field}` slot on another term's graph. The
+   * command, by field `command` (what `get_command()` reads) or its own name, carries the
+   * UI override, as mjlab's joystick writes into that state.
    */
   getStateField(field: string): Float32Array | null {
+    if (field === 'command' || field === this.cfg.command_field) {
+      return Float32Array.from(this.getCommand());
+    }
     const tensor = this.state.get(field);
     // Copied: this tensor feeds the graph next frame, so in-place edits would corrupt it.
     return tensor ? Float32Array.from(toFloat32(tensor.data)) : null;
   }
 
   /** Advance the timer and kick off inference; never blocks (see class docs). */
-  update(dt: number): void {
+  update(dt: number, afterReset = false): void {
+    // `reset()` already ran the `dt` 0 update mjlab gives a reset env.
+    if (afterReset) return;
     this.timeLeft -= dt;
     if (this.timeLeft <= 0) {
       this.pendingResample = true;
@@ -157,9 +163,6 @@ export class OnnxCommand implements CommandTerm {
    * Resample **now**, as mjlab's `CommandTerm.reset` does — before the step's single
    * forward, so an `entity_write` it emits is published by that forward rather than
    * leaving the next observation on a stale `xpos`.
-   *
-   * The frame's later `update()` re-runs the graph with `resample_mask = 0`, which is
-   * `_update_command` alone.
    */
   async reset(): Promise<void> {
     this.timeLeft = this.sampleResampleTime();
