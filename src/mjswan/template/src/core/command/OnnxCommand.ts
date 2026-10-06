@@ -127,17 +127,27 @@ export class OnnxCommand implements CommandTerm {
   }
 
   /**
-   * One traced state field, for a `{command, field}` slot on another term's graph. Raw
-   * state, not `getCommand()`, since the UI override does not reach what mjlab reads.
+   * One traced state field, for a `{command, field}` slot on another term's graph. The
+   * command itself, read as `get_command(name)` (field `command`) or by its own field,
+   * carries the UI override, since mjlab's joystick writes into that state; the other
+   * fields are raw.
    */
   getStateField(field: string): Float32Array | null {
+    if (field === 'command' || field === this.cfg.command_field) {
+      return Float32Array.from(this.getCommand());
+    }
     const tensor = this.state.get(field);
     // Copied: this tensor feeds the graph next frame, so in-place edits would corrupt it.
     return tensor ? Float32Array.from(toFloat32(tensor.data)) : null;
   }
 
-  /** Advance the timer and kick off inference; never blocks (see class docs). */
-  update(dt: number): void {
+  /**
+   * Advance the timer and kick off inference; never blocks (see class docs). After an
+   * auto-reset in the same step it does nothing: `reset()` already ran the one update
+   * mjlab gives a reset env, with `dt` 0.
+   */
+  update(dt: number, afterReset = false): void {
+    if (afterReset) return;
     this.timeLeft -= dt;
     if (this.timeLeft <= 0) {
       this.pendingResample = true;
@@ -158,8 +168,8 @@ export class OnnxCommand implements CommandTerm {
    * forward, so an `entity_write` it emits is published by that forward rather than
    * leaving the next observation on a stale `xpos`.
    *
-   * The frame's later `update()` re-runs the graph with `resample_mask = 0`, which is
-   * `_update_command` alone.
+   * The graph runs `_update_command` after the resample, the one update mjlab gives a
+   * reset env, so the step's own `update()` skips it after an auto-reset.
    */
   async reset(): Promise<void> {
     this.timeLeft = this.sampleResampleTime();

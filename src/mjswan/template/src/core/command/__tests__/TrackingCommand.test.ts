@@ -69,6 +69,18 @@ function trackingCommand(timeSteps: number[], frames: number): TrackingCommand {
   return term;
 }
 
+describe('TrackingCommand command slot', () => {
+  it('serves `command` as getCommand(): what `get_command("motion")` reads in mjlab', () => {
+    const term = trackingCommand([0], 4);
+    (term as unknown as { selectedMotion: unknown }).selectedMotion = {
+      jointVel: Array.from({ length: 4 }, (_, i) => Float32Array.from([10 * i, -10 * i])),
+    };
+    term.refIdx = 2;
+    // mjlab's `MotionCommand.command`: the joint positions, then the joint velocities.
+    close(term.getStateField('command')!, [2, -2, 20, -20]);
+  });
+});
+
 describe('TrackingCommand ref window', () => {
   it('samples each field at every time_steps offset, in order', () => {
     const term = trackingCommand([0, 2, -1], 10);

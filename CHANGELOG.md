@@ -603,6 +603,29 @@ shortcuts.
 
 ### Fixed
 
+- **A traced term that reads a command with `get_command()` gets it in the browser.** The
+  build records `env.command_manager.get_command(name)` inside a traced term as the input
+  `{command: name, field: "command"}`, but the browser served a command input only by
+  state-field name, and a traced command has no field called `command`. The read came back
+  empty, so the graph never ran: an observation stayed at its starting zeros for good, with
+  nothing in a production build's console, while `run_parity` passed on the recorded value.
+  A port whose gait phase read the velocity command this way fed its policy zeros and fell
+  every 1.4 s. `OnnxCommand` now serves `command` and its `command_field` through
+  `getCommand()`, and `TrackingCommand` serves `command`.
+
+- **A traced term that reads a command sees the joystick, as mjlab's does.** mjlab's
+  velocity command writes the joystick into `vel_command_b`, so a term reading it there
+  follows the sliders; the browser served such a read the raw autonomous value, and a
+  standing gate kept a gait clock running with the sliders at zero. The command's own
+  field now carries the UI override, as its debug arrows already did.
+
+- **An auto-reset updates a traced command once, as mjlab does.** `OnnxCommand.reset()`
+  runs the graph with `resample_mask=1`, which is the resample and then
+  `_update_command`, and the step's own update then ran it again: after a termination the
+  next observation saw the command one update ahead (a gait clock read 1 where mjlab reads
+  0). The step's update now skips a traced command it has just reset. A manual reset was
+  already right.
+
 - **A term set to `None` is switched off, as in mjlab.** mjlab's managers skip an
   observation term or group, event, termination, command or action set to `None` (how a
   play config or subclass drops an inherited term). The observation adapter crashed on

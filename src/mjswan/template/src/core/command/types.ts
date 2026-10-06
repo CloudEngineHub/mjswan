@@ -109,7 +109,8 @@ export interface CommandTerm {
   getStateField?(field: string): Float32Array | null;
   /** Episode reset — the resample for a traced term, hence async and awaited. */
   reset?(): void | Promise<void>;
-  update?(dt: number): void;
+  /** `afterReset`: an auto-reset ran `reset()` earlier in this step. */
+  update?(dt: number, afterReset?: boolean): void;
   updateDebugVisuals?(): void;
   /** mjlab's `_debug_vis_enabled`; `null` when the term draws nothing. */
   debugVisEnabled?(): boolean | null;

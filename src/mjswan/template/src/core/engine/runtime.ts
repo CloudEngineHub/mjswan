@@ -1181,10 +1181,12 @@ export class mjswanRuntime {
         this.executeSimulationSteps();
 
         // Pre-forward, as in mjlab: derived state lags by one substep, consistently.
+        let autoReset = false;
         if (this.terminationManager && this.policyStateBuilder) {
           const postState = this.policyStateBuilder.build();
           const result = this.terminationManager.evaluate(postState, target);
           if (result.done) {
+            autoReset = true;
             // Awaited so the writes precede the forward; caught so a failure costs a reset.
             try {
               await this.resetSimulationState({ forward: false });
@@ -1200,7 +1202,7 @@ export class mjswanRuntime {
         this.mujoco.mj_forward(this.mjModel, this.mjData);
         this.updateCachedState();
 
-        this.commandManager.update(target);
+        this.commandManager.update(target, autoReset);
         this.commandManager.updateDebugVisuals();
         // Awaited so `mode="interval"` terms resolve in config order.
         try {

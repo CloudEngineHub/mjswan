@@ -176,9 +176,9 @@ export class CommandManager {
     });
   }
 
-  update(dt: number): void {
+  update(dt: number, afterReset = false): void {
     for (const term of this.terms.values()) {
-      term.update?.(dt);
+      term.update?.(dt, afterReset);
     }
   }
 
