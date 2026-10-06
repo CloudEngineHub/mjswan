@@ -199,9 +199,9 @@ export class OnnxCommand implements CommandTerm {
   }
 
   /** Redraw the `viz` primitives from the current state, as mjlab redraws each frame. */
-  updateDebugVisuals(): void {
+  updateDebugVisuals(shown = true): void {
     this.visuals?.update(
-      this.debugVisEnabled() === true,
+      shown && this.debugVisEnabled() === true,
       // mjlab's joystick writes into the term's state, so its arrows follow the sliders.
       field =>
         field === this.cfg.command_field ? this.getCommand() : this.getStateField(field),

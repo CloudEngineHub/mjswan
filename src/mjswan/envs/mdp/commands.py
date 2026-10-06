@@ -285,7 +285,13 @@ def serialize_motion_command(cfg: Any) -> dict[str, Any]:
             for key, value in (getattr(cfg, "velocity_range", None) or {}).items()
         },
         "joint_position_range": list(getattr(cfg, "joint_position_range", (0.0, 0.0))),
+        "debug_vis": bool(getattr(cfg, "debug_vis", False)),
     }
+    viz = getattr(cfg, "viz", None)
+    data["viz_mode"] = getattr(viz, "mode", "ghost")
+    ghost_color = getattr(viz, "ghost_color", None)
+    if ghost_color is not None:
+        data["ghost_color"] = [float(c) for c in ghost_color]
     entity_name = getattr(cfg, "entity_name", None)
     if entity_name:
         data["entity_name"] = entity_name

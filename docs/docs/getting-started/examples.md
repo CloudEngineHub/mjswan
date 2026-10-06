@@ -365,7 +365,7 @@ scene.set_viewer(
         lookat=(0.0, 0.0, 1.0),
         distance=3.5,
         elevation=-30.0,
-        azimuth=45.0,
+        azimuth=-135.0,
         origin_type=mjswan.ViewerConfig.OriginType.WORLD,  # or AUTO / ASSET_ROOT / ASSET_BODY
     )
 )

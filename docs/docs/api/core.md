@@ -817,7 +817,7 @@ class mjswan.ViewerConfig(
     distance: float = 4.0,
     fovy: float | None = None,
     elevation: float = -30.0,
-    azimuth: float = 45.0,
+    azimuth: float = -135.0,
     origin_type: OriginType = OriginType.AUTO,
     entity_name: str | None = None,
     body_name: str | None = None,
@@ -839,7 +839,7 @@ Camera and rendering configuration applied to a scene via `SceneHandle.set_viewe
 | `lookat` | Look-at point in MuJoCo coordinates (x forward, y left, z up). |
 | `distance` | Distance from the look-at point to the viewer. |
 | `elevation` | Elevation in degrees (negative = viewer above the look-at point). |
-| `azimuth` | Azimuth in degrees from the x-axis (forward), CCW. |
+| `azimuth` | Azimuth in degrees: the direction the viewer looks, CCW from the x-axis (forward), as MuJoCo's free camera and mjlab measure it. |
 | `fovy` | Vertical field of view in degrees (default 45). |
 | `origin_type` | One of `ViewerConfig.OriginType.{AUTO, WORLD, ASSET_ROOT, ASSET_BODY}`. Controls how the camera tracks the scene. |
 | `body_name` | Body to track when `origin_type` is `ASSET_BODY`. |

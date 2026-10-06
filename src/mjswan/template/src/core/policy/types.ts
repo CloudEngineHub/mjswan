@@ -3,6 +3,7 @@ import type { Scene } from 'three';
 
 import type { CommandsConfig } from '../command';
 import type { CommandManager } from '../command/CommandManager';
+import type { DebugVisConfig } from '../debugViz/drawings';
 import type { EventConfig } from '../event/EventBase';
 import type { Bytes } from '../utils/bytes';
 
@@ -96,5 +97,7 @@ export type PolicyConfig = {
   terminations?: Record<string, TerminationConfigEntry>;
   /** The MDP's event terms, switched with the policy rather than held by the scene (ADR 0006 §3). */
   events?: EventConfig[];
+  /** The sensors and reward terms Debug Viz draws beside the command terms. */
+  debug_vis?: DebugVisConfig;
   [key: string]: unknown;
 };

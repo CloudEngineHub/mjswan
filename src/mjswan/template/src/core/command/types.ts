@@ -111,7 +111,8 @@ export interface CommandTerm {
   reset?(): void | Promise<void>;
   /** `afterReset`: an auto-reset ran `reset()` earlier in this step. */
   update?(dt: number, afterReset?: boolean): void;
-  updateDebugVisuals?(): void;
+  /** `shown`: the viewer's Debug Viz "Enabled"; false hides the drawing regardless of the term's own switch. */
+  updateDebugVisuals?(shown?: boolean): void;
   /** mjlab's `_debug_vis_enabled`; `null` when the term draws nothing. */
   debugVisEnabled?(): boolean | null;
   setDebugVisEnabled?(enabled: boolean): void;

@@ -17,10 +17,12 @@ from typing import TYPE_CHECKING, Any
 from .._version import __version__
 from ..document import DOCUMENT_FORMAT
 from ..document.manifest import DEFAULT_IN_KEYS, DEFAULT_OUT_KEYS, RUNTIME_INPUT_SLOTS
+from ..mjlab.gui import record_scene_gui
 from ..viewer import ViewerConfig
 from .asset import motion_key
 from .frontend import uses_custom_js
 from .mdp import (
+    debug_vis_entry,
     policy_native_sizes,
     serialize_actions,
     serialize_command,
@@ -197,6 +199,8 @@ def mdp_entry(
             entry["events"] = events
     elif first_sidecar.get("events"):
         entry["events"] = first_sidecar["events"]
+    if debug_vis := debug_vis_entry(env):
+        entry["debug_vis"] = debug_vis
     return entry
 
 
@@ -351,6 +355,8 @@ def write_manifest(
         "uses_custom_js": custom_js,
         # Author custom-MDP terms, loaded by the app in trusted contexts only.
         **({"plugins": "assets/plugins.js"} if custom_js else {}),
+        # mjlab's viewer Scene section, which the control panel reproduces.
+        **({"viewer_gui": viewer_gui} if (viewer_gui := record_scene_gui()) else {}),
         "projects": [
             {
                 "id": project.id,

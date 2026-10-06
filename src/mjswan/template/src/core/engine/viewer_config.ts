@@ -12,7 +12,7 @@ export type ViewerConfig = {
   fovy?: number;
   /** Camera elevation in degrees (negative = camera above the look-at point). */
   elevation?: number;
-  /** Camera azimuth in degrees measured from the x-axis (forward) CCW. */
+  /** Camera azimuth in degrees, MuJoCo's: the direction the camera looks, CCW from +x. */
   azimuth?: number;
   /** Origin type for camera tracking. */
   originType?: 'AUTO' | 'WORLD' | 'ASSET_ROOT' | 'ASSET_BODY';
@@ -39,7 +39,7 @@ const FALLBACK_VIEW = {
   lookat: [0, 0, 0] as [number, number, number],
   distance: 4.0,
   elevation: -30.0,
-  azimuth: 45.0,
+  azimuth: -135.0,
   fovy: 45,
 } as const;
 
@@ -50,7 +50,10 @@ export type ViewerState = {
   prevBodyPos: THREE.Vector3 | null;
 };
 
-/** Camera pose in spherical MuJoCo coordinates (x forward, y left, z up). */
+/**
+ * Camera pose in spherical MuJoCo coordinates (x forward, y left, z up), with
+ * `azimuth` and `elevation` the direction the camera looks, as MuJoCo's free camera.
+ */
 export type CameraView = {
   lookat: [number, number, number];
   distance: number;
@@ -59,7 +62,7 @@ export type CameraView = {
   fovy: number;
 };
 
-
+/** MuJoCo's free camera: `distance` back from `lookat`, against the way it looks. */
 export function computeCameraPosition(
   lookat: [number, number, number],
   distance: number,
@@ -68,10 +71,23 @@ export function computeCameraPosition(
 ): THREE.Vector3 {
   const el = (elevation * Math.PI) / 180;
   const az = (azimuth * Math.PI) / 180;
-  const camX = lookat[0] + distance * Math.cos(el) * Math.cos(az);
-  const camY = lookat[1] + distance * Math.cos(el) * Math.sin(az);
+  const camX = lookat[0] - distance * Math.cos(el) * Math.cos(az);
+  const camY = lookat[1] - distance * Math.cos(el) * Math.sin(az);
   const camZ = lookat[2] - distance * Math.sin(el);
   return mjcToThreeCoordinate([camX, camY, camZ]);
+}
+
+/** {@link computeCameraPosition} undone: the pose of a camera `offset` from its look-at point. */
+export function cameraAngles(
+  offset: THREE.Vector3
+): Pick<CameraView, 'distance' | 'azimuth' | 'elevation'> {
+  const distance = offset.length();
+  const RAD2DEG = 180 / Math.PI;
+  return {
+    distance,
+    azimuth: Math.atan2(-offset.y, -offset.x) * RAD2DEG,
+    elevation: distance > 1e-9 ? Math.asin(-offset.z / distance) * RAD2DEG : 0,
+  };
 }
 
 /**

@@ -177,7 +177,29 @@ describe('RaycastSensor', () => {
   it('knows which fields it can serve', () => {
     expect(isRaycastField('distances')).toBe(true);
     expect(isRaycastField('hit_pos_w')).toBe(true);
-    // Normals need mj_ray's output pointer, which the binding does not marshal.
-    expect(isRaycastField('normals_w')).toBe(false);
+    expect(isRaycastField('normals_w')).toBe(true);
+    expect(isRaycastField('geom_ids')).toBe(false);
+  });
+
+  it('reads the surface normal at each hit, and zeros for a miss', () => {
+    // A slope tilted 20 degrees about y: its normal leans toward +x.
+    const tilted = (mujoco as unknown as { MjModel: { from_xml_string(s: string): never } })
+      .MjModel.from_xml_string(`<mujoco><worldbody>
+        <geom type="box" size="2 2 0.1" pos="0 0 -0.1" euler="0 20 0"/>
+        <body name="robot/pelvis" pos="0 0 1"><joint type="free"/><geom size="0.05"/></body>
+      </worldbody></mujoco>`);
+    const data = new (mujoco as unknown as { MjData: new (m: unknown) => never }).MjData(tilted);
+    mujoco.mj_forward(tilted, data);
+    const sensor = new RaycastSensor(
+      mujoco,
+      descriptor({ local_offsets: [[0, 0, 0], [9, 0, 0]], local_directions: [[0, 0, -1], [0, 0, -1]] }),
+    );
+    const normals = Array.from(sensor.read('normals_w', tilted, data)!);
+    const angle = (20 * Math.PI) / 180;
+    expect(normals[0]).toBeCloseTo(Math.sin(angle), 5);
+    expect(normals[1]).toBeCloseTo(0, 5);
+    expect(normals[2]).toBeCloseTo(Math.cos(angle), 5);
+    expect(normals.slice(3)).toEqual([0, 0, 0]);
+    sensor.dispose();
   });
 });

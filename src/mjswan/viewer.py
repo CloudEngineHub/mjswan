@@ -27,8 +27,9 @@ class ViewerConfig:
     elevation: float = -30.0
     """Viewer elevation in degrees (negative = viewer above the look-at point)."""
 
-    azimuth: float = 45.0
-    """Viewer azimuth in degrees measured from the x-axis (forward) CCW."""
+    azimuth: float = -135.0
+    """Viewer azimuth in degrees: the direction the viewer looks, CCW from the x-axis
+    (forward), as MuJoCo's free camera and mjlab measure it."""
 
     class OriginType(enum.Enum):
         """The frame in which the viewer position and target are defined."""
@@ -116,7 +117,7 @@ class ViewerConfig:
         dz = position[2] - target[2]
         distance = math.sqrt(dx * dx + dy * dy + dz * dz) or 1.0
         elevation = math.degrees(math.asin(-dz / distance))
-        azimuth = math.degrees(math.atan2(dy, dx))
+        azimuth = math.degrees(math.atan2(-dy, -dx))
         if origin_type is None:
             origin_type = (
                 ViewerConfig.OriginType.ASSET_BODY

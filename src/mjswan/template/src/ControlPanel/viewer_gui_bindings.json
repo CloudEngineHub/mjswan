@@ -1,0 +1,5 @@
+{
+  "track_camera": "Scene/Camera/Track camera",
+  "fov": "Scene/Camera/FOV (°)",
+  "debug_vis_enabled": "Scene/Debug Viz/Enabled"
+}
