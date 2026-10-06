@@ -99,7 +99,7 @@ interface ControlPanelProps {
   debugVisEnabled?: boolean;
   /** engine.debugVis.setEnabled. */
   onDebugVisEnabledChange?: (enabled: boolean) => void;
-  /** mjlab's viewer Scene section as the build recorded it; none, no section. */
+  /** mjlab's viewer Scene section as the build recorded it; absent, no section. */
   viewerGui?: ViewerGuiNode[];
   /** engine state's `camera`, for the Scene section's Camera folder. */
   camera?: { tracking: boolean; fovy: number };

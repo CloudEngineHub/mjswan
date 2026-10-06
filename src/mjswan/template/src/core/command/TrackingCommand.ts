@@ -69,10 +69,7 @@ const DESIRED_FRAME_COLORS: readonly Rgba[] = [
   [0.5, 0.5, 1.0, 1],
 ];
 
-/**
- * viser's ghost: the color alone, lit, at `add_ghost_mesh`'s opacity. The color's own alpha
- * only tells mjlab which geoms are visual, so it is not the ghost's opacity.
- */
+/** viser's ghost: `ghost_color`'s RGB at `GHOST_OPACITY`; mjlab uses its alpha to pick visual geoms. */
 function ghostMaterial(rgba: readonly number[]): THREE.Material {
   return viserMaterial(rgba, GHOST_OPACITY);
 }

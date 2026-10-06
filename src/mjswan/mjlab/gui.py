@@ -242,7 +242,7 @@ def record_scene_gui() -> list[dict[str, Any]] | None:
         return None
 
     server = _ServerRecorder()
-    # Stand-ins for the server and model it holds, so typed as what it is here.
+    # `Any`: it holds stand-ins, not the server and model its annotations name.
     scene: Any = object.__new__(MjlabViserScene)
     scene.server = server
     scene.num_envs = 1

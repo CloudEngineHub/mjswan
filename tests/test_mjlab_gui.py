@@ -1,4 +1,4 @@
-"""Recording mjlab's viser GUI: a command term's as a UI descriptor, the viewer's Scene section as a tree.
+"""Recording mjlab's viser GUI: command terms as UI descriptors, the Scene section as a tree.
 
 Layer: L1 (the recorder is dataclasses only) plus one ``mjlab``-marked check
 running mjlab's real ``create_gui``, so a viewer change surfaces here rather
