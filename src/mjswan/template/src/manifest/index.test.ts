@@ -98,6 +98,16 @@ describe('parseManifest', () => {
     expect(input.viewer).toEqual({ distance: 5, originType: 'ASSET_BODY', bodyName: 'torso' });
   });
 
+  it('turns an azimuth from before format 3, which pointed at the camera, to keep its view', () => {
+    const azimuthIn = (format: number) => {
+      const scene = { ...MANIFEST.projects[0].scenes[0], camera: { azimuth: 90 } };
+      const manifest: Manifest = { ...MANIFEST, format, projects: [{ ...MANIFEST.projects[0], scenes: [scene] }] };
+      return parseManifest(manifest, fakeSource().source).projects[0].scenes[0].camera?.azimuth;
+    };
+    expect(azimuthIn(2)).toBe(270);
+    expect(azimuthIn(3)).toBe(90);
+  });
+
   it('tells the engine the model format the build named the scene file for', async () => {
     const withScene = (scene: string): Manifest => ({
       ...MANIFEST,

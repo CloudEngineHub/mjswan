@@ -5,6 +5,7 @@ import { getPosition, getQuaternion } from '../scene/scene';
 import { type NpzEntry, loadNpz } from '../scene/npz';
 import { type Bytes, resolveBytes } from '../utils/bytes';
 import { OnnxEvent, isOnnxEventConfig } from '../event/OnnxEvent';
+import { ArrowBatch, addFrame, viserMaterial, type Rgba } from '../debugViz/primitives';
 import type { CommandConfigEntry, CommandTerm, CommandTermContext, CommandUiConfig } from './types';
 
 export type TrackingMotionConfig = {
@@ -57,21 +58,20 @@ function splitFrames(entry: NpzEntry): Float32Array[] {
   return frames;
 }
 
-function setGhostMaterial(material: THREE.Material): THREE.Material {
-  const next = material.clone();
-  if ('transparent' in next) {
-    next.transparent = true;
-  }
-  if ('opacity' in next) {
-    next.opacity = 0.5;
-  }
-  if ('depthWrite' in next) {
-    next.depthWrite = false;
-  }
-  if ('color' in next && next.color instanceof THREE.Color) {
-    next.color = new THREE.Color(0.5, 0.7, 0.5);
-  }
-  return next;
+/** mjlab's default `viz.ghost_color`. */
+const DEFAULT_GHOST_COLOR: readonly number[] = [0.5, 0.7, 0.5, 0.5];
+/** `DebugVisualizer.add_ghost_mesh`'s default `alpha`, which `MotionCommand` leaves as is. */
+const GHOST_OPACITY = 0.5;
+/** mjlab's `_DESIRED_FRAME_COLORS`, the reference's axes in `"frames"` mode. */
+const DESIRED_FRAME_COLORS: readonly Rgba[] = [
+  [1.0, 0.5, 0.5, 1],
+  [0.5, 1.0, 0.5, 1],
+  [0.5, 0.5, 1.0, 1],
+];
+
+/** viser's ghost: `ghost_color`'s RGB at `GHOST_OPACITY`; mjlab uses its alpha to pick visual geoms. */
+function ghostMaterial(rgba: readonly number[]): THREE.Material {
+  return viserMaterial(rgba, GHOST_OPACITY);
 }
 
 function hasRenderableMesh(object: THREE.Object3D): boolean {
@@ -118,6 +118,8 @@ export class TrackingCommand implements CommandTerm {
   private readonly loadedMotions: Map<string, LoadedTrackingMotion>;
   private sampleHz: number;
   private readonly ghostRoot: THREE.Group | null;
+  /** mjlab's `viz.mode="frames"`: reference and robot body frames instead of the ghost. */
+  private readonly frames: ArrowBatch | null;
   private readonly ghostBodies: Map<number, THREE.Group>;
   /** Model body id by name, filled on demand (see `resolveBodyId`). */
   private readonly bodyIds = new Map<string, number>();
@@ -133,7 +135,8 @@ export class TrackingCommand implements CommandTerm {
   private datasetQposAdr: number[];
   private frameAccumulator: number;
   private justReset: boolean;
-  private referenceVisible: boolean;
+  /** mjlab's `_debug_vis_enabled`. */
+  private debugVisOn: boolean;
   private readonly samplingMode: string;
   /** Look-ahead/look-back offsets the `ref_*` window state fields are sampled at. */
   private readonly timeSteps: number[];
@@ -165,7 +168,7 @@ export class TrackingCommand implements CommandTerm {
     this.datasetQposAdr = [];
     this.frameAccumulator = 0.0;
     this.justReset = true;
-    this.referenceVisible = true;
+    this.debugVisOn = true;
     this.samplingMode = typeof config.sampling_mode === 'string' ? config.sampling_mode : 'start';
     this.timeSteps = Array.isArray(config.time_steps)
       ? (config.time_steps as unknown[]).map((step) => Math.trunc(Number(step) || 0))
@@ -180,7 +183,14 @@ export class TrackingCommand implements CommandTerm {
 
     this.ghostBodies = new Map();
     this.ghostData = context.mjModel ? new context.mujoco.MjData(context.mjModel) : null;
-    this.ghostRoot = this.createGhostRoot();
+    const ghostColor = Array.isArray(config.ghost_color)
+      ? (config.ghost_color as unknown[]).map(Number)
+      : DEFAULT_GHOST_COLOR;
+    // Absent means on: documents without the field always drew the ghost.
+    const draws = config.debug_vis !== false;
+    const framesMode = config.viz_mode === 'frames';
+    this.ghostRoot = draws && !framesMode ? this.createGhostRoot(ghostColor) : null;
+    this.frames = draws && framesMode ? this.createFrames() : null;
     this.refBodyPosW = [];
     this.refBodyQuatW = [];
     this.refBodyLinVelW = [];
@@ -250,13 +260,6 @@ export class TrackingCommand implements CommandTerm {
     return true;
   }
 
-  setReferenceVisible(visible: boolean): void {
-    this.referenceVisible = visible;
-    if (this.ghostRoot) {
-      this.ghostRoot.visible = visible && this.selectedMotion !== null;
-    }
-  }
-
   reset(): void {
     this.refIdx = this.sampleInitialFrame(this.refLen);
     this.frameAccumulator = 0.0;
@@ -303,10 +306,58 @@ export class TrackingCommand implements CommandTerm {
     this.updateGhostPose();
   }
 
-  updateDebugVisuals(): void {
+  /** Whether the ghost is on, or `null` when the task draws none. */
+  debugVisEnabled(): boolean | null {
+    return this.ghostRoot || this.frames ? this.debugVisOn : null;
+  }
+
+  setDebugVisEnabled(enabled: boolean): void {
+    this.debugVisOn = enabled;
+  }
+
+  updateDebugVisuals(shown = true): void {
+    const visible = shown && this.debugVisOn && this.isReady();
     if (this.ghostRoot) {
-      this.ghostRoot.visible = this.referenceVisible && this.selectedMotion !== null;
+      this.ghostRoot.visible = visible;
     }
+    if (this.frames) {
+      this.frames.clear();
+      if (visible) this.drawFrames(this.frames);
+      this.frames.commit();
+    }
+  }
+
+  /** mjlab's `"frames"` drawing: each tracked body and the anchor, reference and robot. */
+  private drawFrames(arrows: ArrowBatch): void {
+    const bodyNames = this.getBodyNames();
+    const refPos = this.refBodyPosW[this.refIdx];
+    const refQuat = this.refBodyQuatW[this.refIdx];
+    const robotPos = this.robotBodyField('xpos', 3, bodyNames);
+    const robotQuat = this.robotBodyField('xquat', 4, bodyNames);
+    for (let i = 0; i < bodyNames.length; i++) {
+      if (refPos && refQuat) {
+        const quat = normalizeQuat(refQuat.subarray(i * 4, i * 4 + 4));
+        addFrame(arrows, refPos.subarray(i * 3, i * 3 + 3), quat, 0.08, DESIRED_FRAME_COLORS);
+      }
+      if (robotPos && robotQuat) {
+        addFrame(arrows, robotPos.subarray(i * 3, i * 3 + 3), robotQuat.subarray(i * 4, i * 4 + 4), 0.12);
+      }
+    }
+    const anchorPos = this.getAnchorPos();
+    const anchorQuat = this.getAnchorQuat();
+    if (anchorPos && anchorQuat) addFrame(arrows, anchorPos, anchorQuat, 0.1, DESIRED_FRAME_COLORS);
+    const anchor = [this.getAnchorBodyName() ?? ''];
+    const robotAnchorPos = this.robotBodyField('xpos', 3, anchor);
+    const robotAnchorQuat = this.robotBodyField('xquat', 4, anchor);
+    if (robotAnchorPos && robotAnchorQuat) addFrame(arrows, robotAnchorPos, robotAnchorQuat, 0.15);
+  }
+
+  private createFrames(): ArrowBatch {
+    const bodies = Math.max(0, ...this.motions.map((motion) => motion.body_names?.length ?? 0));
+    // Three axes for each body's two frames and the anchor's two.
+    const arrows = new ArrowBatch(3 * (2 * bodies + 2), 'Tracking Frames');
+    (this.context.mujocoRoot ?? this.context.scene).add(arrows.object);
+    return arrows;
   }
 
   dispose(): void {
@@ -324,6 +375,7 @@ export class TrackingCommand implements CommandTerm {
         }
       });
     }
+    this.frames?.dispose();
     this.ghostData?.delete?.();
   }
 
@@ -542,7 +594,7 @@ export class TrackingCommand implements CommandTerm {
     return bodyId;
   }
 
-  private createGhostRoot(): THREE.Group | null {
+  private createGhostRoot(color: readonly number[]): THREE.Group | null {
     const bodies = this.context.bodies ?? null;
     const mjModel = this.context.mjModel;
     if (!bodies || !mjModel) {
@@ -559,11 +611,11 @@ export class TrackingCommand implements CommandTerm {
       const clone = body.clone(true);
       clone.traverse((obj) => {
         if (obj instanceof THREE.Mesh) {
-          if (Array.isArray(obj.material)) {
-            obj.material = obj.material.map(setGhostMaterial);
-          } else {
-            obj.material = setGhostMaterial(obj.material);
-          }
+          obj.material = Array.isArray(obj.material)
+            ? obj.material.map(() => ghostMaterial(color))
+            : ghostMaterial(color);
+          obj.castShadow = false;
+          obj.receiveShadow = false;
           obj.renderOrder = 2;
         }
       });
@@ -885,11 +937,9 @@ export class TrackingCommand implements CommandTerm {
     return -1;
   }
 
+  /** Pose only: `updateDebugVisuals` decides whether the ghost is drawn. */
   private updateGhostPose(): void {
     if (!this.ghostRoot || !this.ghostData || !this.context.mjModel || !this.selectedMotion || !this.refLen) {
-      if (this.ghostRoot) {
-        this.ghostRoot.visible = false;
-      }
       return;
     }
 
@@ -903,7 +953,6 @@ export class TrackingCommand implements CommandTerm {
         getPosition(this.ghostData.xpos, bodyId, body.position);
         getQuaternion(this.ghostData.xquat, bodyId, body.quaternion);
       }
-      this.ghostRoot.visible = this.referenceVisible;
       return;
     }
 
@@ -935,7 +984,6 @@ export class TrackingCommand implements CommandTerm {
       getPosition(this.ghostData.xpos, bodyId, body.position);
       getQuaternion(this.ghostData.xquat, bodyId, body.quaternion);
     }
-    this.ghostRoot.visible = this.referenceVisible;
   }
 
   private findFreeJointIndex(): number {

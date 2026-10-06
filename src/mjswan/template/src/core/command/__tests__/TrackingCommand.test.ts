@@ -113,3 +113,119 @@ describe('TrackingCommand ref window', () => {
     close(term.getStateField('ref_root_pos_w')!, [2, 0, 0]);
   });
 });
+
+/**
+ * The ghost is mjlab's `_debug_vis_impl` in `"ghost"` mode: drawn only while the viewer's
+ * Debug Viz "Enabled" and the term's own checkbox are both on.
+ */
+describe('TrackingCommand ghost', () => {
+  function ghostCommand(config: Record<string, unknown> = {}): { term: TrackingCommand; scene: THREE.Scene } {
+    const scene = new THREE.Scene();
+    const link = new THREE.Group();
+    link.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial()));
+    const context = {
+      mujoco: { MjData: class {} },
+      // Body 1 hangs off a joint, so the ghost clones it.
+      mjModel: { nbody: 2, body_jntnum: [0, 1], body_parentid: [0, 0] },
+      mjData: null,
+      scene,
+      bodies: { 1: link },
+    } as unknown as CommandTermContext;
+    const term = new TrackingCommand(
+      'motion',
+      { name: 'TrackingCommand', ...config } as unknown as CommandConfigEntry,
+      context,
+    );
+    (term as unknown as { selectedMotion: unknown }).selectedMotion = {};
+    term.refLen = 1;
+    return { term, scene };
+  }
+
+  const ghostOf = (scene: THREE.Scene) => scene.getObjectByName('Tracking Ghost')!;
+
+  it('draws only while Debug Viz and its own checkbox are both on', () => {
+    const { term, scene } = ghostCommand({ debug_vis: true });
+    term.updateDebugVisuals(true);
+    expect(ghostOf(scene).visible).toBe(true);
+
+    term.updateDebugVisuals(false);
+    expect(ghostOf(scene).visible).toBe(false);
+
+    term.setDebugVisEnabled(false);
+    term.updateDebugVisuals(true);
+    expect(ghostOf(scene).visible).toBe(false);
+    expect(term.debugVisEnabled()).toBe(false);
+  });
+
+  it('stays hidden with no motion selected', () => {
+    const { term, scene } = ghostCommand();
+    (term as unknown as { selectedMotion: unknown }).selectedMotion = null;
+    term.updateDebugVisuals(true);
+    expect(ghostOf(scene).visible).toBe(false);
+  });
+
+  it('builds no ghost and offers no checkbox when the task leaves debug_vis off', () => {
+    const { term, scene } = ghostCommand({ debug_vis: false });
+    expect(term.debugVisEnabled()).toBeNull();
+    expect(scene.getObjectByName('Tracking Ghost')).toBeUndefined();
+  });
+
+  it('draws for a document written before debug_vis was carried', () => {
+    expect(ghostCommand().term.debugVisEnabled()).toBe(true);
+  });
+
+  it("paints the ghost in the task's ghost_color at viser's ghost opacity", () => {
+    const { scene } = ghostCommand({ ghost_color: [1, 0, 0, 0.25] });
+    const mesh = ghostOf(scene).getObjectByProperty('type', 'Mesh') as THREE.Mesh;
+    const material = mesh.material as THREE.MeshStandardMaterial;
+    expect(material.color.toArray()).toEqual([1, 0, 0]);
+    // The color's alpha only marks visual geoms in mjlab; `add_ghost_mesh` draws at 0.5.
+    expect(material.opacity).toBe(0.5);
+    expect(mesh.castShadow).toBe(false);
+  });
+});
+
+/** mjlab's `viz.mode="frames"`: reference and robot frames for each body and the anchor. */
+describe('TrackingCommand frames', () => {
+  it('draws three axes for each of the four frames of one body, and builds no ghost', () => {
+    const scene = new THREE.Scene();
+    const context = {
+      mujoco: { MjData: class {} },
+      mjModel: {
+        nbody: 2,
+        body: (i: number) => ({ name: ['world', 'robot/pelvis'][i] }),
+        body_jntnum: [0, 1],
+        body_parentid: [0, 0],
+      },
+      mjData: {
+        xpos: Float64Array.from([0, 0, 0, 0.2, 0, 0.9]),
+        xquat: Float64Array.from([1, 0, 0, 0, 1, 0, 0, 0]),
+      },
+      scene,
+      bodies: { 1: new THREE.Group() },
+    } as unknown as CommandTermContext;
+    const motion = { name: 'clip', body_names: ['pelvis'], anchor_body_name: 'pelvis' };
+    const term = new TrackingCommand(
+      'motion',
+      { name: 'TrackingCommand', viz_mode: 'frames', motions: [motion] } as unknown as CommandConfigEntry,
+      context,
+    );
+    const shafts = () =>
+      (scene.getObjectByName('Tracking Frames')!.children[0] as THREE.InstancedMesh).count;
+    expect(scene.getObjectByName('Tracking Ghost')).toBeUndefined();
+    expect(term.debugVisEnabled()).toBe(true);
+
+    term.updateDebugVisuals(true);
+    expect(shafts()).toBe(0); // No clip yet.
+
+    const internals = term as unknown as Record<string, unknown>;
+    internals.selectedMotion = motion;
+    internals.refBodyPosW = [Float32Array.from([0, 0, 1])];
+    internals.refBodyQuatW = [Float32Array.from([1, 0, 0, 0])];
+    term.refLen = 1;
+    term.updateDebugVisuals(true);
+    expect(shafts()).toBe(3 * 4);
+    term.updateDebugVisuals(false);
+    expect(shafts()).toBe(0);
+  });
+});

@@ -5,8 +5,8 @@
  *
  * The build ships the generated ray offsets, so every mjlab pattern works here.
  *
- * `normals_w` is not produced — the emscripten binding does not marshal `mj_ray`'s
- * output pointers back, and no traced term reads normals.
+ * `normals_w` costs a `DoubleBuffer`, the only output the binding writes back, so it is
+ * cast only once something reads it.
  */
 
 type MjModel = import('mujoco').MjModel;
@@ -40,6 +40,7 @@ export interface RaycastSensorDescriptor {
 export type RaycastField =
   | 'distances'
   | 'hit_pos_w'
+  | 'normals_w'
   | 'frame_pos_w'
   | 'frame_quat_w'
   | 'pos_w'
@@ -48,6 +49,7 @@ export type RaycastField =
 const RAYCAST_FIELDS: ReadonlySet<string> = new Set<RaycastField>([
   'distances',
   'hit_pos_w',
+  'normals_w',
   'frame_pos_w',
   'frame_quat_w',
   'pos_w',
@@ -165,6 +167,11 @@ export class RaycastSensor {
   /** Reused across frames — a height scan is ~200 rays every control step. */
   private readonly distances: Float32Array;
   private readonly hitPos: Float32Array;
+  private readonly origins: Float32Array;
+  private readonly directions: Float32Array;
+  private readonly normals: Float32Array;
+  /** `mj_ray`'s normal output, allocated on the first read of `normals_w`. */
+  private normalOut: { GetView(): ArrayLike<number>; delete(): void } | null = null;
 
   /** `mj_ray`'s per-group mask (nonzero = castable), or null for every group. */
   private readonly geomGroup: Uint8Array | null;
@@ -176,6 +183,9 @@ export class RaycastSensor {
     const total = descriptor.frames.length * descriptor.local_offsets.length;
     this.distances = new Float32Array(total);
     this.hitPos = new Float32Array(total * 3);
+    this.origins = new Float32Array(total * 3);
+    this.directions = new Float32Array(total * 3);
+    this.normals = new Float32Array(total * 3);
     this.geomGroup = geomGroupMask(descriptor.include_geom_groups);
   }
 
@@ -199,9 +209,44 @@ export class RaycastSensor {
       case 'hit_pos_w':
         this.cast(poses, mjModel, mjData);
         return this.hitPos;
+      case 'normals_w':
+        this.cast(poses, mjModel, mjData, true);
+        return this.normals;
       default:
         return null;
     }
+  }
+
+  /**
+   * Every ray of one cast, for a drawing: origins, world directions and hits `[N*3]`,
+   * distances `[N]` (-1 for a miss), and normals `[N*3]` when asked for. Null if the
+   * frames are missing.
+   */
+  trace(
+    mjModel: MjModel,
+    mjData: MjData,
+    withNormals = false,
+  ): {
+    origins: Float32Array;
+    directions: Float32Array;
+    distances: Float32Array;
+    hitPos: Float32Array;
+    normals: Float32Array | null;
+  } | null {
+    if (!this.resolve(mjModel)) return null;
+    this.cast(this.framePoses(mjData), mjModel, mjData, withNormals);
+    return {
+      origins: this.origins,
+      directions: this.directions,
+      distances: this.distances,
+      hitPos: this.hitPos,
+      normals: withNormals ? this.normals : null,
+    };
+  }
+
+  dispose(): void {
+    this.normalOut?.delete();
+    this.normalOut = null;
   }
 
   /** Look up each frame's model index once per model. */
@@ -256,9 +301,16 @@ export class RaycastSensor {
     return this.frames;
   }
 
-  private cast(poses: FramePose[], mjModel: MjModel, mjData: MjData): void {
+  private cast(poses: FramePose[], mjModel: MjModel, mjData: MjData, withNormals = false): void {
     const { local_offsets, local_directions, ray_alignment, max_distance } =
       this.descriptor;
+    if (withNormals && !this.normalOut) {
+      const buffers = this.mujoco as unknown as {
+        DoubleBuffer: { FromArray(values: number[]): RaycastSensor['normalOut'] };
+      };
+      this.normalOut = buffers.DoubleBuffer.FromArray([0, 0, 0]);
+    }
+    const normalOut = withNormals ? this.normalOut : null;
     const perFrame = local_offsets.length;
     let ray = 0;
     for (let f = 0; f < poses.length; f++) {
@@ -282,14 +334,18 @@ export class RaycastSensor {
           true,
           exclude,
           this.geomId,
-          null,
+          normalOut,
         );
         // mjlab treats an over-range hit as a miss too, not just "no geom".
         if (distance > max_distance) distance = -1;
         this.distances[ray] = distance;
         const travelled = Math.max(distance, 0);
+        const normal = normalOut?.GetView();
         for (let k = 0; k < 3; k++) {
+          this.origins[ray * 3 + k] = origin[k];
+          this.directions[ray * 3 + k] = direction[k];
           this.hitPos[ray * 3 + k] = origin[k] + direction[k] * travelled;
+          if (normal) this.normals[ray * 3 + k] = distance >= 0 ? normal[k] : 0;
         }
       }
     }

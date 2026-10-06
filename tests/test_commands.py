@@ -196,6 +196,58 @@ class TestMotionRsiRegistration:
         assert _motion_rsi_trace(MotionCommandCfg()) is None
 
 
+class TestMotionGhost:
+    """The ghost mjlab's `MotionCommand._debug_vis_impl` draws, carried to the browser."""
+
+    class MotionCommandCfg:
+        debug_vis = True
+
+        class viz:
+            mode = "ghost"
+            ghost_color = (0.2, 0.4, 0.6, 0.8)
+
+    def test_debug_vis_and_ghost_color_reach_the_browser(self):
+        from mjswan.envs.mdp.commands import serialize_motion_command
+
+        data = serialize_motion_command(self.MotionCommandCfg())
+        assert data["debug_vis"] is True
+        assert data["ghost_color"] == [0.2, 0.4, 0.6, 0.8]
+
+    def test_debug_vis_defaults_off_as_mjlabs_does(self):
+        """`CommandTermCfg.debug_vis` is False unless the task turns it on."""
+        from mjswan.envs.mdp.commands import serialize_motion_command
+
+        class MotionCommandCfg:
+            anchor_body_name = "torso_link"
+
+        assert serialize_motion_command(MotionCommandCfg())["debug_vis"] is False
+
+    def test_viz_mode_reaches_the_browser(self):
+        from mjswan.envs.mdp.commands import serialize_motion_command
+
+        class MotionCommandCfg:
+            debug_vis = True
+
+            class viz:
+                mode = "frames"
+
+        assert serialize_motion_command(MotionCommandCfg())["viz_mode"] == "frames"
+        assert serialize_motion_command(self.MotionCommandCfg())["viz_mode"] == "ghost"
+
+    def test_mjlabs_own_tracking_task_shows_the_ghost(self):
+        pytest.importorskip("mjlab")
+        from mjlab.tasks.tracking.config.g1.env_cfgs import (
+            unitree_g1_flat_tracking_env_cfg,
+        )
+
+        from mjswan.envs.mdp.commands import serialize_motion_command
+
+        motion = unitree_g1_flat_tracking_env_cfg(play=True).commands["motion"]
+        data = serialize_motion_command(motion)
+        assert data["debug_vis"] is True
+        assert data["ghost_color"] == list(motion.viz.ghost_color)
+
+
 class TestVelocityViz:
     """The drawing restated from mjlab's `_debug_vis_impl`, pinned against its source.
 

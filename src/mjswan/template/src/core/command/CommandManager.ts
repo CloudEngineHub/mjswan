@@ -182,9 +182,10 @@ export class CommandManager {
     }
   }
 
-  updateDebugVisuals(): void {
+  /** `shown` is the viewer's Debug Viz "Enabled". */
+  updateDebugVisuals(shown = true): void {
     for (const term of this.terms.values()) {
-      term.updateDebugVisuals?.();
+      term.updateDebugVisuals?.(shown);
     }
   }
 
@@ -202,8 +203,6 @@ export class CommandManager {
     const term = this.terms.get(name);
     if (!term?.setDebugVisEnabled) return;
     term.setDebugVisEnabled(enabled);
-    // The next frame would do this, but a paused sim has no next frame.
-    term.updateDebugVisuals?.();
     this.emit({ type: 'debug_vis', commandId: name, groupName: name });
   }
 

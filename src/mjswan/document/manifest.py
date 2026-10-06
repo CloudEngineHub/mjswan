@@ -13,7 +13,11 @@ MANIFEST_NAME = "manifest.json"
 #: 2: ``input_slots`` may carry a raw ``mjData`` field (``{"sim": ...}``), narrowed to
 #: ``rows``. A format-1 engine accepts the entry, cannot serve it, and freezes the
 #: observation group at its previous value.
-DOCUMENT_FORMAT = 2
+#:
+#: 3: ``camera.azimuth`` is MuJoCo's, the direction the camera looks. Formats 1 and 2
+#: measured it from the look-at point to the camera, so an older engine would show every
+#: scene from the opposite side.
+DOCUMENT_FORMAT = 3
 
 #: Input slots the runtime fills itself rather than from an observation group: the
 #: recurrent carry (``is_init``, ``adapt_hx``) and the step counter (``time_step``).

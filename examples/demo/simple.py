@@ -32,7 +32,7 @@ def setup_builder() -> mjswan.Builder:
             lookat=(0.0, 0.0, 0.0),
             distance=3.0,
             elevation=-20.0,
-            azimuth=0.0,
+            azimuth=180.0,
             origin_type=mjswan.ViewerConfig.OriginType.ASSET_BODY,
             body_name="torso_link",
         )

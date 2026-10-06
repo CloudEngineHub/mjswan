@@ -1587,7 +1587,7 @@ class SceneHandle:
                 lookat=(0.0, 0.0, 0.7),
                 distance=4.3,
                 elevation=-33,
-                azimuth=-34,
+                azimuth=146,
                 origin_type=ViewerConfig.OriginType.ASSET_BODY,
                 body_name="torso_link",
             ))

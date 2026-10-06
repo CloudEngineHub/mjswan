@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from .action import serialize_actions
 from .command import command_config, serialize_command, write_command_artifact
+from .debug_vis import debug_vis_entry
 from .event import model_field_dr_descriptor, serialize_event, serialize_events
 from .graph import onnx_ref, stamp_provenance, write_onnx
 from .observation import (
@@ -32,6 +33,7 @@ __all__ = [
     "FUSED_TERMINATION_KEY",
     "command_config",
     "contact_sensor_descriptor",
+    "debug_vis_entry",
     "model_field_dr_descriptor",
     "onnx_ref",
     "policy_native_sizes",

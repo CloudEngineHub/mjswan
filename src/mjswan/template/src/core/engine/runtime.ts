@@ -43,6 +43,7 @@ import {
   type ViewerConfig,
   type ViewerState,
   applyViewerConfig,
+  cameraAngles,
   computeCameraPosition,
   updateCameraFromData,
 } from './viewer_config';
@@ -65,6 +66,7 @@ import type { PolicyConfig } from '../policy/types';
 import { TrackingPolicy } from '../policy/modules/TrackingPolicy';
 import { LocomotionPolicy } from '../policy/modules/LocomotionPolicy';
 import { CommandManager, type CommandTermContext, type CommandsConfig } from '../command';
+import { DebugViz } from '../debugViz/DebugViz';
 import { EventManager, type EventControl } from '../event/EventManager';
 import { ModelFieldDefaults } from '../event/modelFieldDr';
 import type { EventContext, TerrainData } from '../event/EventBase';
@@ -186,7 +188,6 @@ export type XrRequest = {
 
 type MotionCommandTerm = {
   setSelectedMotion(name: string | null): Promise<boolean> | boolean;
-  setReferenceVisible?(visible: boolean): void;
   getSelectedMotionName?(): string | null;
 };
 
@@ -303,8 +304,6 @@ export class mjswanRuntime {
   private scenePrefixed = false;
   /** Loaded again onto the new model by a rebuild. */
   private currentPolicy: ResolvedPolicy | null = null;
-  /** Restored by a rebuild, since the policy load shows the reference again. */
-  private referenceVisible = true;
   /** Parent of the camera and hands: what XR locomotion moves. Identity outside a session. */
   private readonly xrRig: THREE.Group;
   private readonly xrClock = new THREE.Clock(false);
@@ -318,7 +317,10 @@ export class mjswanRuntime {
   private colliderMesh: THREE.Group | null;
   private currentSplatTransform: SplatTransform;
   private cameraState: ViewerState;
+  /** mjviser's "Track camera": whether the view follows the tracked body. */
+  private cameraTracking = true;
   private commandManager: CommandManager;
+  private readonly debugVizSet: DebugViz;
   /** `joint_position_reference` terms → the command name publishing their reference. */
   private readonly referenceActionCommands = new Map<ResolvedActionTerm, string>();
   private scenePlugins: EnginePlugins;
@@ -356,6 +358,10 @@ export class mjswanRuntime {
     this.container = container;
     this.termSeed = termSeed;
     this.commandManager = new CommandManager();
+    this.debugVizSet = new DebugViz(this.commandManager, () => ({
+      mjModel: this.mjModel,
+      mjData: this.mjData,
+    }));
     this.scenePlugins = {};
     this.policyPlugins = {};
     this.policyGraphs = new OnnxSessionCache();
@@ -607,15 +613,6 @@ export class mjswanRuntime {
     return term.getSelectedMotionName?.() ?? null;
   }
 
-  setReferenceVisible(visible: boolean): void {
-    this.referenceVisible = visible;
-    const term = this.commandManager.getTerm('motion');
-    if (!isMotionCommandTerm(term) || typeof term.setReferenceVisible !== 'function') {
-      return;
-    }
-    term.setReferenceVisible(visible);
-  }
-
   private async buildScene(modelPath: string): Promise<void> {
     if (this.loadingScene) {
       await this.loadingScene;
@@ -809,6 +806,10 @@ export class mjswanRuntime {
   /** Instance-scoped command manager the engine reads/writes and subscribes to. */
   get commands(): CommandManager {
     return this.commandManager;
+  }
+
+  get debugViz(): DebugViz {
+    return this.debugVizSet;
   }
 
   /** The seed this instance's traced terms draw from, so an app can persist it. */
@@ -1029,19 +1030,17 @@ export class mjswanRuntime {
 
   /**
    * Recompile the loaded scene with or without the hand bones, keeping the policy, motion,
-   * reference ghost, command values, debug drawings, event schedules, splat and camera. The
-   * simulation restarts as after a reset. The hands are appended, so original body ids (and
-   * a camera tracking one) stay valid.
+   * command values, debug drawings, event schedules, splat and camera. The simulation
+   * restarts as after a reset. The hands are appended, so original body ids (and a camera
+   * tracking one) stay valid.
    */
   private async rebuildModel(hands: boolean): Promise<void> {
     const wasRunning = this.running;
     await this.stop();
     this.interaction.cancel();
     const motion = this.getSelectedMotionName();
-    // Before the policy reload, which shows the ghost again.
-    const reference = this.referenceVisible;
     const values = this.commandManager.getValues();
-    const drawings = this.commandManager.getDebugVisTerms();
+    const drawings = this.debugVizSet.entries();
     const schedules = this.eventManager?.controls().filter((c) => c.kind === 'interval') ?? [];
     const kept = { module: this.onnxModule };
 
@@ -1070,9 +1069,8 @@ export class mjswanRuntime {
     if (this.mjModel) this.modelFieldDefaults = new ModelFieldDefaults(this.mjModel);
     await this.loadPolicyConfig(this.currentPolicy, kept);
     if (motion !== null) await this.setSelectedMotion(motion);
-    this.setReferenceVisible(reference);
     for (const [id, value] of Object.entries(values)) this.commandManager.setValue(id, value);
-    for (const { name, enabled } of drawings) this.commandManager.setDebugVisEnabled(name, enabled);
+    for (const { id, enabled } of drawings) this.debugVizSet.set(id, enabled);
     for (const { name, armed } of schedules) this.setEventArmed(name, armed);
 
     if (wasRunning) {
@@ -1088,20 +1086,35 @@ export class mjswanRuntime {
   // ── camera (spherical, MuJoCo coordinates) ──────────────────────────────
   /** Read the current camera pose back in spherical MuJoCo coordinates. */
   getCameraView(): CameraView {
-    const offsetThree = this.camera.position.clone().sub(this.controls.target);
-    const distance = offsetThree.length();
-    const offset = threeToMjcCoordinate(offsetThree);
+    const offset = threeToMjcCoordinate(this.camera.position.clone().sub(this.controls.target));
     const target = threeToMjcCoordinate(this.controls.target.clone());
-    const RAD2DEG = 180 / Math.PI;
-    const elevation = distance > 1e-9 ? Math.asin(-offset.z / distance) * RAD2DEG : 0;
-    const azimuth = Math.atan2(offset.y, offset.x) * RAD2DEG;
     return {
       lookat: [target.x, target.y, target.z],
-      distance,
-      azimuth,
-      elevation,
+      ...cameraAngles(offset),
       fovy: this.camera.fov,
     };
+  }
+
+  get isCameraTracking(): boolean {
+    return this.cameraTracking;
+  }
+
+  /**
+   * Follow the tracked body or leave the view where it is. Turned back on, the view
+   * jumps to the body with its angle and zoom kept, as mjviser recentres it.
+   */
+  setCameraTracking(enabled: boolean): void {
+    if (enabled && !this.cameraTracking) {
+      const body = this.cameraState.trackBodyId;
+      if (body !== null && this.mjData) {
+        const bodyPos = mjcToThreeCoordinate(this.mjData.xpos.slice(body * 3, body * 3 + 3));
+        this.camera.position.add(bodyPos.clone().sub(this.controls.target));
+        this.controls.target.copy(bodyPos);
+        this.controls.update();
+      }
+      this.cameraState.prevBodyPos = null;
+    }
+    this.cameraTracking = enabled;
   }
 
   /** Overwrite the camera pose; body tracking and OrbitControls both stay live. */
@@ -1201,7 +1214,7 @@ export class mjswanRuntime {
         this.updateCachedState();
 
         this.commandManager.update(target);
-        this.commandManager.updateDebugVisuals();
+        this.debugVizSet.update();
         // Awaited so `mode="interval"` terms resolve in config order.
         try {
           await this.eventManager?.tick(target, this.eventContext());
@@ -1249,6 +1262,7 @@ export class mjswanRuntime {
     this.clipActions = null;
     this.raycastSensors = {};
     this.contactSensors = new ContactSensorSet();
+    this.debugVizSet.clear();
 
     // An MDP switch, in order (ADR 0006 §9): restore every model field the previous
     // startup pass touched, reseed, then apply the incoming MDP's startup events over the
@@ -1311,6 +1325,7 @@ export class mjswanRuntime {
       const structured = collectStructuredSensors(config);
       this.raycastSensors = structured.raycast;
       this.contactSensors = new ContactSensorSet(structured.contact);
+      this.debugVizSet.load(config.debug_vis, this.mujoco, this.mujocoRoot ?? this.scene);
       // Metadata comes from policy.json, bytes from the app; merge them by name.
       if (Array.isArray(config.motions)) {
         const dataByName = new Map(policy.motions.map((m) => [m.name, m.data]));
@@ -1353,8 +1368,6 @@ export class mjswanRuntime {
               ?? config.motions?.[0]?.name
               ?? null
           );
-          // Through the setter, so a rebuild restores the ghost as shown.
-          this.setReferenceVisible(true);
         }
         this.mujoco.mj_forward(this.mjModel, this.mjData);
         this.updateCachedState();
@@ -2046,13 +2059,15 @@ export class mjswanRuntime {
   };
 
   private render = (): void => {
-    this.commandManager.updateDebugVisuals();
+    this.debugVizSet.update();
 
     // In a session the head pose owns the camera, and OrbitControls stays out of it, or its
     // next update rebuilds the orbit from the head.
     const presenting = this.renderer.xr.isPresenting;
     if (this.mjData) {
-      updateCameraFromData(this.mjData, this.camera, this.controls, this.cameraState, presenting);
+      if (this.cameraTracking) {
+        updateCameraFromData(this.mjData, this.camera, this.controls, this.cameraState, presenting);
+      }
     }
     if (presenting) {
       const seconds = Math.min(this.xrClock.getDelta(), MAX_XR_FRAME_SECONDS);
@@ -2204,6 +2219,7 @@ export class mjswanRuntime {
     this.mujocoRoot = null;
     this.dynamicBodyIds = null;
     this.lastSimState.bodies.clear();
+    this.debugVizSet.clear();
     this.commandManager.dispose();
   }
 

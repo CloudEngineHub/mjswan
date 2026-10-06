@@ -109,6 +109,24 @@ export interface ManifestProject {
   default?: boolean;
   scenes: ManifestScene[];
 }
+/**
+ * One node of mjlab's viewer GUI as the build recorded it from mjlab's own declaration:
+ * a folder, a control with mjlab's defaults, or a slot the app fills from engine state.
+ */
+export type ViewerGuiNode =
+  | { type: 'folder'; label: string; children: ViewerGuiNode[] }
+  | { type: 'checkbox'; label: string; default?: boolean; hint?: string }
+  | {
+      type: 'slider';
+      label: string;
+      min?: number;
+      max?: number;
+      step?: number;
+      default?: number;
+      hint?: string;
+    }
+  | { type: 'slot'; name: string };
+
 export interface Manifest {
   /**
    * Document format (ADR 0006 §7): the structure of the build, bumped only for a break an
@@ -120,6 +138,8 @@ export interface Manifest {
   uses_custom_js?: boolean;
   /** Document-root-relative path to the runtime custom-MDP plugin ESM (custom-TS builds). */
   plugins?: string;
+  /** mjlab's viewer Scene section; absent from a build made without mjlab. */
+  viewer_gui?: ViewerGuiNode[];
   projects: ManifestProject[];
 }
 
@@ -166,6 +186,8 @@ export interface Catalog {
    * app imports it and passes the exports as {@link EnginePlugins}; mjswan Cloud ignores it.
    */
   pluginsPath?: string;
+  /** {@link Manifest.viewer_gui}. */
+  viewerGui?: ViewerGuiNode[];
 }
 
 /**
@@ -182,9 +204,10 @@ export function sanitizeName(name: string): string {
 
 /**
  * The newest document format this reader understands (ADR 0006 §7). A ceiling: every
- * earlier format still parses. 2 added `sim` input slots and their `rows`.
+ * earlier format still parses. 2 added `sim` input slots and their `rows`; 3 made
+ * `camera.azimuth` MuJoCo's, the direction the camera looks.
  */
-export const MAX_DOCUMENT_FORMAT = 2;
+export const MAX_DOCUMENT_FORMAT = 3;
 
 /**
  * Refuse a document this reader cannot read: one without a `format`, or one newer than it
@@ -225,14 +248,15 @@ function urlBytes(url: string): Bytes {
 }
 
 /** The manifest's snake_case camera entry as the engine's `ViewerConfig`. */
-function toViewerConfig(camera: ManifestCamera | undefined): ViewerConfig | undefined {
+function toViewerConfig(camera: ManifestCamera | undefined, format: number): ViewerConfig | undefined {
   if (!camera) return undefined;
   const view: ViewerConfig = {};
   if (camera.lookat !== undefined) view.lookat = camera.lookat;
   if (camera.distance !== undefined) view.distance = camera.distance;
   if (camera.fovy !== undefined) view.fovy = camera.fovy;
   if (camera.elevation !== undefined) view.elevation = camera.elevation;
-  if (camera.azimuth !== undefined) view.azimuth = camera.azimuth;
+  // Before format 3 the azimuth pointed at the camera rather than the way it looks.
+  if (camera.azimuth !== undefined) view.azimuth = format < 3 ? camera.azimuth + 180 : camera.azimuth;
   if (camera.origin_type !== undefined) view.originType = camera.origin_type;
   if (camera.entity_name !== undefined) view.entityName = camera.entity_name;
   if (camera.body_name !== undefined) view.bodyName = camera.body_name;
@@ -313,7 +337,12 @@ function buildPolicy(
   };
 }
 
-function toSceneEntry(project: ManifestProject, scene: ManifestScene, source: ByteSource): SceneEntry {
+function toSceneEntry(
+  project: ManifestProject,
+  scene: ManifestScene,
+  source: ByteSource,
+  format: number,
+): SceneEntry {
   // `<project-id>/<scene-id>/`: the base every path under a scene entry resolves against.
   const dir = `${project.id}/${scene.id}/`;
 
@@ -336,7 +365,7 @@ function toSceneEntry(project: ManifestProject, scene: ManifestScene, source: By
   return {
     id: scene.id,
     name: scene.name,
-    camera: toViewerConfig(scene.camera),
+    camera: toViewerConfig(scene.camera, format),
     splatSection: scene.splat_section ?? false,
     policies,
     splats,
@@ -355,7 +384,7 @@ function toSceneEntry(project: ManifestProject, scene: ManifestScene, source: By
         modelFormat: scene.scene.endsWith('.mjb') ? 'mjb' : 'mjz',
         policy: policy ? buildPolicy(dir, scene, policy, source) : null,
         splat: splat ? buildSplat(dir, splat, source) : null,
-        viewer: toViewerConfig(scene.camera),
+        viewer: toViewerConfig(scene.camera, format),
         terrainData: scene.terrain_data,
         controlDt: scene.control_dt,
       };
@@ -379,8 +408,9 @@ export function parseManifest(manifest: Manifest | string, source: ByteSource): 
       id: project.id,
       name: project.name,
       default: project === flagged,
-      scenes: project.scenes.map((scene) => toSceneEntry(project, scene, source)),
+      scenes: project.scenes.map((scene) => toSceneEntry(project, scene, source, parsed.format)),
     })),
     pluginsPath: parsed.plugins,
+    viewerGui: parsed.viewer_gui,
   };
 }

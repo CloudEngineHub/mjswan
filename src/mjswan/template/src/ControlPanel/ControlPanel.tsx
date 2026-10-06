@@ -30,6 +30,9 @@ import { InteractionSection } from './InteractionSection';
 import { WebXrSection } from './WebXrSection';
 import { SliderRow } from './SliderRow';
 import { SplatSection } from './SplatSection';
+import { ViewerGuiSection, type ViewerGuiBinding } from './ViewerGuiSection';
+import VIEWER_GUI_PATHS from './viewer_gui_bindings.json';
+import type { ViewerGuiNode } from '../manifest';
 import type {
   CommandDescriptor,
   DebugVisDescriptor,
@@ -72,8 +75,6 @@ interface ControlPanelProps {
   motions: SelectOption[];
   motionValue: string | null;
   onMotionChange: (value: string | null) => void;
-  showReferenceMotion: boolean;
-  onShowReferenceMotionChange: (value: boolean) => void;
   /** Whether command controls are enabled */
   commandsEnabled?: boolean;
   /** Command descriptors from the engine state snapshot. */
@@ -90,10 +91,20 @@ interface ControlPanelProps {
   onEventFire?: (name: string) => void;
   /** Start or stop a `mode="interval"` term's schedule (engine.events.setArmed). */
   onEventArmedChange?: (name: string, armed: boolean) => void;
-  /** Command terms with a debug drawing to toggle. */
+  /** Drawings to toggle: command terms, raycast sensors, reward terms. */
   debugVis?: DebugVisDescriptor[];
-  /** Show or hide one term's debug drawing (engine.debugVis.set). */
-  onDebugVisChange?: (term: string, enabled: boolean) => void;
+  /** Show or hide one drawing (engine.debugVis.set). */
+  onDebugVisChange?: (id: string, enabled: boolean) => void;
+  /** mjlab's Debug Viz "Enabled", over every drawing's own checkbox. */
+  debugVisEnabled?: boolean;
+  /** engine.debugVis.setEnabled. */
+  onDebugVisEnabledChange?: (enabled: boolean) => void;
+  /** mjlab's viewer Scene section as the build recorded it; absent, no section. */
+  viewerGui?: ViewerGuiNode[];
+  /** engine state's `camera`, for the Scene section's Camera folder. */
+  camera?: { tracking: boolean; fovy: number };
+  onCameraTrackingChange?: (enabled: boolean) => void;
+  onCameraFovyChange?: (fovy: number) => void;
   /** Reset the simulation (engine.reset). */
   onReset?: () => void;
   /** Pointer modes the viewer offers, as the engine reports them. */
@@ -245,8 +256,6 @@ function ControlPanel(props: ControlPanelProps) {
     motions,
     motionValue,
     onMotionChange,
-    showReferenceMotion,
-    onShowReferenceMotionChange,
     commandsEnabled = false,
     commands,
     commandValues,
@@ -257,6 +266,12 @@ function ControlPanel(props: ControlPanelProps) {
     onEventArmedChange,
     debugVis = [],
     onDebugVisChange,
+    debugVisEnabled = true,
+    onDebugVisEnabledChange,
+    viewerGui,
+    camera,
+    onCameraTrackingChange,
+    onCameraFovyChange,
     onReset,
     interactions = [],
     interactionMode = 'pull',
@@ -293,6 +308,28 @@ function ControlPanel(props: ControlPanelProps) {
 
   // Command groups derived from the engine-supplied descriptors.
   const commandGroups = Array.from(new Set(commands.map((c) => c.group)));
+
+  // The Scene section's controls mjswan has a counterpart for, by recorded path;
+  // `tests/test_mjlab_gui.py` holds each path to mjlab's own declaration.
+  const viewerBindings: Record<string, ViewerGuiBinding> = {};
+  if (camera && onCameraTrackingChange) {
+    viewerBindings[VIEWER_GUI_PATHS.track_camera] = {
+      value: camera.tracking,
+      onChange: (value) => onCameraTrackingChange(Boolean(value)),
+    };
+  }
+  if (camera && onCameraFovyChange) {
+    viewerBindings[VIEWER_GUI_PATHS.fov] = {
+      value: camera.fovy,
+      onChange: (value) => onCameraFovyChange(Number(value)),
+    };
+  }
+  if (onDebugVisEnabledChange) {
+    viewerBindings[VIEWER_GUI_PATHS.debug_vis_enabled] = {
+      value: debugVisEnabled,
+      onChange: (value) => onDebugVisEnabledChange(Boolean(value)),
+    };
+  }
 
   const handleReset = useCallback(() => {
     onReset?.();
@@ -591,33 +628,23 @@ function ControlPanel(props: ControlPanelProps) {
           )}
 
           {motions.length > 0 && (
-            <>
-              <LabeledInput id="motion-select" label="Motion">
-                <Select
-                  id="motion-select"
-                  placeholder="Select motion"
-                  data={motions}
-                  value={motionValue}
-                  onChange={onMotionChange}
-                  size="xs"
-                  radius="xs"
-                  searchable
-                  clearable
-                  styles={{
-                    input: { minHeight: '1.625rem', height: '1.625rem', padding: '0.5em' },
-                  }}
-                  comboboxProps={{ zIndex: 1000 }}
-                />
-              </LabeledInput>
-              <Box pb="0.5em" px="xs">
-                <Checkbox
-                  label="Show reference"
-                  checked={showReferenceMotion}
-                  onChange={(event) => onShowReferenceMotionChange(event.currentTarget.checked)}
-                  size="xs"
-                />
-              </Box>
-            </>
+            <LabeledInput id="motion-select" label="Motion">
+              <Select
+                id="motion-select"
+                placeholder="Select motion"
+                data={motions}
+                value={motionValue}
+                onChange={onMotionChange}
+                size="xs"
+                radius="xs"
+                searchable
+                clearable
+                styles={{
+                  input: { minHeight: '1.625rem', height: '1.625rem', padding: '0.5em' },
+                }}
+                comboboxProps={{ zIndex: 1000 }}
+              />
+            </LabeledInput>
           )}
 
           {/* Command Groups - only show if there are commands */}
@@ -723,25 +750,14 @@ function ControlPanel(props: ControlPanelProps) {
             </CommandSection>
           )}
 
-          {/* Debug Viz — mjlab's own folder, one checkbox per drawing term. */}
-          {debugVis.length > 0 && onDebugVisChange && (
-            <CommandSection label="Debug Viz" expandByDefault={true}>
-              {debugVis.map((term) => (
-                <LabeledInput
-                  key={term.term}
-                  id={`debugvis:${term.term}`}
-                  // The section names what is toggled; the term only tells several apart.
-                  label={debugVis.length > 1 ? `Enable ${formatGroupName(term.term)}` : 'Enable'}
-                >
-                  <Checkbox
-                    id={`debugvis:${term.term}`}
-                    checked={term.enabled}
-                    onChange={(event) => onDebugVisChange(term.term, event.currentTarget.checked)}
-                    size="xs"
-                  />
-                </LabeledInput>
-              ))}
-            </CommandSection>
+          {/* mjlab's Scene section, as the build recorded its declaration. */}
+          {viewerGui && viewerGui.length > 0 && (
+            <ViewerGuiSection
+              nodes={viewerGui}
+              bindings={viewerBindings}
+              debugVis={debugVis}
+              onDebugVisChange={(id, enabled) => onDebugVisChange?.(id, enabled)}
+            />
           )}
 
           {/* Scene-level, so below the policy's controls and above the reset. */}

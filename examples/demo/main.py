@@ -63,69 +63,6 @@ MJLAB_TASKS = (
 TRACKING_TASK = "Mjlab-Tracking-Flat-Unitree-G1-No-State-Estimation"
 TRACKING_MOTION = "motions/mimickit_spinkick_safe.npz"
 
-TASK_VIEWER_CONFIG_MAP: dict[str, mjswan.ViewerConfig] = {
-    "Mjlab-Cartpole-Balance": mjswan.ViewerConfig(
-        lookat=(0.0, 0.0, 1.0),
-        distance=4.0,
-        elevation=-15.0,
-        azimuth=90.0,
-        origin_type=mjswan.ViewerConfig.OriginType.WORLD,
-    ),
-    "Mjlab-Cartpole-Swingup": mjswan.ViewerConfig(
-        lookat=(0.0, 0.0, 1.0),
-        distance=4.0,
-        elevation=-15.0,
-        azimuth=90.0,
-        origin_type=mjswan.ViewerConfig.OriginType.WORLD,
-    ),
-    "Mjlab-Lift-Cube-Yam": mjswan.ViewerConfig(
-        lookat=(0.2, 0.0, 0.4),
-        distance=2.0,
-        elevation=-20.0,
-        azimuth=45.0,
-    ),
-    "Mjlab-Velocity-Flat-Unitree-G1": mjswan.ViewerConfig(
-        lookat=(0.0, 0.0, 0.0),
-        distance=3.0,
-        elevation=-20.0,
-        azimuth=0.0,
-        origin_type=mjswan.ViewerConfig.OriginType.ASSET_BODY,
-        body_name="torso_link",
-    ),
-    "Mjlab-Velocity-Flat-Unitree-Go1": mjswan.ViewerConfig(
-        lookat=(0.0, 0.0, 0.0),
-        distance=2.0,
-        elevation=-10.0,
-        azimuth=0.0,
-        origin_type=mjswan.ViewerConfig.OriginType.ASSET_BODY,
-        body_name="trunk",
-    ),
-    "Mjlab-Velocity-Rough-Unitree-G1": mjswan.ViewerConfig(
-        lookat=(0.0, 0.0, 0.0),
-        distance=4.0,
-        elevation=-20.0,
-        azimuth=30.0,
-        origin_type=mjswan.ViewerConfig.OriginType.ASSET_BODY,
-        body_name="torso_link",
-    ),
-    "Mjlab-Velocity-Rough-Unitree-Go1": mjswan.ViewerConfig(
-        lookat=(0.0, 0.0, 0.0),
-        distance=4.0,
-        elevation=-20.0,
-        azimuth=30.0,
-        origin_type=mjswan.ViewerConfig.OriginType.ASSET_BODY,
-        body_name="trunk",
-    ),
-    TRACKING_TASK: mjswan.ViewerConfig(
-        lookat=(0.0, 0.0, 0.0),
-        distance=3.5,
-        elevation=-15.0,
-        azimuth=135.0,
-        origin_type=mjswan.ViewerConfig.OriginType.ASSET_BODY,
-        body_name="torso_link",
-    ),
-}
-
 
 def _lift_update_command(self: Any, env_ids: Any = None) -> None:
     """``LiftingCommand._update_command`` without its ``env.sim.forward()`` call.
@@ -196,8 +133,6 @@ def _add_mjlab_tasks(builder: mjswan.Builder) -> None:
     for task_id in MJLAB_TASKS:
         env_cfg = load_env_cfg(task_id, play=True)
         scene = project.add_scene_mjlab(task_id, env_cfg=env_cfg)
-        if viewer_cfg := TASK_VIEWER_CONFIG_MAP.get(task_id):
-            scene.set_viewer(viewer_cfg)
         # Only the files are named here: the MDP and the action order come from
         # `env_cfg`, the rest pose from each `.onnx`'s mjlab metadata, else from the
         # model's keyframe (cartpole's exports carry none).
@@ -211,8 +146,6 @@ def _add_tracking_scene(project: mjswan.ProjectHandle, repo_onnx: list[str]) -> 
     env_cfg = load_env_cfg(TRACKING_TASK, play=True)
     motion_term = env_cfg.commands["motion"]
     scene = project.add_scene_mjlab(TRACKING_TASK, env_cfg=env_cfg)
-    if viewer_cfg := TASK_VIEWER_CONFIG_MAP.get(TRACKING_TASK):
-        scene.set_viewer(viewer_cfg)
 
     # Slot tables are positional and the export's own tensor names do not say which
     # slot is which (ADR 0006 §5). Only `action` is read; the six after it are the
@@ -284,7 +217,7 @@ def _add_g1_on_street(project: mjswan.ProjectHandle) -> None:
             lookat=(0.0, 0.0, 0.7),
             distance=4.3,
             elevation=-33.0,
-            azimuth=-34.0,
+            azimuth=146.0,
             origin_type=mjswan.ViewerConfig.OriginType.ASSET_BODY,
             body_name="torso_link",
         )
@@ -413,7 +346,7 @@ def _add_myofinger(project: mjswan.ProjectHandle) -> None:
             lookat=(0.0, 0.0, 0.2),
             distance=1.5,
             elevation=-20.0,
-            azimuth=120.0,
+            azimuth=-60.0,
             origin_type=mjswan.ViewerConfig.OriginType.WORLD,
         )
     )
