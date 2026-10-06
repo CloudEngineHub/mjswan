@@ -355,7 +355,6 @@ def write_manifest(
         "uses_custom_js": custom_js,
         # Author custom-MDP terms, loaded by the app in trusted contexts only.
         **({"plugins": "assets/plugins.js"} if custom_js else {}),
-        # mjlab's viewer Scene section, which the control panel reproduces.
         **({"viewer_gui": viewer_gui} if (viewer_gui := record_scene_gui()) else {}),
         "projects": [
             {

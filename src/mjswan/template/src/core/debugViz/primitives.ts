@@ -1,10 +1,7 @@
 /**
  * Batched arrows and spheres for drawings with many primitives (a height scan's rays),
- * drawn as mjlab's viser scene draws them: a shaft of radius `width` over 80% of the
- * length, a cone of radius `2 * width` over the rest, both opaque; spheres sharing one
- * opacity; every mesh lit and shadowless.
- *
- * Points are MuJoCo world coordinates; the batch converts to three's.
+ * shaped and lit as viser draws mjlab's, without shadows. Points are MuJoCo world
+ * coordinates.
  */
 
 import * as THREE from 'three';
@@ -182,10 +179,7 @@ const DEFAULT_AXIS_COLORS: readonly Rgba[] = [
   [0, 0, 0.9, 1],
 ];
 
-/**
- * mjlab's `add_frame`: one arrow per axis, `scale` long, from a world position and a
- * quaternion (w, x, y, z).
- */
+/** mjlab's `add_frame`: one `scale`-long arrow per axis, `quat` being (w, x, y, z). */
 export function addFrame(
   arrows: ArrowBatch,
   position: Vec3,

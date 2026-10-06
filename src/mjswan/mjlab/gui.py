@@ -95,7 +95,7 @@ class _GuiRecorder:
         return _Folder(label, self)
 
     def add_slot(self, name: str) -> None:
-        """Mark where the browser fills in controls only it knows, in tree order."""
+        """Mark where the browser fills in controls only it knows."""
         self._level.append({"type": "slot", "name": name})
 
     def add_checkbox(
@@ -231,9 +231,8 @@ DEBUG_VIS_SLOT = "debug_vis"
 def record_scene_gui() -> list[dict[str, Any]] | None:
     """mjlab's play viewer's Scene section as a tree, or ``None`` without mjlab.
 
-    ``MjlabViserScene.create_scene_gui`` runs against the recorder on a scene with only
-    the state it reads: one env, mjviser's and mjlab's constructor defaults, and Debug
-    Viz on, as ``ViserPlayViewer`` sets it. Its per-drawing checkboxes become a slot.
+    It runs on a bare scene holding only the state ``create_scene_gui`` reads, Debug Viz
+    on as ``ViserPlayViewer`` sets it. Its per-drawing checkboxes become a slot.
     """
     try:
         import numpy as np

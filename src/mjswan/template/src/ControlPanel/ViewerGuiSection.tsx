@@ -9,7 +9,7 @@ import { SliderRow } from './SliderRow';
 /** The slot mjlab's Debug Viz folder lists its drawings in (`mjlab/gui.py`). */
 export const DEBUG_VIS_SLOT = 'debug_vis';
 
-/** A recorded control, wired to the engine: its live value and what a change does. */
+/** Wires a recorded control to the engine. */
 export interface ViewerGuiBinding {
   value: number | boolean;
   onChange: (value: number | boolean) => void;
@@ -21,9 +21,8 @@ export function viewerGuiPath(folders: string[], label: string): string {
 }
 
 /**
- * mjlab's viewer GUI as recorded, each control wired through `bindings`. One without a
- * binding (mjlab's "All envs": the browser runs one env) stays at its recorded default,
- * disabled, so the section still reads as mjlab's.
+ * mjlab's viewer GUI as recorded. A control without a binding (mjlab's "All envs": the
+ * browser runs one env) shows its default, disabled, so the section still reads as mjlab's.
  */
 export function ViewerGuiSection({
   nodes,

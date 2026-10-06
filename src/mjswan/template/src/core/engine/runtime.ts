@@ -1099,10 +1099,7 @@ export class mjswanRuntime {
     return this.cameraTracking;
   }
 
-  /**
-   * Follow the tracked body or leave the view where it is. Turned back on, the view
-   * jumps to the body with its angle and zoom kept, as mjviser recentres it.
-   */
+  /** Turned back on, the view jumps to the body keeping its angle and zoom, as in mjviser. */
   setCameraTracking(enabled: boolean): void {
     if (enabled && !this.cameraTracking) {
       const body = this.cameraState.trackBodyId;

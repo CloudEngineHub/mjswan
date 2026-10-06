@@ -110,10 +110,7 @@ export interface CommandControls {
   trigger(id: string): void;
 }
 
-/**
- * One of mjlab's Debug Viz switches: a command term, raycast sensor or reward term whose
- * drawing can be shown or hidden.
- */
+/** One of mjlab's Debug Viz switches: a command term's, raycast sensor's or reward term's drawing. */
 export interface DebugVisDescriptor {
   /** `command:<term>`, `sensor:<name>` or `reward:<term>`; the id {@link DebugVisControls.set} takes. */
   id: string;
