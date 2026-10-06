@@ -244,7 +244,6 @@ describe('OnnxCommand: resample timer (scalar, ADR §5)', () => {
     await settle();
     expect(session.calls[1].resample_mask.data[0]).toBe(0);
 
-    // `reset` resamples before the forward, so here, not next frame.
     await cmd.reset();
     expect(session.calls.length).toBe(3);
     expect(session.calls[2].resample_mask.data[0]).toBe(1);

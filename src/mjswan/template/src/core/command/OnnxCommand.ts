@@ -140,11 +140,9 @@ export class OnnxCommand implements CommandTerm {
     return tensor ? Float32Array.from(toFloat32(tensor.data)) : null;
   }
 
-  /**
-   * Advance the timer and kick off inference; never blocks (see class docs). A no-op
-   * after an auto-reset: `reset()` already ran the `dt` 0 update mjlab gives a reset env.
-   */
+  /** Advance the timer and kick off inference; never blocks (see class docs). */
   update(dt: number, afterReset = false): void {
+    // `reset()` already ran the `dt` 0 update mjlab gives a reset env.
     if (afterReset) return;
     this.timeLeft -= dt;
     if (this.timeLeft <= 0) {

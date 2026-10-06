@@ -76,7 +76,7 @@ describe('TrackingCommand command slot', () => {
       jointVel: Array.from({ length: 4 }, (_, i) => Float32Array.from([10 * i, -10 * i])),
     };
     term.refIdx = 2;
-    // mjlab's `MotionCommand.command`: the joint positions, then the joint velocities.
+    // Joint positions, then joint velocities.
     close(term.getStateField('command')!, [2, -2, 20, -20]);
   });
 });
