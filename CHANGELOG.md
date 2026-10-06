@@ -14,11 +14,28 @@ shortcuts.
 
 ### Added
 
-- **mjlab's Debug Viz "Enabled" switch**: the first checkbox of the panel's **Debug Viz**
-  section, `engine.debugVis.setEnabled(enabled)` and `state.debugVisEnabled` for a host's
-  own UI, and `?viz=0` to open a page with it off. It hides every debug drawing at once
-  and leaves each term's own checkbox as it was, so turning it back on brings back what
-  was shown. It holds across scene and policy loads, as a viewer setting does.
+- **The control panel reproduces mjlab's viewer Scene section, and its Debug Viz draws
+  what mjlab's does.** The build records `MjlabViserScene.create_scene_gui` against the
+  same stand-in that records a command term's `create_gui` (`mjswan/mjlab/gui.py`, now
+  keeping folders), so the panel's **Scene** section is mjlab's own declaration:
+  **Camera** (Track camera, FOV) and **Debug Viz** (Enabled, All envs, one switch per
+  drawing). The manifest carries it as `viewer_gui`; a build without mjlab has none.
+  All envs is shown disabled, since the browser runs one env.
+
+  Debug Viz lists, in mjlab's order and with its labels, every drawing mjlab's viewer
+  lists: command terms (the velocity arrows, the tracking ghost or, with
+  `viz.mode="frames"`, the reference and robot body frames), raycast sensors with
+  `debug_vis` (a sphere at each hit, plus rays and surface normals when the sensor's
+  `viz` asks), and the `upright` reward (fitted terrain normal and body up, as
+  `fit_terrain_normal` computes it). The MDP entry's new `debug_vis` block ships the
+  sensors and reward terms, read off the trace env; a reward drawing mjswan does not
+  know warns at build time. Arrows take viser's shape: a cone twice the shaft's width,
+  drawn opaque.
+
+  For a host's own UI: `engine.debugVis.setEnabled(enabled)` and `state.debugVisEnabled`
+  (the Enabled switch, also `?viz=0` in the app), `engine.debugVis.set(id, enabled)` with
+  ids `command:<term>`, `sensor:<name>`, `reward:<term>`, `engine.camera.setTracking`,
+  and `state.camera` (`tracking`, `fovy`). `RaycastSensor` also serves `normals_w`.
 
 - **WebXR entry through the engine API**: `engine.xr` (`enter(id)`, `exit()`,
   `setHandTracking(enabled)`), `state.xrSessions` and `state.handTracking`. The host draws
@@ -258,14 +275,13 @@ shortcuts.
 ### Changed
 
 - **The motion-tracking ghost is a Debug Viz drawing, as in mjlab.** It is what mjlab's
-  `MotionCommand._debug_vis_impl` draws, so it now sits in the **Debug Viz** section as
-  **Motion**, beside the other drawing terms, and shows only while both that checkbox and
-  **Enabled** are on, as in mjlab's viewer. Each term's checkbox is named after the term
-  rather than "Enable". The build carries `MotionCommandCfg.debug_vis` and
-  `viz.ghost_color`: a task that leaves `debug_vis` off gets no ghost, as mjlab draws none,
-  and the ghost takes the task's color. `viz.mode="frames"` warns at build time, since the
-  browser draws the ghost either way. A document built before this draws the ghost in
-  mjlab's default color, as it did.
+  `MotionCommand._debug_vis_impl` draws, so it is the **Motion** switch under Debug Viz
+  and shows only while both that switch and **Enabled** are on. The build carries
+  `MotionCommandCfg.debug_vis` and `viz` (`mode`, `ghost_color`): a task that leaves
+  `debug_vis` off gets no drawing, as in mjlab. A document built before this draws the
+  ghost in mjlab's default color, as it did.
+- **`DebugVisDescriptor` is `{ id, label, enabled }`**, where it was `{ term, enabled }`
+  for command terms alone, and `engine.debugVis.set` takes that `id`.
 
 - **The engine no longer draws ENTER VR / START AR.** They sat on `document.body`, over the
   host's own controls; a host driving `createEngine` now draws its own from
@@ -568,9 +584,9 @@ shortcuts.
 ### Removed
 
 - **`engine.setReferenceVisible`, the "Show reference" checkbox and `?ref=0`.** The ghost
-  is the `motion` term's debug drawing: `engine.debugVis.set('motion', enabled)` toggles it
-  alone, and `engine.debugVis.setEnabled` or `?viz=0` every drawing. A link still carrying
-  `ref=0` opens with the ghost shown.
+  is the `motion` term's debug drawing: `engine.debugVis.set('command:motion', enabled)`
+  toggles it alone, and `engine.debugVis.setEnabled` or `?viz=0` every drawing. A link
+  still carrying `ref=0` opens with the ghost shown.
 
 - **`?hands=1`.** Use the **Hand tracking** switch in the control panel's WebXR section
   instead. It starts off on every page load and is not written to the URL.

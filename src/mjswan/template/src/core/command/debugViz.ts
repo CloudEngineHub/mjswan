@@ -48,7 +48,7 @@ export type StateReader = (field: string) => Float32Array | null;
 
 const UP = new THREE.Vector3(0, 1, 0);
 const HEAD_FRACTION = 0.2;
-const HEAD_WIDTH_RATIO = 2.5;
+const HEAD_WIDTH_RATIO = 2;
 
 function resolve(
   vec: VizVector,
@@ -100,11 +100,12 @@ function makeMaterial(color: readonly number[]): THREE.MeshBasicMaterial {
 /**
  * Shaft + head, unit-height with their base at the origin, so a frame sets only
  * `scale.y` and one quaternion. Not `ArrowHelper`: its shaft is a 1px line, so mjlab's
- * `width` would be ignored.
+ * `width` would be ignored. Opaque, as mjlab's viser scene draws every arrow.
  */
 function makeArrow(primitive: VizPrimitive): THREE.Group {
   const width = primitive.width ?? 0.015;
-  const material = makeMaterial(primitive.color);
+  const [r, g, b] = primitive.color;
+  const material = makeMaterial([r, g, b, 1]);
   const shaft = new THREE.Mesh(
     new THREE.CylinderGeometry(width, width, 1, 12).translate(0, 0.5, 0),
     material,

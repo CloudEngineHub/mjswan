@@ -1,4 +1,4 @@
-"""Recording an mjlab command term's viser GUI as a UI descriptor.
+"""Recording mjlab's viser GUI: a command term's as a UI descriptor, the viewer's Scene section as a tree.
 
 Layer: L1 (the recorder is dataclasses only) plus one ``mjlab``-marked check
 running mjlab's real ``create_gui``, so a viewer change surfaces here rather
@@ -7,6 +7,8 @@ than in a built ``config.json``.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -172,3 +174,48 @@ def test_records_mjlabs_real_velocity_joystick():
         "step": 0.1,
         "default": 1.0,
     }
+
+
+class TestSceneGui:
+    """mjlab's viewer Scene section, recorded from `MjlabViserScene.create_scene_gui`."""
+
+    @staticmethod
+    def _paths(nodes, folders=()):
+        for node in nodes:
+            if node["type"] == "folder":
+                yield from TestSceneGui._paths(
+                    node["children"], (*folders, node["label"])
+                )
+            elif node["type"] == "slot":
+                yield "/".join((*folders, f"<{node['name']}>"))
+            else:
+                yield "/".join((*folders, node["label"]))
+
+    def test_records_the_camera_and_debug_viz_folders(self):
+        pytest.importorskip("mjlab")
+        from mjswan.mjlab.gui import record_scene_gui
+
+        tree = record_scene_gui()
+        assert tree is not None
+        assert list(self._paths(tree)) == [
+            "Scene/Camera/Track camera",
+            "Scene/Camera/FOV (°)",
+            "Scene/Debug Viz/Enabled",
+            "Scene/Debug Viz/All envs",
+            "Scene/Debug Viz/<debug_vis>",
+        ]
+        fov = tree[0]["children"][0]["children"][1]
+        assert (fov["min"], fov["max"], fov["step"], fov["default"]) == (20, 150, 1, 60)
+
+    def test_every_path_the_panel_binds_is_one_mjlab_declares(self):
+        """A control mjlab renames would otherwise go unbound, drawn but inert."""
+        pytest.importorskip("mjlab")
+        from mjswan.mjlab.gui import record_scene_gui
+
+        bound = json.loads(
+            (
+                Path(__file__).parents[1]
+                / "src/mjswan/template/src/ControlPanel/viewer_gui_bindings.json"
+            ).read_text()
+        )
+        assert set(bound.values()) <= set(self._paths(record_scene_gui()))

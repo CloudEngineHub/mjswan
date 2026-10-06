@@ -5,6 +5,7 @@ import { getPosition, getQuaternion } from '../scene/scene';
 import { type NpzEntry, loadNpz } from '../scene/npz';
 import { type Bytes, resolveBytes } from '../utils/bytes';
 import { OnnxEvent, isOnnxEventConfig } from '../event/OnnxEvent';
+import { ArrowBatch, addFrame, type Rgba } from '../debugViz/primitives';
 import type { CommandConfigEntry, CommandTerm, CommandTermContext, CommandUiConfig } from './types';
 
 export type TrackingMotionConfig = {
@@ -59,6 +60,12 @@ function splitFrames(entry: NpzEntry): Float32Array[] {
 
 /** mjlab's default `viz.ghost_color`. */
 const DEFAULT_GHOST_COLOR: readonly number[] = [0.5, 0.7, 0.5, 0.5];
+/** mjlab's `_DESIRED_FRAME_COLORS`, the reference's axes in `"frames"` mode. */
+const DESIRED_FRAME_COLORS: readonly Rgba[] = [
+  [1.0, 0.5, 0.5, 1],
+  [0.5, 1.0, 0.5, 1],
+  [0.5, 0.5, 1.0, 1],
+];
 
 function setGhostMaterial(material: THREE.Material, rgba: readonly number[]): THREE.Material {
   const next = material.clone();
@@ -121,6 +128,8 @@ export class TrackingCommand implements CommandTerm {
   private readonly loadedMotions: Map<string, LoadedTrackingMotion>;
   private sampleHz: number;
   private readonly ghostRoot: THREE.Group | null;
+  /** mjlab's `viz.mode="frames"`: reference and robot body frames instead of the ghost. */
+  private readonly frames: ArrowBatch | null;
   private readonly ghostBodies: Map<number, THREE.Group>;
   /** Model body id by name, filled on demand (see `resolveBodyId`). */
   private readonly bodyIds = new Map<string, number>();
@@ -188,7 +197,10 @@ export class TrackingCommand implements CommandTerm {
       ? (config.ghost_color as unknown[]).map(Number)
       : DEFAULT_GHOST_COLOR;
     // Absent means on: documents without the field always drew the ghost.
-    this.ghostRoot = config.debug_vis === false ? null : this.createGhostRoot(ghostColor);
+    const draws = config.debug_vis !== false;
+    const framesMode = config.viz_mode === 'frames';
+    this.ghostRoot = draws && !framesMode ? this.createGhostRoot(ghostColor) : null;
+    this.frames = draws && framesMode ? this.createFrames() : null;
     this.refBodyPosW = [];
     this.refBodyQuatW = [];
     this.refBodyLinVelW = [];
@@ -306,7 +318,7 @@ export class TrackingCommand implements CommandTerm {
 
   /** Whether the ghost is on, or `null` when the task draws none. */
   debugVisEnabled(): boolean | null {
-    return this.ghostRoot ? this.debugVisOn : null;
+    return this.ghostRoot || this.frames ? this.debugVisOn : null;
   }
 
   setDebugVisEnabled(enabled: boolean): void {
@@ -314,9 +326,48 @@ export class TrackingCommand implements CommandTerm {
   }
 
   updateDebugVisuals(shown = true): void {
+    const visible = shown && this.debugVisOn && this.isReady();
     if (this.ghostRoot) {
-      this.ghostRoot.visible = shown && this.debugVisOn && this.isReady();
+      this.ghostRoot.visible = visible;
     }
+    if (this.frames) {
+      this.frames.clear();
+      if (visible) this.drawFrames(this.frames);
+      this.frames.commit();
+    }
+  }
+
+  /** mjlab's `"frames"` drawing: each tracked body and the anchor, reference and robot. */
+  private drawFrames(arrows: ArrowBatch): void {
+    const bodyNames = this.getBodyNames();
+    const refPos = this.refBodyPosW[this.refIdx];
+    const refQuat = this.refBodyQuatW[this.refIdx];
+    const robotPos = this.robotBodyField('xpos', 3, bodyNames);
+    const robotQuat = this.robotBodyField('xquat', 4, bodyNames);
+    for (let i = 0; i < bodyNames.length; i++) {
+      if (refPos && refQuat) {
+        const quat = normalizeQuat(refQuat.subarray(i * 4, i * 4 + 4));
+        addFrame(arrows, refPos.subarray(i * 3, i * 3 + 3), quat, 0.08, DESIRED_FRAME_COLORS);
+      }
+      if (robotPos && robotQuat) {
+        addFrame(arrows, robotPos.subarray(i * 3, i * 3 + 3), robotQuat.subarray(i * 4, i * 4 + 4), 0.12);
+      }
+    }
+    const anchorPos = this.getAnchorPos();
+    const anchorQuat = this.getAnchorQuat();
+    if (anchorPos && anchorQuat) addFrame(arrows, anchorPos, anchorQuat, 0.1, DESIRED_FRAME_COLORS);
+    const anchor = [this.getAnchorBodyName() ?? ''];
+    const robotAnchorPos = this.robotBodyField('xpos', 3, anchor);
+    const robotAnchorQuat = this.robotBodyField('xquat', 4, anchor);
+    if (robotAnchorPos && robotAnchorQuat) addFrame(arrows, robotAnchorPos, robotAnchorQuat, 0.15);
+  }
+
+  private createFrames(): ArrowBatch {
+    const bodies = Math.max(0, ...this.motions.map((motion) => motion.body_names?.length ?? 0));
+    // Three axes for each body's two frames and the anchor's two.
+    const arrows = new ArrowBatch(3 * (2 * bodies + 2), 'Tracking Frames');
+    (this.context.mujocoRoot ?? this.context.scene).add(arrows.object);
+    return arrows;
   }
 
   dispose(): void {
@@ -334,6 +385,7 @@ export class TrackingCommand implements CommandTerm {
         }
       });
     }
+    this.frames?.dispose();
     this.ghostData?.delete?.();
   }
 

@@ -116,17 +116,31 @@ class Engine implements MjswanEngine {
     this.runtime.onXrChange = () => this.refresh();
 
     this.camera = {
-      set: (view) => this.runtime.setCameraView(view),
+      set: (view) => {
+        this.runtime.setCameraView(view);
+        this.refresh();
+      },
       get: () => this.runtime.getCameraView(),
       frame: () => this.runtime.frameCamera(),
+      setTracking: (enabled) => {
+        this.runtime.setCameraTracking(enabled);
+        this.refresh();
+      },
     };
     this.commands = {
       set: (id, value) => this.runtime.commands.setValue(id, value),
       trigger: (id) => this.runtime.commands.triggerButton(id),
     };
+    // A sensor or reward switch emits no command event, so these refresh themselves.
     this.debugVis = {
-      setEnabled: (enabled) => this.runtime.commands.setDebugVisShown(enabled),
-      set: (term, enabled) => this.runtime.commands.setDebugVisEnabled(term, enabled),
+      setEnabled: (enabled) => {
+        this.runtime.debugViz.setShown(enabled);
+        this.refresh();
+      },
+      set: (id, enabled) => {
+        this.runtime.debugViz.set(id, enabled);
+        this.refresh();
+      },
     };
     this.events = {
       // Only the arm toggle changes the snapshot; the panel reads its checkbox from it.
@@ -170,8 +184,9 @@ class Engine implements MjswanEngine {
       error: this.error,
       commands: cm.getCommands().map(toDescriptor),
       commandValues: cm.getValues(),
-      debugVis: cm.getDebugVisTerms().map(({ name, enabled }) => ({ term: name, enabled })),
-      debugVisEnabled: cm.isDebugVisShown(),
+      debugVis: this.runtime.debugViz.entries(),
+      debugVisEnabled: this.runtime.debugViz.isShown(),
+      camera: { tracking: this.runtime.isCameraTracking, fovy: this.runtime.getCameraView().fovy },
       events: this.runtime.eventControls(),
       interactions: this.runtime.interactionModes().map((mode) => ({
         ...mode,

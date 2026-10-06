@@ -222,7 +222,7 @@ class TestMotionGhost:
 
         assert serialize_motion_command(MotionCommandCfg())["debug_vis"] is False
 
-    def test_frames_mode_warns_that_the_browser_draws_the_ghost(self):
+    def test_viz_mode_reaches_the_browser(self):
         from mjswan.envs.mdp.commands import serialize_motion_command
 
         class MotionCommandCfg:
@@ -231,8 +231,8 @@ class TestMotionGhost:
             class viz:
                 mode = "frames"
 
-        with pytest.warns(RuntimeWarning, match="draws only the ghost"):
-            serialize_motion_command(MotionCommandCfg())
+        assert serialize_motion_command(MotionCommandCfg())["viz_mode"] == "frames"
+        assert serialize_motion_command(self.MotionCommandCfg())["viz_mode"] == "ghost"
 
     def test_mjlabs_own_tracking_task_shows_the_ghost(self):
         pytest.importorskip("mjlab")

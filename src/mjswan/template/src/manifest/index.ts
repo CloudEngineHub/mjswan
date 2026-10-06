@@ -109,6 +109,24 @@ export interface ManifestProject {
   default?: boolean;
   scenes: ManifestScene[];
 }
+/**
+ * One node of mjlab's viewer GUI as the build recorded it from mjlab's own declaration:
+ * a folder, a control with mjlab's defaults, or a slot the app fills from engine state.
+ */
+export type ViewerGuiNode =
+  | { type: 'folder'; label: string; children: ViewerGuiNode[] }
+  | { type: 'checkbox'; label: string; default?: boolean; hint?: string }
+  | {
+      type: 'slider';
+      label: string;
+      min?: number;
+      max?: number;
+      step?: number;
+      default?: number;
+      hint?: string;
+    }
+  | { type: 'slot'; name: string };
+
 export interface Manifest {
   /**
    * Document format (ADR 0006 §7): the structure of the build, bumped only for a break an
@@ -120,6 +138,8 @@ export interface Manifest {
   uses_custom_js?: boolean;
   /** Document-root-relative path to the runtime custom-MDP plugin ESM (custom-TS builds). */
   plugins?: string;
+  /** mjlab's viewer Scene section; absent from a build made without mjlab. */
+  viewer_gui?: ViewerGuiNode[];
   projects: ManifestProject[];
 }
 
@@ -166,6 +186,8 @@ export interface Catalog {
    * app imports it and passes the exports as {@link EnginePlugins}; mjswan Cloud ignores it.
    */
   pluginsPath?: string;
+  /** {@link Manifest.viewer_gui}. */
+  viewerGui?: ViewerGuiNode[];
 }
 
 /**
@@ -382,5 +404,6 @@ export function parseManifest(manifest: Manifest | string, source: ByteSource): 
       scenes: project.scenes.map((scene) => toSceneEntry(project, scene, source)),
     })),
     pluginsPath: parsed.plugins,
+    viewerGui: parsed.viewer_gui,
   };
 }

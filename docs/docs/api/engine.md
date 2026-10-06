@@ -82,9 +82,9 @@ call order, and `dispose` waits for the one running.
 | `setMotion` | `(name: string \| null) => Promise<boolean>` | Live. Resolves to whether the name was accepted. |
 | `calibrateSplat` | `(transform: SplatTransform) => void` | Live splat placement, for a calibration UI. |
 | `play` / `pause` / `reset` | `() => void` | Playback. |
-| `camera` | `CameraControls` | `set(partial)`, `get()`, `frame()`. |
+| `camera` | `CameraControls` | `set(partial)`, `get()`, `frame()`, and `setTracking(enabled)`, mjlab's **Track camera**: follow the viewer config's tracked body. |
 | `commands` | `CommandControls` | `set(id, value)`, `trigger(id)`. |
-| `debugVis` | `DebugVisControls` | mjlab's Debug Viz: `set(term, enabled)` for one command term's drawing, such as the velocity arrows or the motion-tracking ghost, and `setEnabled(enabled)` for its **Enabled** switch over all of them. A drawing shows only while both are on. |
+| `debugVis` | `DebugVisControls` | mjlab's Debug Viz: `set(id, enabled)` for one drawing and `setEnabled(enabled)` for its **Enabled** switch over all of them. A drawing shows only while both are on. See [Debug Viz](#debug-viz). |
 | `events` | `EventControls` | `fire(name)` for a `manual` term, `setArmed(name, armed)` for an `interval` one. |
 | `interaction` | `InteractionControls` | `setMode(id)`, `getMode()`, `setParam(mode, name, value)`, `getParams(mode)`, `cancel()`. See [Pointer interaction](#pointer-interaction). |
 | `xr` | `XrControls` | `enter(id)`, `exit()`, `setHandTracking(enabled)`. See [WebXR](#webxr). |
@@ -105,10 +105,12 @@ interface MjswanEngineState {
   error: Error | null;
   commands: ReadonlyArray<CommandDescriptor>;
   commandValues: Readonly<Record<string, number>>;
-  /** Terms with a debug drawing to toggle; empty when the policy has none. */
+  /** Drawings to toggle, in mjlab's order; empty when the policy has none. */
   debugVis: ReadonlyArray<DebugVisDescriptor>;
-  /** `debugVis.setEnabled`'s switch: a term draws only while it and its own are on. */
+  /** `debugVis.setEnabled`'s switch: a drawing shows only while it and its own are on. */
   debugVisEnabled: boolean;
+  /** `camera.setTracking`'s switch, and the vertical FOV in degrees. */
+  camera: { tracking: boolean; fovy: number };
   /** Event terms the operator can drive; empty when the scene has none. */
   events: ReadonlyArray<EventDescriptor>;
   /** Every pointer mode, with whether this scene can run it. */
@@ -130,6 +132,22 @@ an `id` (`"group:name"`), a `type` of `'slider' | 'checkbox' | 'button'`, a `lab
 for a slider — `min` / `max` / `step`, an optional `enabledWhen` naming a gating checkbox,
 and an optional `adjustableRange` companion. Render them however you like and drive them
 through `engine.commands`.
+
+### Debug Viz
+
+What mjlab's viewer draws to show what a policy is doing, under one switch each, in the
+order its Debug Viz folder lists them. Each `DebugVisDescriptor` is an `id`, the `label`
+mjlab's checkbox reads, and whether it is `enabled`:
+
+| `id` | `label` | Draws |
+|---|---|---|
+| `command:<term>` | The term name capitalized (`Twist`, `Motion`) | The term's `_debug_vis_impl`: a velocity command's arrows, a tracking command's ghost (or body frames in `viz.mode="frames"`), and any drawing a binding's `viz` declares. |
+| `sensor:<name>` | The sensor name | A raycast sensor with `debug_vis`: a sphere at each hit, plus the rays and surface normals when its `viz` asks for them. |
+| `reward:<term>` | The term name | mjlab's `upright` reward: the fitted terrain normal and the body's up axis, when it rates tilt against terrain sensors. |
+
+`state.debugVisEnabled` is the folder's **Enabled**. mjlab's **All envs** has no
+counterpart: the browser runs one env. The bundled app draws the folder inside mjlab's
+**Scene** section, recorded from mjlab at build time (the manifest's `viewer_gui`).
 
 ### Pointer interaction
 

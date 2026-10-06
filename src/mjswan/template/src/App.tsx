@@ -359,9 +359,13 @@ function AppContent() {
             onEventFire={(name) => engineRef.current?.events.fire(name)}
             onEventArmedChange={(name, armed) => engineRef.current?.events.setArmed(name, armed)}
             debugVis={engineState?.debugVis ? [...engineState.debugVis] : []}
-            onDebugVisChange={(term, enabled) => engineRef.current?.debugVis.set(term, enabled)}
+            onDebugVisChange={(id, enabled) => engineRef.current?.debugVis.set(id, enabled)}
             debugVisEnabled={debugVisEnabled}
             onDebugVisEnabledChange={handleDebugVisEnabledChange}
+            viewerGui={catalog.viewerGui}
+            camera={engineState?.camera}
+            onCameraTrackingChange={(enabled) => engineRef.current?.camera.setTracking(enabled)}
+            onCameraFovyChange={(fovy) => engineRef.current?.camera.set({ fovy })}
             interactions={engineState?.interactions ? [...engineState.interactions] : []}
             interactionMode={engineState?.interactionMode ?? 'pull'}
             interactionParams={engineState?.interactionParams ?? {}}

@@ -65,6 +65,7 @@ import type { PolicyConfig } from '../policy/types';
 import { TrackingPolicy } from '../policy/modules/TrackingPolicy';
 import { LocomotionPolicy } from '../policy/modules/LocomotionPolicy';
 import { CommandManager, type CommandTermContext, type CommandsConfig } from '../command';
+import { DebugViz } from '../debugViz/DebugViz';
 import { EventManager, type EventControl } from '../event/EventManager';
 import { ModelFieldDefaults } from '../event/modelFieldDr';
 import type { EventContext, TerrainData } from '../event/EventBase';
@@ -315,7 +316,10 @@ export class mjswanRuntime {
   private colliderMesh: THREE.Group | null;
   private currentSplatTransform: SplatTransform;
   private cameraState: ViewerState;
+  /** mjviser's "Track camera": whether the view follows the tracked body. */
+  private cameraTracking = true;
   private commandManager: CommandManager;
+  private readonly debugVizSet: DebugViz;
   /** `joint_position_reference` terms → the command name publishing their reference. */
   private readonly referenceActionCommands = new Map<ResolvedActionTerm, string>();
   private scenePlugins: EnginePlugins;
@@ -353,6 +357,10 @@ export class mjswanRuntime {
     this.container = container;
     this.termSeed = termSeed;
     this.commandManager = new CommandManager();
+    this.debugVizSet = new DebugViz(this.commandManager, () => ({
+      mjModel: this.mjModel,
+      mjData: this.mjData,
+    }));
     this.scenePlugins = {};
     this.policyPlugins = {};
     this.policyGraphs = new OnnxSessionCache();
@@ -799,6 +807,10 @@ export class mjswanRuntime {
     return this.commandManager;
   }
 
+  get debugViz(): DebugViz {
+    return this.debugVizSet;
+  }
+
   /** The seed this instance's traced terms draw from, so an app can persist it. */
   get seed(): number {
     return this.termSeed;
@@ -1027,7 +1039,7 @@ export class mjswanRuntime {
     this.interaction.cancel();
     const motion = this.getSelectedMotionName();
     const values = this.commandManager.getValues();
-    const drawings = this.commandManager.getDebugVisTerms();
+    const drawings = this.debugVizSet.entries();
     const schedules = this.eventManager?.controls().filter((c) => c.kind === 'interval') ?? [];
     const kept = { module: this.onnxModule };
 
@@ -1057,7 +1069,7 @@ export class mjswanRuntime {
     await this.loadPolicyConfig(this.currentPolicy, kept);
     if (motion !== null) await this.setSelectedMotion(motion);
     for (const [id, value] of Object.entries(values)) this.commandManager.setValue(id, value);
-    for (const { name, enabled } of drawings) this.commandManager.setDebugVisEnabled(name, enabled);
+    for (const { id, enabled } of drawings) this.debugVizSet.set(id, enabled);
     for (const { name, armed } of schedules) this.setEventArmed(name, armed);
 
     if (wasRunning) {
@@ -1087,6 +1099,28 @@ export class mjswanRuntime {
       elevation,
       fovy: this.camera.fov,
     };
+  }
+
+  get isCameraTracking(): boolean {
+    return this.cameraTracking;
+  }
+
+  /**
+   * Follow the tracked body or leave the view where it is. Turned back on, the view
+   * jumps to the body with its angle and zoom kept, as mjviser recentres it.
+   */
+  setCameraTracking(enabled: boolean): void {
+    if (enabled && !this.cameraTracking) {
+      const body = this.cameraState.trackBodyId;
+      if (body !== null && this.mjData) {
+        const bodyPos = mjcToThreeCoordinate(this.mjData.xpos.slice(body * 3, body * 3 + 3));
+        this.camera.position.add(bodyPos.clone().sub(this.controls.target));
+        this.controls.target.copy(bodyPos);
+        this.controls.update();
+      }
+      this.cameraState.prevBodyPos = null;
+    }
+    this.cameraTracking = enabled;
   }
 
   /** Overwrite the camera pose; body tracking and OrbitControls both stay live. */
@@ -1186,7 +1220,7 @@ export class mjswanRuntime {
         this.updateCachedState();
 
         this.commandManager.update(target);
-        this.commandManager.updateDebugVisuals();
+        this.debugVizSet.update();
         // Awaited so `mode="interval"` terms resolve in config order.
         try {
           await this.eventManager?.tick(target, this.eventContext());
@@ -1234,6 +1268,7 @@ export class mjswanRuntime {
     this.clipActions = null;
     this.raycastSensors = {};
     this.contactSensors = new ContactSensorSet();
+    this.debugVizSet.clear();
 
     // An MDP switch, in order (ADR 0006 §9): restore every model field the previous
     // startup pass touched, reseed, then apply the incoming MDP's startup events over the
@@ -1296,6 +1331,7 @@ export class mjswanRuntime {
       const structured = collectStructuredSensors(config);
       this.raycastSensors = structured.raycast;
       this.contactSensors = new ContactSensorSet(structured.contact);
+      this.debugVizSet.load(config.debug_vis, this.mujoco, this.mujocoRoot ?? this.scene);
       // Metadata comes from policy.json, bytes from the app; merge them by name.
       if (Array.isArray(config.motions)) {
         const dataByName = new Map(policy.motions.map((m) => [m.name, m.data]));
@@ -2029,13 +2065,15 @@ export class mjswanRuntime {
   };
 
   private render = (): void => {
-    this.commandManager.updateDebugVisuals();
+    this.debugVizSet.update();
 
     // In a session the head pose owns the camera, and OrbitControls stays out of it, or its
     // next update rebuilds the orbit from the head.
     const presenting = this.renderer.xr.isPresenting;
     if (this.mjData) {
-      updateCameraFromData(this.mjData, this.camera, this.controls, this.cameraState, presenting);
+      if (this.cameraTracking) {
+        updateCameraFromData(this.mjData, this.camera, this.controls, this.cameraState, presenting);
+      }
     }
     if (presenting) {
       const seconds = Math.min(this.xrClock.getDelta(), MAX_XR_FRAME_SECONDS);
@@ -2187,6 +2225,7 @@ export class mjswanRuntime {
     this.mujocoRoot = null;
     this.dynamicBodyIds = null;
     this.lastSimState.bodies.clear();
+    this.debugVizSet.clear();
     this.commandManager.dispose();
   }
 

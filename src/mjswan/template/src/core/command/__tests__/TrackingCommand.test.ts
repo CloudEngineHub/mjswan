@@ -182,3 +182,48 @@ describe('TrackingCommand ghost', () => {
     expect(material.opacity).toBe(0.25);
   });
 });
+
+/** mjlab's `viz.mode="frames"`: reference and robot frames for each body and the anchor. */
+describe('TrackingCommand frames', () => {
+  it('draws three axes for each of the four frames of one body, and builds no ghost', () => {
+    const scene = new THREE.Scene();
+    const context = {
+      mujoco: { MjData: class {} },
+      mjModel: {
+        nbody: 2,
+        body: (i: number) => ({ name: ['world', 'robot/pelvis'][i] }),
+        body_jntnum: [0, 1],
+        body_parentid: [0, 0],
+      },
+      mjData: {
+        xpos: Float64Array.from([0, 0, 0, 0.2, 0, 0.9]),
+        xquat: Float64Array.from([1, 0, 0, 0, 1, 0, 0, 0]),
+      },
+      scene,
+      bodies: { 1: new THREE.Group() },
+    } as unknown as CommandTermContext;
+    const motion = { name: 'clip', body_names: ['pelvis'], anchor_body_name: 'pelvis' };
+    const term = new TrackingCommand(
+      'motion',
+      { name: 'TrackingCommand', viz_mode: 'frames', motions: [motion] } as unknown as CommandConfigEntry,
+      context,
+    );
+    const shafts = () =>
+      (scene.getObjectByName('Tracking Frames')!.children[0] as THREE.InstancedMesh).count;
+    expect(scene.getObjectByName('Tracking Ghost')).toBeUndefined();
+    expect(term.debugVisEnabled()).toBe(true);
+
+    term.updateDebugVisuals(true);
+    expect(shafts()).toBe(0); // No clip yet.
+
+    const internals = term as unknown as Record<string, unknown>;
+    internals.selectedMotion = motion;
+    internals.refBodyPosW = [Float32Array.from([0, 0, 1])];
+    internals.refBodyQuatW = [Float32Array.from([1, 0, 0, 0])];
+    term.refLen = 1;
+    term.updateDebugVisuals(true);
+    expect(shafts()).toBe(3 * 4);
+    term.updateDebugVisuals(false);
+    expect(shafts()).toBe(0);
+  });
+});

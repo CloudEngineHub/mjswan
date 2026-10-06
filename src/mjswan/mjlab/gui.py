@@ -1,12 +1,14 @@
-"""Record an mjlab command term's viser GUI as a control-panel descriptor.
+"""Record mjlab's viser GUI as control-panel descriptors.
 
-Running ``CommandTerm.create_gui`` against a recording stand-in makes mjlab's own
-declaration the control panel's only definition, so its slider ranges cannot drift.
+Running mjlab's own ``create_gui`` (a command term's) and ``create_scene_gui`` (the
+viewer's Scene section) against a recording stand-in makes mjlab's declaration the
+control panel's only definition, so its labels and ranges cannot drift.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any
 
 
@@ -26,6 +28,7 @@ class _Handle:
     max: float | None = None
     step: float | None = None
     icon: str | None = None
+    hint: str | None = None
 
     def on_update(self, fn: Any) -> Any:
         return fn
@@ -36,17 +39,19 @@ class _Handle:
 
 @dataclass
 class _Folder:
-    """Context manager only. The title is dropped: mjlab uses
-    ``name.capitalize()``, which the browser already derives from the term name
-    (``ControlPanel.formatGroupName``)."""
+    """Nests what is recorded inside it under one node of ``_GuiRecorder.tree``."""
 
     label: str
+    recorder: _GuiRecorder
 
     def __enter__(self) -> _Folder:
+        node: dict[str, Any] = {"type": "folder", "label": self.label, "children": []}
+        self.recorder._level.append(node)
+        self.recorder._stack.append(node["children"])
         return self
 
     def __exit__(self, *_: Any) -> None:
-        pass
+        self.recorder._stack.pop()
 
 
 @dataclass
@@ -58,18 +63,47 @@ class _GuiRecorder:
     """
 
     recorded: list[_Handle] = field(default_factory=list)
+    """Every control in call order, folders flattened away."""
+    tree: list[dict[str, Any]] = field(default_factory=list)
+    """The same controls under the folders they were declared in."""
+    _stack: list[list[dict[str, Any]]] = field(default_factory=list)
+
+    @property
+    def _level(self) -> list[dict[str, Any]]:
+        return self._stack[-1] if self._stack else self.tree
 
     def _record(self, handle: _Handle) -> _Handle:
         self.recorded.append(handle)
+        node = {
+            k: v
+            for k, v in {
+                "type": handle.kind,
+                "label": handle.label,
+                "default": handle.value,
+                "min": handle.min,
+                "max": handle.max,
+                "step": handle.step,
+                "icon": handle.icon,
+                "hint": handle.hint,
+            }.items()
+            if v is not None
+        }
+        self._level.append(node)
         return handle
 
     def add_folder(self, label: str, **_: Any) -> _Folder:
-        return _Folder(label)
+        return _Folder(label, self)
+
+    def add_slot(self, name: str) -> None:
+        """Mark where the browser fills in controls only it knows, in tree order."""
+        self._level.append({"type": "slot", "name": name})
 
     def add_checkbox(
-        self, label: str, initial_value: bool = False, **_: Any
+        self, label: str, initial_value: bool = False, hint: str | None = None, **_: Any
     ) -> _Handle:
-        return self._record(_Handle("checkbox", label, value=bool(initial_value)))
+        return self._record(
+            _Handle("checkbox", label, value=bool(initial_value), hint=hint)
+        )
 
     def add_slider(
         self,
@@ -78,10 +112,20 @@ class _GuiRecorder:
         max: float | None = None,
         step: float | None = None,
         initial_value: float | None = None,
+        *,
+        hint: str | None = None,
         **_: Any,
     ) -> _Handle:
         return self._record(
-            _Handle("slider", label, value=initial_value, min=min, max=max, step=step)
+            _Handle(
+                "slider",
+                label,
+                value=initial_value,
+                min=min,
+                max=max,
+                step=step,
+                hint=hint,
+            )
         )
 
     def add_button(self, label: str, icon: Any = None, **_: Any) -> _Handle:
@@ -94,6 +138,9 @@ class _GuiRecorder:
 @dataclass
 class _ServerRecorder:
     gui: _GuiRecorder = field(default_factory=_GuiRecorder)
+
+    def on_client_connect(self, fn: Any) -> Any:
+        return fn
 
 
 def _slug(label: str) -> str:
@@ -177,4 +224,41 @@ def record_gui(term: Any, name: str) -> dict[str, Any] | None:
     return to_ui_descriptor(server.gui.recorded)
 
 
-__all__ = ["record_gui", "to_ui_descriptor"]
+DEBUG_VIS_SLOT = "debug_vis"
+"""Where the Debug Viz folder lists its drawings, which depend on the loaded policy."""
+
+
+def record_scene_gui() -> list[dict[str, Any]] | None:
+    """mjlab's play viewer's Scene section as a tree, or ``None`` without mjlab.
+
+    ``MjlabViserScene.create_scene_gui`` runs against the recorder on a scene with only
+    the state it reads: one env, mjviser's and mjlab's constructor defaults, and Debug
+    Viz on, as ``ViserPlayViewer`` sets it. Its per-drawing checkboxes become a slot.
+    """
+    try:
+        import numpy as np
+        from mjlab.viewer.viser.scene import MjlabViserScene
+    except ImportError:
+        return None
+
+    server = _ServerRecorder()
+    # Stand-ins for the server and model it holds, so typed as what it is here.
+    scene: Any = object.__new__(MjlabViserScene)
+    scene.server = server
+    scene.num_envs = 1
+    scene.env_idx = 0
+    scene.camera_tracking_enabled = True
+    scene.show_all_envs = False
+    scene.debug_visualization_enabled = True
+    # Read only to place the camera, which the browser's viewer config already does.
+    scene.mj_model = SimpleNamespace(
+        stat=SimpleNamespace(center=np.zeros(3), extent=1.0)
+    )
+    with server.gui.add_folder("Scene"):
+        scene.create_scene_gui(
+            debug_viz_extra_gui=lambda: server.gui.add_slot(DEBUG_VIS_SLOT)
+        )
+    return server.gui.tree
+
+
+__all__ = ["DEBUG_VIS_SLOT", "record_gui", "record_scene_gui", "to_ui_descriptor"]

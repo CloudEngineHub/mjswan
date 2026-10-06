@@ -75,6 +75,8 @@ export interface CameraControls {
   get(): CameraView;
   /** Re-fit the camera to the scene bounds. */
   frame(): void;
+  /** mjviser's "Track camera": follow the viewer config's tracked body. On by default. */
+  setTracking(enabled: boolean): void;
 }
 
 /** A policy command term surfaced for generic UI controls. */
@@ -108,17 +110,22 @@ export interface CommandControls {
   trigger(id: string): void;
 }
 
-/** A command term whose debug drawing (mjlab's `debug_vis`) can be shown or hidden. */
+/**
+ * One of mjlab's Debug Viz switches: a command term, raycast sensor or reward term whose
+ * drawing can be shown or hidden.
+ */
 export interface DebugVisDescriptor {
-  /** The term's config key, and the id {@link DebugVisControls.set} takes. */
-  term: string;
+  /** `command:<term>`, `sensor:<name>` or `reward:<term>`; the id {@link DebugVisControls.set} takes. */
+  id: string;
+  /** As mjlab's checkbox reads: a command term capitalized, a sensor or reward term as named. */
+  label: string;
   enabled: boolean;
 }
 
 export interface DebugVisControls {
-  /** mjlab's Debug Viz "Enabled": every drawing at once, leaving each term's own switch as it is. */
+  /** mjlab's Debug Viz "Enabled": every drawing at once, leaving each one's own switch as it is. */
   setEnabled(enabled: boolean): void;
-  set(term: string, enabled: boolean): void;
+  set(id: string, enabled: boolean): void;
 }
 
 /** One event term the operator can drive: a `manual` button or an `interval` schedule. */
@@ -228,10 +235,12 @@ export interface MjswanEngineState {
   error: Error | null;
   commands: ReadonlyArray<CommandDescriptor>;
   commandValues: Readonly<Record<string, number>>;
-  /** Terms with a debug drawing to toggle; empty when the policy has none. */
+  /** Drawings to toggle, in mjlab's order; empty when the policy has none. */
   debugVis: ReadonlyArray<DebugVisDescriptor>;
-  /** {@link DebugVisControls.setEnabled}'s switch: a term draws only while it and its own are on. */
+  /** {@link DebugVisControls.setEnabled}'s switch: a drawing shows only while it and its own are on. */
   debugVisEnabled: boolean;
+  /** {@link CameraControls.setTracking}'s switch, and the camera's vertical FOV in degrees. */
+  camera: { tracking: boolean; fovy: number };
   /** Event terms the operator can drive; empty when the scene has none. */
   events: ReadonlyArray<EventDescriptor>;
   /** Every pointer mode, with whether this scene can run it. */
