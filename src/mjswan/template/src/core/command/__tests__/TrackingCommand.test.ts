@@ -174,12 +174,14 @@ describe('TrackingCommand ghost', () => {
     expect(ghostCommand().term.debugVisEnabled()).toBe(true);
   });
 
-  it("paints the ghost in the task's ghost_color", () => {
+  it("paints the ghost in the task's ghost_color at viser's ghost opacity", () => {
     const { scene } = ghostCommand({ ghost_color: [1, 0, 0, 0.25] });
     const mesh = ghostOf(scene).getObjectByProperty('type', 'Mesh') as THREE.Mesh;
     const material = mesh.material as THREE.MeshStandardMaterial;
     expect(material.color.toArray()).toEqual([1, 0, 0]);
-    expect(material.opacity).toBe(0.25);
+    // The color's alpha only marks visual geoms in mjlab; `add_ghost_mesh` draws at 0.5.
+    expect(material.opacity).toBe(0.5);
+    expect(mesh.castShadow).toBe(false);
   });
 });
 

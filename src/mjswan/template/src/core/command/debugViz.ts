@@ -9,6 +9,7 @@
 import * as THREE from 'three';
 import type { SlotReader } from '../onnx/session';
 import { mjcToThreeCoordinate } from '../scene/coordinate';
+import { unitHead, unitShaft, unitSphere, viserMaterial } from '../debugViz/primitives';
 
 /** A 3-vector source: exactly one of `const` / `state` / `field`. */
 export interface VizVector {
@@ -48,7 +49,6 @@ export type StateReader = (field: string) => Float32Array | null;
 
 const UP = new THREE.Vector3(0, 1, 0);
 const HEAD_FRACTION = 0.2;
-const HEAD_WIDTH_RATIO = 2;
 
 function resolve(
   vec: VizVector,
@@ -88,15 +88,6 @@ function toWorld(
   return mjcToThreeCoordinate([rotated.x + pos[0], rotated.y + pos[1], rotated.z + pos[2]]);
 }
 
-function makeMaterial(color: readonly number[]): THREE.MeshBasicMaterial {
-  return new THREE.MeshBasicMaterial({
-    color: new THREE.Color(color[0], color[1], color[2]),
-    transparent: true,
-    opacity: color[3] ?? 1,
-    depthWrite: false,
-  });
-}
-
 /**
  * Shaft + head, unit-height with their base at the origin, so a frame sets only
  * `scale.y` and one quaternion. Not `ArrowHelper`: its shaft is a 1px line, so mjlab's
@@ -104,19 +95,21 @@ function makeMaterial(color: readonly number[]): THREE.MeshBasicMaterial {
  */
 function makeArrow(primitive: VizPrimitive): THREE.Group {
   const width = primitive.width ?? 0.015;
-  const [r, g, b] = primitive.color;
-  const material = makeMaterial([r, g, b, 1]);
-  const shaft = new THREE.Mesh(
-    new THREE.CylinderGeometry(width, width, 1, 12).translate(0, 0.5, 0),
-    material,
-  );
-  const head = new THREE.Mesh(
-    new THREE.ConeGeometry(width * HEAD_WIDTH_RATIO, 1, 12).translate(0, 0.5, 0),
-    material,
-  );
+  const material = viserMaterial(primitive.color);
+  const shaft = new THREE.Mesh(unitShaft().scale(width, 1, width), material);
+  const head = new THREE.Mesh(unitHead().scale(width, 1, width), material);
   const group = new THREE.Group();
   group.add(shaft, head);
   return group;
+}
+
+/** viser draws a sphere at its color's own alpha, unlike an arrow. */
+function makeSphere(primitive: VizPrimitive): THREE.Mesh {
+  const radius = primitive.radius ?? 0.03;
+  return new THREE.Mesh(
+    unitSphere().scale(radius, radius, radius),
+    viserMaterial(primitive.color, primitive.color[3] ?? 1),
+  );
 }
 
 /** One term's debug drawing: built once, repositioned per frame. */
@@ -129,13 +122,7 @@ export class CommandDebugVisuals {
     private readonly root: THREE.Object3D,
   ) {
     this.objects = primitives.map((primitive, index) => {
-      const object =
-        primitive.shape === 'arrow'
-          ? makeArrow(primitive)
-          : new THREE.Mesh(
-              new THREE.SphereGeometry(primitive.radius ?? 0.03, 20, 12),
-              makeMaterial(primitive.color),
-            );
+      const object = primitive.shape === 'arrow' ? makeArrow(primitive) : makeSphere(primitive);
       object.name = `mjswan-command-${termName}-viz-${index}`;
       object.visible = false;
       root.add(object);

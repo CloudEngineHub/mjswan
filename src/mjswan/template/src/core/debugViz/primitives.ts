@@ -1,8 +1,8 @@
 /**
  * Batched arrows and spheres for drawings with many primitives (a height scan's rays),
- * shaped as mjlab's viser scene draws them: a shaft of radius `width` over 80% of the
- * length, a cone of radius `2 * width` over the rest. Arrows are opaque, as viser draws
- * them; a sphere batch takes one opacity.
+ * drawn as mjlab's viser scene draws them: a shaft of radius `width` over 80% of the
+ * length, a cone of radius `2 * width` over the rest, both opaque; spheres sharing one
+ * opacity; every mesh lit and shadowless.
  *
  * Points are MuJoCo world coordinates; the batch converts to three's.
  */
@@ -16,6 +16,35 @@ export type Rgba = readonly [number, number, number, number];
 
 const UP = new THREE.Vector3(0, 1, 0);
 const SHAFT_FRACTION = 0.8;
+/** trimesh's default `sections` for the cylinder and cone viser batches. */
+const RADIAL_SEGMENTS = 32;
+
+/** viser's `standard` mesh material at the opacity it was given (`MeshUtils.tsx`). */
+export function viserMaterial(
+  rgb: readonly number[] = [1, 1, 1],
+  opacity = 1,
+): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({
+    color: new THREE.Color(rgb[0], rgb[1], rgb[2]),
+    transparent: true,
+    opacity,
+  });
+}
+
+/** trimesh's `cylinder(radius=1, height=1)`, base at the origin along +y. */
+export function unitShaft(): THREE.BufferGeometry {
+  return new THREE.CylinderGeometry(1, 1, 1, RADIAL_SEGMENTS).translate(0, 0.5, 0);
+}
+
+/** trimesh's `cone(radius=2, height=1)`, base at the origin along +y. */
+export function unitHead(): THREE.BufferGeometry {
+  return new THREE.ConeGeometry(2, 1, RADIAL_SEGMENTS).translate(0, 0.5, 0);
+}
+
+/** trimesh's `icosphere(subdivisions=2)`: 320 faces, as three's detail 3. */
+export function unitSphere(): THREE.BufferGeometry {
+  return new THREE.IcosahedronGeometry(1, 3);
+}
 
 function instanced(
   geometry: THREE.BufferGeometry,
@@ -46,15 +75,10 @@ export class ArrowBatch {
     name: string,
   ) {
     this.object.name = name;
-    const material = new THREE.MeshBasicMaterial();
-    this.shafts = instanced(
-      new THREE.CylinderGeometry(1, 1, 1, 12).translate(0, 0.5, 0),
-      material,
-      capacity,
-      `${name}-shafts`,
-    );
+    const material = viserMaterial();
+    this.shafts = instanced(unitShaft(), material, capacity, `${name}-shafts`);
     this.heads = instanced(
-      new THREE.ConeGeometry(2, 1, 12).translate(0, 0.5, 0),
+      unitHead(),
       material,
       capacity,
       `${name}-heads`,
@@ -116,12 +140,8 @@ export class SphereBatch {
     opacity: number,
   ) {
     this.object = instanced(
-      new THREE.SphereGeometry(1, 16, 12),
-      new THREE.MeshBasicMaterial({
-        transparent: opacity < 1,
-        opacity,
-        depthWrite: opacity >= 1,
-      }),
+      unitSphere(),
+      viserMaterial([1, 1, 1], opacity),
       capacity,
       name,
     );

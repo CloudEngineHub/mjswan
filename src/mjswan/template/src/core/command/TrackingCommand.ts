@@ -5,7 +5,7 @@ import { getPosition, getQuaternion } from '../scene/scene';
 import { type NpzEntry, loadNpz } from '../scene/npz';
 import { type Bytes, resolveBytes } from '../utils/bytes';
 import { OnnxEvent, isOnnxEventConfig } from '../event/OnnxEvent';
-import { ArrowBatch, addFrame, type Rgba } from '../debugViz/primitives';
+import { ArrowBatch, addFrame, viserMaterial, type Rgba } from '../debugViz/primitives';
 import type { CommandConfigEntry, CommandTerm, CommandTermContext, CommandUiConfig } from './types';
 
 export type TrackingMotionConfig = {
@@ -60,6 +60,8 @@ function splitFrames(entry: NpzEntry): Float32Array[] {
 
 /** mjlab's default `viz.ghost_color`. */
 const DEFAULT_GHOST_COLOR: readonly number[] = [0.5, 0.7, 0.5, 0.5];
+/** `DebugVisualizer.add_ghost_mesh`'s default `alpha`, which `MotionCommand` leaves as is. */
+const GHOST_OPACITY = 0.5;
 /** mjlab's `_DESIRED_FRAME_COLORS`, the reference's axes in `"frames"` mode. */
 const DESIRED_FRAME_COLORS: readonly Rgba[] = [
   [1.0, 0.5, 0.5, 1],
@@ -67,21 +69,12 @@ const DESIRED_FRAME_COLORS: readonly Rgba[] = [
   [0.5, 0.5, 1.0, 1],
 ];
 
-function setGhostMaterial(material: THREE.Material, rgba: readonly number[]): THREE.Material {
-  const next = material.clone();
-  if ('transparent' in next) {
-    next.transparent = true;
-  }
-  if ('opacity' in next) {
-    next.opacity = rgba[3] ?? 1;
-  }
-  if ('depthWrite' in next) {
-    next.depthWrite = false;
-  }
-  if ('color' in next && next.color instanceof THREE.Color) {
-    next.color = new THREE.Color(rgba[0], rgba[1], rgba[2]);
-  }
-  return next;
+/**
+ * viser's ghost: the color alone, lit, at `add_ghost_mesh`'s opacity. The color's own alpha
+ * only tells mjlab which geoms are visual, so it is not the ghost's opacity.
+ */
+function ghostMaterial(rgba: readonly number[]): THREE.Material {
+  return viserMaterial(rgba, GHOST_OPACITY);
 }
 
 function hasRenderableMesh(object: THREE.Object3D): boolean {
@@ -621,11 +614,11 @@ export class TrackingCommand implements CommandTerm {
       const clone = body.clone(true);
       clone.traverse((obj) => {
         if (obj instanceof THREE.Mesh) {
-          if (Array.isArray(obj.material)) {
-            obj.material = obj.material.map((material) => setGhostMaterial(material, color));
-          } else {
-            obj.material = setGhostMaterial(obj.material, color);
-          }
+          obj.material = Array.isArray(obj.material)
+            ? obj.material.map(() => ghostMaterial(color))
+            : ghostMaterial(color);
+          obj.castShadow = false;
+          obj.receiveShadow = false;
           obj.renderOrder = 2;
         }
       });
