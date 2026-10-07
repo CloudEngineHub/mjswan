@@ -1171,7 +1171,7 @@ from mjswan.envs.mdp.actions import JointPositionActionCfg
 | Class | Status |
 |---|---|
 | `JointPositionActionCfg` | Supported. Adds `use_default_offset`, `stiffness`, `damping`. |
-| `JointVelocityActionCfg` | Supported. Adds `damping`, for a motor actuator. |
+| `JointVelocityActionCfg` | Supported. Adds `damping` (motor actuators only). |
 | `JointEffortActionCfg` | Supported. Adds `stiffness`, `damping`. |
 | `MuscleActivationActionCfg` | Supported. Adds `normalize` (default `True`). |
 | `TendonLengthActionCfg`, `TendonVelocityActionCfg`, `TendonEffortActionCfg` | Raise `NotImplementedError` at build time. |

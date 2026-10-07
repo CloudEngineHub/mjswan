@@ -181,8 +181,7 @@ class _ReplaySensorData:
         key = (_SENSOR_NS, f"{self._sensor}.{name}")
         if key in self._slots:
             return self._slots[key]
-        # Discovery records tensors only; a field the sensor does not compute reads
-        # `None`, and a term branches on that (mjlab's `illegal_contact`).
+        # Discovery records tensors only; a term may branch on a field being `None`.
         if hasattr(self._real.data, name) and getattr(self._real.data, name) is None:
             return None
         raise AttributeError(

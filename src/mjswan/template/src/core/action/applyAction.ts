@@ -44,8 +44,8 @@ export interface ResolvedActionTerm {
   referenceJointPos?: Float32Array | null;
   encoderBias: Float32Array;
   /**
-   * Per-actuator: true = position (`biastype=affine`), so `ctrl` is a target and MuJoCo
-   * runs the PD; false = motor, so `ctrl` is a torque and the PD is computed here.
+   * Per-actuator: true = `biastype=affine` (position or velocity), so `ctrl` is a target
+   * MuJoCo tracks; false = motor, so `ctrl` is a torque computed here.
    */
   positionActuator: boolean[];
   kp: Float32Array;

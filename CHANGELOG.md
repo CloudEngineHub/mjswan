@@ -14,12 +14,11 @@ shortcuts.
 
 ### Added
 
-- **`JointVelocityActionCfg` runs in the browser**, as the `joint_velocity` control type:
-  the processed action `scale * a + offset` is a velocity target, written as `ctrl` to a
-  velocity actuator and turned into `damping * (target - qvel)` for a motor. mjlab's
-  `use_default_offset` comes from the entity's `init_state.joint_vel`, and a motor's
-  damping from its `IdealPdActuatorCfg`, so an mjlab task needs no extra argument. A
-  wheeled robot that drives its wheels by velocity and its legs by position now ports.
+- **`JointVelocityActionCfg` runs in the browser** as the `joint_velocity` control type.
+  The target `scale * a + offset` is a velocity actuator's `ctrl`, and a motor gets
+  `damping * (target - qvel)`. An mjlab task needs no extra argument: the default offset
+  comes from the entity's `init_state.joint_vel`, a motor's damping from its
+  `IdealPdActuatorCfg`. A wheeled robot that drives its wheels by velocity now ports.
 
 - **The control panel reproduces mjlab's viewer Scene section, and its Debug Viz draws
   what mjlab's does.** The build records the section from mjlab's own

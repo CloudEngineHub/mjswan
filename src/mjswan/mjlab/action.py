@@ -162,13 +162,11 @@ def resolve_pd_gains(
     joint_names: list[str],
     env_cfg: Any | None,
 ) -> None:
-    """Fill a term's ``stiffness``/``damping`` from the entity's actuators.
+    """Fill a term's ``stiffness``/``damping`` from the entity's actuators, in place.
 
     The browser runs the PD for a ``biastype=none`` actuator itself and reads the gains
     off the *action* term, where mjlab keeps them on the *actuator* config. A velocity
-    term takes the damping only.
-
-    Mutates the fields in-place, and only when the term sets none of them.
+    term takes ``damping`` only, and a term that sets either gain is left alone.
     """
     if not actions or not joint_names:
         return

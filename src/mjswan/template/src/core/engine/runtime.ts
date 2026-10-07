@@ -1499,9 +1499,8 @@ export class mjswanRuntime {
       // Pattern-keyed, unlike the exact-name siblings above.
       const { clipLo, clipHi } = resolveActionClip(configClip, subsetJointNames, n);
 
-      // Position and velocity actuators (biastype=affine) take a target and run their
-      // own feedback in MuJoCo; motor actuators (biastype=none) take a torque and need
-      // it computed here.
+      // Position and velocity actuators (biastype=affine) take a target MuJoCo tracks;
+      // motors (biastype=none) take a torque computed here.
       const positionActuator: boolean[] = mapping.ctrlAdr.map((adr) => {
         if (adr < 0 || !this.mjModel) return false;
         return this.mjModel.actuator_biastype[adr] === affineBiasValue;

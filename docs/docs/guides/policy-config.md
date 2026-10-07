@@ -261,9 +261,10 @@ actions = {
 | Class | Status |
 |---|---|
 | `JointPositionActionCfg` | Supported. |
+| `JointVelocityActionCfg` | Supported. The target is a velocity actuator's `ctrl`; for a motor the browser applies `damping * (target - qvel)`. |
 | `JointEffortActionCfg` | Supported. |
 | `MuscleActivationActionCfg` | Supported — drives MuJoCo muscle actuators. See [below](#muscle-actuators). |
-| `JointVelocityActionCfg`, `TendonLengthActionCfg`, `TendonVelocityActionCfg`, `TendonEffortActionCfg`, `SiteEffortActionCfg` | Exported so mjlab configs import cleanly, but raise `NotImplementedError` at build time. |
+| `TendonLengthActionCfg`, `TendonVelocityActionCfg`, `TendonEffortActionCfg`, `SiteEffortActionCfg` | Exported so mjlab configs import cleanly, but raise `NotImplementedError` at build time. |
 
 `actuator_names` are regular expressions, each matched whole (`^(?:...)$`) against
 `policy_joint_names`: despite the name they select joints, as in mjlab's

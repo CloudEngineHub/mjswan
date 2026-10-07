@@ -154,19 +154,16 @@ class ReferenceJointPositionActionCfg(BaseActionCfg):
 class JointVelocityActionCfg(BaseActionCfg):
     """Configuration for joint velocity control.
 
-    Mirrors ``mjlab.envs.mdp.actions.actions.JointVelocityActionCfg``: the processed
-    action ``scale * a + offset`` is a velocity target. A velocity actuator
-    (``biastype=affine``) takes it as ``ctrl``; for a motor the browser computes
-    ``damping * (target - qvel)``.
+    Mirrors ``mjlab.envs.mdp.actions.actions.JointVelocityActionCfg``. The target
+    ``scale * a + offset`` is ``ctrl`` for a velocity actuator (``biastype=affine``);
+    for a motor the browser applies ``damping * (target - qvel)``.
     """
 
     use_default_offset: bool = True
-    """When True, the offset is the entity's default joint velocity, as in mjlab.
-    The mjlab adapter resolves it into ``offset``; see ``resolve_default_joint_vel``."""
+    """When True, the build sets ``offset`` to the entity's default joint velocity."""
 
     damping: float | list[float] | dict[str, float] | None = None
-    """Velocity gain (kd) for a motor actuator. mjswan-specific; see
-    ``JointPositionActionCfg``."""
+    """Velocity gain (kd). mjswan-specific; see ``JointPositionActionCfg``."""
 
     def to_dict(self) -> dict[str, Any]:
         if self.unsupported_reason is not None:

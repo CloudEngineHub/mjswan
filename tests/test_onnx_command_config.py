@@ -571,10 +571,8 @@ def test_structured_sensor_fields_become_one_slot_each():
 
 
 def test_a_sensor_field_left_uncomputed_replays_as_none():
-    """mjlab's `illegal_contact` branches on `force_history is not None`.
-
-    A contact sensor without `history_length` leaves the field `None`, which discovery
-    does not record, so the replay pass has to answer `None` too rather than raise.
+    """mjlab's `illegal_contact` branches on `force_history`, which a contact sensor
+    without `history_length` leaves `None` and discovery does not record.
     """
     from mjswan.compile.slot import slot_to_json
     from mjswan.compile.term import trace_term

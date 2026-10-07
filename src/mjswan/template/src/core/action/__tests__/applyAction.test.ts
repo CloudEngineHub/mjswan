@@ -185,7 +185,7 @@ describe('applyAction — joint_velocity', () => {
       ],
       Float32Array.from([1]),
     );
-    // target = 2; ctrl = 0.4 * (2 - 1.5), and the stiffness reads no position.
+    // target = 2, so ctrl = 0.4 * (2 - 1.5); kp is unused.
     expect(data.ctrl[0]).toBeCloseTo(0.4 * 0.5, 6);
   });
 

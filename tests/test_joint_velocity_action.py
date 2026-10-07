@@ -38,7 +38,7 @@ def test_default_offset_is_the_default_joint_velocity():
     resolve_default_joint_vel(
         {"vel": cfg}, JOINTS, _env_cfg({"left_wheel": 1.5, ".*": 0.0})
     )
-    # Replaced, not added to, as mjlab replaces it.
+    # Replaced, not added to, as in mjlab.
     assert cfg.offset == {"robot/left_wheel": 1.5}
 
 
