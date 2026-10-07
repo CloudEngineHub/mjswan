@@ -13,7 +13,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from mjswan.app import MjswanApp, _detect_colab
+from mjswan.app import _HASHED_ASSET, MjswanApp, _detect_colab
 
 
 class _MockTCPServer:
@@ -147,3 +147,16 @@ class TestMjswanAppColabMode:
     def test_returns_immediately(self, app_dir, mock_colab_output, mock_thread):
         result = MjswanApp(app_dir).launch()
         assert result is None
+
+
+class TestHashedAsset:
+    def test_matches_only_vite_bundle_files(self):
+        assert _HASHED_ASSET.fullmatch("/assets/index-YKmp-R4g.js")
+        assert _HASHED_ASSET.fullmatch("/assets/preload-helper-zJ_50EbN.js")
+        for path in (
+            "/",
+            "/manifest.json",
+            "/assets/plugins.js",
+            "/demo/g1/assets/walk-forward1.npz",
+        ):
+            assert not _HASHED_ASSET.fullmatch(path), path

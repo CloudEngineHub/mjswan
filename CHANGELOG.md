@@ -649,6 +649,12 @@ shortcuts.
 
 ### Fixed
 
+- **The local server never hands the browser an earlier build.** `MjswanApp.launch()`,
+  behind `mjswan view`, `serve` and `demo`, sent no `Cache-Control`, so a browser could
+  run an earlier build's cached engine, scene or policy: after an upgrade, the page
+  failed with "this engine reads up to format 2". It now sends `no-store`, except for
+  the content-hashed bundle files in `assets/`, which it marks `immutable`.
+
 - **A term that branches on a sensor field the sensor does not compute now traces.**
   mjlab's `illegal_contact` checks `force_history is not None` first; on a contact
   sensor without `history_length` the replay pass raised "was not recorded during

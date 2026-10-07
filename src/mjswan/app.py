@@ -6,11 +6,15 @@ that can be saved to disk or launched in a web browser.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .cloud.publish import PublishResult
+
+#: A Vite bundle file, named by its content hash (`plugins.js` beside it is not).
+_HASHED_ASSET = re.compile(r"/assets/[^/]+-[\w-]{8}\.\w+")
 
 
 def _detect_colab() -> bool:
@@ -167,6 +171,15 @@ class MjswanApp:
 
             def __init__(self, *args, **kwargs):
                 super().__init__(*args, directory=directory, **kwargs)
+
+            def send_response(self, code, message=None):
+                super().send_response(code, message)
+                # Builds reuse unhashed URLs, and Last-Modified can go backwards.
+                # A 404 is not kept either: another build may have the file.
+                if code == 200 and _HASHED_ASSET.fullmatch(self.path):
+                    self.send_header("Cache-Control", "max-age=31536000, immutable")
+                else:
+                    self.send_header("Cache-Control", "no-store")
 
             def end_headers(self):
                 # Required for SharedArrayBuffer (used by MuJoCo WASM threading)
