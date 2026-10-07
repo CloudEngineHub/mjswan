@@ -18,6 +18,7 @@ from typing import Any
 from ..envs.mdp import actions as _actions_module
 from ..envs.mdp.actions.actions import (
     JointPositionActionCfg,
+    JointVelocityActionCfg,
     ReferenceJointPositionActionCfg,
 )
 from ..managers.action_manager import ActionTermCfg as MjswanActionTermCfg
@@ -151,30 +152,34 @@ def _expand_patterns(value: Any, joint_names: list[str]) -> Any:
 _PYTHON_PD_ACTUATOR = "IdealPdActuatorCfg"
 
 
+def _entity_cfg(env_cfg: Any | None, term: MjswanActionTermCfg) -> Any | None:
+    entities = getattr(getattr(env_cfg, "scene", None), "entities", None) or {}
+    return entities.get(getattr(term, "entity_name", "robot"))
+
+
 def resolve_pd_gains(
     actions: Mapping[str, MjswanActionTermCfg] | None,
     joint_names: list[str],
     env_cfg: Any | None,
 ) -> None:
-    """Fill a position term's ``stiffness``/``damping`` from the entity's actuators.
+    """Fill a term's ``stiffness``/``damping`` from the entity's actuators, in place.
 
     The browser runs the PD for a ``biastype=none`` actuator itself and reads the gains
-    off the *action* term, where mjlab keeps them on the *actuator* config.
-
-    Mutates the two fields in-place, and only when the term sets neither.
+    off the *action* term, where mjlab keeps them on the *actuator* config. A velocity
+    term takes ``damping`` only, and a term that sets either gain is left alone.
     """
-    entities = getattr(getattr(env_cfg, "scene", None), "entities", None)
-    if not actions or not joint_names or not entities:
+    if not actions or not joint_names:
         return
 
     for term in actions.values():
-        if not isinstance(
+        velocity = isinstance(term, JointVelocityActionCfg)
+        if not velocity and not isinstance(
             term, (JointPositionActionCfg, ReferenceJointPositionActionCfg)
         ):
             continue
-        if term.stiffness is not None or term.damping is not None:
+        if getattr(term, "stiffness", None) is not None or term.damping is not None:
             continue
-        entity = entities.get(getattr(term, "entity_name", "robot"))
+        entity = _entity_cfg(env_cfg, term)
         actuators = [
             cfg
             for cfg in getattr(getattr(entity, "articulation", None), "actuators", ())
@@ -191,9 +196,49 @@ def resolve_pd_gains(
             )
             for field in ("stiffness", "damping")
         }
-        if gains["stiffness"]:
+        if not gains["stiffness"]:
+            continue
+        if not velocity:
             term.stiffness = gains["stiffness"]
-            term.damping = gains["damping"]
+        term.damping = gains["damping"]
 
 
-__all__ = ["adapt_actions", "resolve_action_scales", "resolve_pd_gains"]
+def resolve_default_joint_vel(
+    actions: Mapping[str, MjswanActionTermCfg] | None,
+    joint_names: list[str],
+    env_cfg: Any | None,
+) -> None:
+    """Make a velocity term's ``offset`` the entity's default joint velocity.
+
+    mjlab's ``use_default_offset`` replaces the offset with ``init_state.joint_vel``,
+    which the browser has no copy of, so it is baked in here by exact joint name.
+    """
+    if not actions or not joint_names:
+        return
+
+    for term in actions.values():
+        if not isinstance(term, JointVelocityActionCfg) or not term.use_default_offset:
+            continue
+        init_state = getattr(_entity_cfg(env_cfg, term), "init_state", None)
+        joint_vel = getattr(init_state, "joint_vel", None)
+        if not isinstance(joint_vel, dict):
+            continue
+        targets = [re.compile(pattern) for pattern in term.actuator_names]
+        offset: dict[str, float] = {}
+        for name in joint_names:
+            if not any(target.fullmatch(name) for target in targets):
+                continue
+            bare = name.split("/")[-1]
+            # First match wins, as in mjlab's `resolve_expr`.
+            value = next((v for p, v in joint_vel.items() if re.match(p, bare)), 0.0)
+            if value:
+                offset[name] = float(value)
+        term.offset = offset or 0.0
+
+
+__all__ = [
+    "adapt_actions",
+    "resolve_action_scales",
+    "resolve_default_joint_vel",
+    "resolve_pd_gains",
+]

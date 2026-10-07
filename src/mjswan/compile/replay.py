@@ -172,17 +172,21 @@ class _ReplayEntity:
 class _ReplaySensorData:
     """Serves a structured sensor's recorded fields during the replay pass."""
 
-    def __init__(self, sensor: str, slots: dict[SlotKey, torch.Tensor]):
+    def __init__(self, sensor: str, slots: dict[SlotKey, torch.Tensor], real: Any):
         object.__setattr__(self, "_sensor", sensor)
         object.__setattr__(self, "_slots", slots)
+        object.__setattr__(self, "_real", real)
 
-    def __getattr__(self, name: str) -> torch.Tensor:
+    def __getattr__(self, name: str) -> Any:
         key = (_SENSOR_NS, f"{self._sensor}.{name}")
-        if key not in self._slots:
-            raise AttributeError(
-                f"sensor field {self._sensor}.{name} was not recorded during discovery"
-            )
-        return self._slots[key]
+        if key in self._slots:
+            return self._slots[key]
+        # Discovery records tensors only; a term may branch on a field being `None`.
+        if hasattr(self._real.data, name) and getattr(self._real.data, name) is None:
+            return None
+        raise AttributeError(
+            f"sensor field {self._sensor}.{name} was not recorded during discovery"
+        )
 
 
 class _ReplayScene:
@@ -206,7 +210,9 @@ class _ReplayScene:
             if whole in self._slots:
                 return _sensor_proxy(real, lambda: self._slots[whole])
             # Structured sensor: the discovery pass recorded its fields separately.
-            return _sensor_proxy(real, lambda: _ReplaySensorData(name, self._slots))
+            return _sensor_proxy(
+                real, lambda: _ReplaySensorData(name, self._slots, real)
+            )
         return _ReplayEntity(name, self._slots, self._real_env, self._reader_fields)
 
 

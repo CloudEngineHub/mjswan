@@ -146,6 +146,74 @@ describe('applyAction — joint_position', () => {
   });
 });
 
+describe('applyAction — joint_velocity', () => {
+  it('writes offset + scale * action as the target of a velocity actuator', () => {
+    const data = fakeData(2, [0, 0], [3, -3]);
+    applyAction(
+      data,
+      [
+        term({
+          controlType: 'joint_velocity',
+          actionScale: Float32Array.from([100, 100]),
+          actionOffset: Float32Array.from([0.5, 0]),
+          // A default pose must not leak in: velocity targets have no pose offset.
+          defaultJointPos: Float32Array.from([9, 9]),
+        }),
+      ],
+      Float32Array.from([0.02, -0.01]),
+    );
+    expect(data.ctrl[0]).toBeCloseTo(0.5 + 100 * 0.02, 5);
+    expect(data.ctrl[1]).toBeCloseTo(100 * -0.01, 5);
+  });
+
+  it('runs a damping law for a motor actuator', () => {
+    const data = fakeData(1, [0.7], [1.5]);
+    applyAction(
+      data,
+      [
+        term({
+          controlType: 'joint_velocity',
+          ctrlAdr: [0],
+          qposAdr: [0],
+          qvelAdr: [0],
+          actionIndices: [0],
+          actionScale: Float32Array.from([2]),
+          positionActuator: [false],
+          kp: Float32Array.from([50]),
+          kd: Float32Array.from([0.4]),
+        }),
+      ],
+      Float32Array.from([1]),
+    );
+    // target = 2, so ctrl = 0.4 * (2 - 1.5); kp is unused.
+    expect(data.ctrl[0]).toBeCloseTo(0.4 * 0.5, 6);
+  });
+
+  it('clips the target, and reads its slice of a shared action vector', () => {
+    const data = fakeData(3);
+    applyAction(
+      data,
+      [
+        term({ ctrlAdr: [0], qposAdr: [0], qvelAdr: [0], actionIndices: [0] }),
+        term({
+          controlType: 'joint_velocity',
+          ctrlAdr: [1, 2],
+          qposAdr: [1, 2],
+          qvelAdr: [1, 2],
+          actionIndices: [1, 2],
+          actionScale: Float32Array.from([10, 10]),
+          clipLo: Float32Array.from([-5, -5]),
+          clipHi: Float32Array.from([5, 5]),
+        }),
+      ],
+      Float32Array.from([0.3, 0.2, 0.9]),
+    );
+    expect(data.ctrl[0]).toBeCloseTo(0.3, 6);
+    expect(data.ctrl[1]).toBeCloseTo(2, 5);
+    expect(data.ctrl[2]).toBeCloseTo(5, 6);
+  });
+});
+
 describe('applyAction — other kinds', () => {
   it('scales straight to torque', () => {
     const data = fakeData(2);

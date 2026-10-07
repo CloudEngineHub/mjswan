@@ -16,7 +16,12 @@ here is specific to one of mjlab's own tasks. Three kinds of things live here:
 they stay where mjlab has them.
 """
 
-from .action import adapt_actions, resolve_action_scales, resolve_pd_gains
+from .action import (
+    adapt_actions,
+    resolve_action_scales,
+    resolve_default_joint_vel,
+    resolve_pd_gains,
+)
 from .command import adapt_commands
 from .detect import is_from_mjlab
 from .env import build_mjlab_env, build_single_entity_trace_env
@@ -41,6 +46,7 @@ __all__ = [
     "ensure_mjlab_extensions",
     "is_from_mjlab",
     "resolve_action_scales",
+    "resolve_default_joint_vel",
     "resolve_pd_gains",
     "resolve_runner_defaults",
 ]

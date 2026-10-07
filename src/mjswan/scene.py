@@ -30,6 +30,7 @@ from .mjlab import (
     adapt_observations,
     adapt_terminations,
     resolve_action_scales,
+    resolve_default_joint_vel,
     resolve_pd_gains,
     resolve_runner_defaults,
 )
@@ -560,9 +561,9 @@ class SceneHandle:
         _enrich_joint_observations(self._config, mdp.observations)
         if mdp.actions and policy_joint_names:
             resolve_action_scales(mdp.actions, policy_joint_names)
-            resolve_pd_gains(
-                mdp.actions, policy_joint_names, self._resolve_env_cfg(env_cfg)
-            )
+            resolved_env_cfg = self._resolve_env_cfg(env_cfg)
+            resolve_pd_gains(mdp.actions, policy_joint_names, resolved_env_cfg)
+            resolve_default_joint_vel(mdp.actions, policy_joint_names, resolved_env_cfg)
         mdp._adapted = True
 
     def add_policy(

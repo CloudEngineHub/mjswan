@@ -154,23 +154,31 @@ class ReferenceJointPositionActionCfg(BaseActionCfg):
 class JointVelocityActionCfg(BaseActionCfg):
     """Configuration for joint velocity control.
 
-    Mirrors ``mjlab.envs.mdp.actions.actions.JointVelocityActionCfg``.
-
-    .. note::
-        Not supported in mjswan. Accepted for API compatibility.
+    Mirrors ``mjlab.envs.mdp.actions.actions.JointVelocityActionCfg``. The target
+    ``scale * a + offset`` is ``ctrl`` for a velocity actuator (``biastype=affine``);
+    for a motor the browser applies ``damping * (target - qvel)``.
     """
 
     use_default_offset: bool = True
+    """When True, the build sets ``offset`` to the entity's default joint velocity."""
 
-    unsupported_reason: str | None = field(
-        default=(
-            "JointVelocityAction is not supported in mjswan: the browser "
-            "runtime only supports joint_position and torque control types."
-        )
-    )
+    damping: float | list[float] | dict[str, float] | None = None
+    """Velocity gain (kd). mjswan-specific; see ``JointPositionActionCfg``."""
 
     def to_dict(self) -> dict[str, Any]:
-        raise NotImplementedError(self.unsupported_reason)
+        if self.unsupported_reason is not None:
+            raise NotImplementedError(self.unsupported_reason)
+
+        entry: dict[str, Any] = {"type": "joint_velocity"}
+        if self.scale != 1.0:
+            entry["scale"] = self.scale
+        if self.offset != 0.0:
+            entry["offset"] = self.offset
+        entry["actuator_names"] = list(self.actuator_names)
+        if self.damping is not None:
+            entry["damping"] = self.damping
+        self._add_clip(entry)
+        return entry
 
 
 @dataclass(kw_only=True)
