@@ -654,6 +654,15 @@ shortcuts.
   sensor without `history_length` the replay pass raised "was not recorded during
   discovery" instead of answering `None` as the sensor does.
 
+- **A fused termination that reads a contact or raycast sensor runs in the browser.**
+  Two or more traced terminations fuse into one graph, and its entry left out the
+  descriptors of the structured sensors its terms read, which a lone term's entry
+  carries. The browser could not fill that sensor's slot, so it skipped the whole graph
+  every step, silently in a production build, and none of the group's terms ever fired:
+  a tracking task's deviation and contact terminations, or a dodgeball task's hit and fall
+  terminations, never reset a fallen robot. The fused entry now carries `sensors`, as a
+  fused observation group's does.
+
 - **A traced term that reads a command with `get_command()` gets it in the browser.** The
   build records `get_command(name)` as the input `{command: name, field: "command"}`,
   which the browser did not serve, so the term's graph never ran: an observation stayed at

@@ -165,7 +165,7 @@ def _fused_termination_entry(
         out_dir, ref, export.onnx_bytes, meta=graph_meta("term", group_name)
     )
     by_name = {spec.name: spec for spec in specs}
-    return {
+    entry: dict[str, Any] = {
         "fused": ref,
         "input_slots": slots_json(export),
         # Lane order is the graph's; `time_out` rides along for the manager's split.
@@ -178,3 +178,9 @@ def _fused_termination_entry(
             for name in export.lanes
         ],
     }
+    sensors = structured_sensor_descriptors(
+        export, env, owner=f"Termination group {group_name!r}"
+    )
+    if sensors:
+        entry["sensors"] = sensors
+    return entry

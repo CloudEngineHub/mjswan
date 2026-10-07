@@ -692,6 +692,53 @@ def test_terminations_fuse_into_one_graph_with_one_lane_per_term(tmp_path):
     ]
 
 
+def test_a_fused_group_carries_the_contact_sensors_its_terms_read(tmp_path):
+    """As a lone term does: without the descriptor the browser cannot fill the slot, and
+    skips the whole graph every step, so none of the group's terms ever fires."""
+    pytest.importorskip("mjlab")
+    from types import SimpleNamespace
+
+    from mjswan.build.mdp import FUSED_TERMINATION_KEY, serialize_terminations
+    from mjswan.managers.termination_manager import TerminationTermCfg
+
+    class _Contact:
+        """mjlab's `ContactSensor`: one MuJoCo sensor per (primary, field) pair."""
+
+        def __init__(self):
+            self.data = SimpleNamespace(found=torch.tensor([[1.0]]))
+            self._slots = [
+                SimpleNamespace(field_name="found", sensor_name="ball_contact_found")
+            ]
+            self.cfg = SimpleNamespace(num_slots=1, history_length=0)
+
+    env = _term_env()
+    env.scene.sensors["ball_contact"] = env.scene._entities["ball_contact"] = _Contact()
+    env.sim = SimpleNamespace(
+        mj_model=SimpleNamespace(sensor=lambda _: SimpleNamespace(dim=[1]))
+    )
+
+    def _hit(env, *, sensor_name="ball_contact"):
+        return env.scene[sensor_name].data.found[:, 0] > 0
+
+    entries = serialize_terminations(
+        {
+            "too_low": TerminationTermCfg(func=_too_low),
+            "hit": TerminationTermCfg(func=_hit),
+        },
+        env,
+        tmp_path,
+    )
+    assert entries[FUSED_TERMINATION_KEY]["sensors"] == {
+        "ball_contact": {
+            "kind": "contact",
+            "num_slots": 1,
+            "history_length": 0,
+            "history_fields": [],
+            "fields": {"found": {"sensors": ["ball_contact_found"], "dim": 1}},
+        }
+    }
+
+
 def test_a_lone_traced_termination_is_not_fused(tmp_path):
     """Fusing one term buys no `ort.run()` and costs a wire shape."""
     pytest.importorskip("mjlab")
