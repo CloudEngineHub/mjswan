@@ -34,8 +34,8 @@ class TerminationTermCfg:
     Mirrors ``mjlab.managers.termination_manager.TerminationTermCfg``.
 
     ``func`` is either a :class:`TerminationBinding` (resolved to a TS class by name) or
-    a plain ``func(env, **params)`` the build traces to ONNX. mjlab's ``time_out`` is
-    classified native by function; a term that reads no state at all fails the build.
+    a plain ``func(env, **params)`` the build traces to ONNX, mjlab's ``time_out``
+    included; a term that reads no state at all fails the build.
     """
 
     func: TerminationBinding | Callable[..., Any]

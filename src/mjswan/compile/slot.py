@@ -113,11 +113,23 @@ class UnsupportedEnvRead(AttributeError):
         )
 
 
+#: The episode horizon, which bakes into a graph comparing the episode counter.
+_HORIZON_ATTRS = frozenset({"max_episode_length", "max_episode_length_s"})
+
+
 def _forward_env_attr(real_env: Any, name: str, served: Sequence[str]) -> Any:
     """``real_env.<name>`` for a forwarded constant; raise for anything else."""
-    if name in _FORWARDED_ENV_ATTRS:
-        return getattr(real_env, name)
-    raise UnsupportedEnvRead(name, served)
+    if name not in _FORWARDED_ENV_ATTRS:
+        raise UnsupportedEnvRead(name, served)
+    value = getattr(real_env, name)
+    if name in _HORIZON_ATTRS and not value > 0:
+        raise ValueError(
+            f"Term read env.{name} = {value!r}: the trace env has no episode length, so "
+            "the graph would end every episode at its first step. Give the trace env "
+            "the task's episode_length_s, e.g. build_single_entity_trace_env(..., "
+            "control_dt=..., episode_length_s=...)."
+        )
+    return value
 
 
 #: ``EntityData`` fields the browser's slot reader serves natively

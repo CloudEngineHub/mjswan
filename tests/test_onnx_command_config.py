@@ -812,6 +812,24 @@ def test_time_out_fires_on_the_step_the_counter_reaches_the_horizon(fused):
         assert verdict is bool(time_out(env).item())
 
 
+def test_a_trace_env_without_an_episode_length_fails_the_build(tmp_path):
+    """A zero horizon would bake `buf >= 0`: every episode over at its first step."""
+    pytest.importorskip("mjlab")
+    from mjlab.envs.mdp import time_out
+
+    from mjswan.build.mdp import serialize_terminations
+    from mjswan.managers.termination_manager import TerminationTermCfg
+
+    env = _term_env()
+    env.max_episode_length = 0
+    with pytest.raises(ValueError, match="no episode length"):
+        serialize_terminations(
+            {"time_out": TerminationTermCfg(func=time_out, time_out=True)},
+            env,
+            tmp_path,
+        )
+
+
 def _constant_false(env):
     del env
     return torch.zeros(1, dtype=torch.bool)

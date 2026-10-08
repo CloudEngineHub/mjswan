@@ -94,6 +94,10 @@ class TraceCommandManager:
         return self.get_term(name).command
 
 
+#: mjlab's play configs' episode length for "no time limit".
+_NO_TIME_LIMIT_S = 1e9
+
+
 def build_single_entity_trace_env(
     spec_fn: Callable[[], Any],
     *,
@@ -101,6 +105,8 @@ def build_single_entity_trace_env(
     device: str = "cpu",
     zero_geom_margins: bool = True,
     commands: dict[str, Any] | None = None,
+    control_dt: float | None = None,
+    episode_length_s: float | None = None,
 ) -> Any:
     """Build a minimal single-entity ``ManagerBasedRlEnv`` for ONNX tracing.
 
@@ -118,6 +124,10 @@ def build_single_entity_trace_env(
             since nothing is simulated; set ``False`` to leave the geoms untouched.
         commands: Trace-time stand-ins for commands the browser owns, keyed by the name
             traced terms read. See :class:`TraceCommandManager`.
+        control_dt: The scene's ``control_dt``, which the env's ``step_dt`` then equals,
+            so a term counting control steps bakes the browser's count.
+        episode_length_s: When ``time_out`` ends an episode. Unset means no time limit,
+            as in mjlab's play configs; set, it needs ``control_dt``.
     """
     from mjlab.entity import EntityCfg
     from mjlab.envs import ManagerBasedRlEnvCfg
@@ -138,7 +148,18 @@ def build_single_entity_trace_env(
         init_state = EntityCfg.InitialStateCfg(joint_pos=keyframe_pos)
     entity_cfg = EntityCfg(spec_fn=_spec_fn, init_state=init_state)
     scene_cfg = SceneCfg(num_envs=1, entities={entity_name: entity_cfg})
-    env_cfg = ManagerBasedRlEnvCfg(decimation=1, scene=scene_cfg)
+    if episode_length_s is None:
+        episode_length_s = _NO_TIME_LIMIT_S
+    elif control_dt is None:
+        raise ValueError(
+            "episode_length_s is counted in control steps, so it needs the scene's "
+            "control_dt as well."
+        )
+    env_cfg = ManagerBasedRlEnvCfg(
+        decimation=1, scene=scene_cfg, episode_length_s=episode_length_s
+    )
+    if control_dt is not None:
+        _set_step_dt(env_cfg, control_dt)
     # Through `build_mjlab_env` for its quieting.
     env = build_mjlab_env(env_cfg, device=device)
     env.reset()
@@ -146,6 +167,22 @@ def build_single_entity_trace_env(
         # After reset(), since mjlab builds its own empty manager during construction.
         env.command_manager = TraceCommandManager(commands)
     return env
+
+
+def _set_step_dt(env_cfg: Any, control_dt: float) -> None:
+    """Make ``env_cfg.step_dt`` exactly ``control_dt``, in substeps near mjlab's default.
+
+    Exact rather than close: ``ceil(episode_length_s / step_dt)`` jumps by one step when
+    the quotient is a whole number and ``step_dt`` is off by an ulp.
+    """
+    if not control_dt > 0:
+        raise ValueError(f"control_dt must be positive, got {control_dt!r}.")
+    decimation = max(1, round(control_dt / env_cfg.sim.mujoco.timestep))
+    timestep = control_dt / decimation
+    if timestep * decimation != control_dt:
+        decimation, timestep = 1, control_dt
+    env_cfg.decimation = decimation
+    env_cfg.sim.mujoco.timestep = timestep
 
 
 def _keyframe_joint_pos(spec: Any) -> dict[str, float]:

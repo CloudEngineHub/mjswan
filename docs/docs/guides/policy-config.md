@@ -419,7 +419,9 @@ mjlab's own `Entity` and `Scene`. It takes a *zero-argument callable* returning 
 `MjSpec` (mjlab's `EntityCfg.spec_fn` contract), configures no managers, and is never
 stepped. Pass `entity_name=` to match whatever your terms use as `asset_cfg.name`, and
 `commands=` for trace-time stand-ins of commands the browser owns (a `ui_command` has no
-Python side).
+Python side). Its episodes have no time limit, so mjlab's `time_out` never fires; for one
+that does, pass `episode_length_s=` with the scene's `control_dt=`, since the horizon is
+baked into the graph as a count of control steps.
 
 Without it, a policy with observation or termination terms raises at build time with a
 message naming this call.

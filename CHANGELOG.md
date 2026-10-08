@@ -292,6 +292,12 @@ shortcuts.
   format 4**, since an engine reading format 3 cannot serve the slot; the engine still
   runs a format-3 document's marker.
 
+  The horizon bakes in as a count of the trace env's steps, so
+  `build_single_entity_trace_env` takes `control_dt` and `episode_length_s`. Unset, its
+  episodes have no time limit and a `time_out` traced against it never fires, as before.
+  A trace env with no episode length at all fails the build instead of ending every
+  episode at its first step.
+
 - **The motion-tracking ghost is a Debug Viz drawing, as in mjlab.** It is the **Motion**
   switch under Debug Viz and shows only while both that switch and **Enabled** are on.
   The build carries `MotionCommandCfg.debug_vis` and `viz` (`mode`, `ghost_color`), so a

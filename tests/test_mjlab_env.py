@@ -72,6 +72,39 @@ def test_a_model_without_a_keyframe_keeps_mjlabs_zero_default():
     assert defaults == [0.0, 0.0]
 
 
+def test_a_time_out_traced_against_the_default_env_never_fires():
+    """Its episodes have no time limit, so the graph has no horizon to reach."""
+    onnxruntime = pytest.importorskip("onnxruntime")
+    import numpy as np
+    from mjlab.envs.mdp import time_out
+
+    from mjswan.compile import trace_term
+
+    export = trace_term(
+        time_out, {}, build_single_entity_trace_env(_spec_fn(KEYFRAME)), name="time_out"
+    )
+    session = onnxruntime.InferenceSession(
+        export.onnx_bytes, providers=["CPUExecutionProvider"]
+    )
+    # The last count float32 holds exactly: about 93 hours at 50 Hz.
+    feed = {export.input_names[0]: np.array([2.0**24], dtype=np.float32)}
+    assert not session.run(None, feed)[0].any()
+
+
+def test_control_dt_and_episode_length_set_the_horizon_in_control_steps():
+    env = build_single_entity_trace_env(
+        _spec_fn(KEYFRAME), control_dt=0.02, episode_length_s=10.0
+    )
+    assert env.step_dt == 0.02
+    assert env.max_episode_length == 500
+
+
+def test_an_episode_length_without_control_dt_is_refused():
+    """The env would count it in its own 2 ms steps rather than the scene's."""
+    with pytest.raises(ValueError, match="control_dt"):
+        build_single_entity_trace_env(_spec_fn(KEYFRAME), episode_length_s=10.0)
+
+
 def test_the_envs_manager_tables_stay_out_of_the_build_log(capsys):
     """mjlab prints ~120 lines of tables per env, with no flag to turn them off."""
     build_single_entity_trace_env(_spec_fn(KEYFRAME))
