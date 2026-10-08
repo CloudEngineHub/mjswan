@@ -649,6 +649,13 @@ shortcuts.
 
 ### Fixed
 
+- **An event term that indexes its `env_ids` traces.** The tracer called every event
+  body with `env_ids=None`, which mjlab's `EventManager` passes only at startup and for
+  a global-time interval; reset and interval terms get the firing envs' ids. A term
+  written for those ids, reading `data[env_ids]` with no `None` case, traced an extra
+  axis: the build passed, and the browser's graph failed on every firing, silently in
+  a production build. Each term now gets the `env_ids` mjlab would pass it in its mode.
+
 - **The local server never hands the browser an earlier build.** `MjswanApp.launch()`,
   behind `mjswan view`, `serve` and `demo`, sent no `Cache-Control`, so a browser could
   run an earlier build's cached engine, scene or policy: after an upgrade, the page
