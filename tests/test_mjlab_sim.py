@@ -4,6 +4,7 @@ import sys
 from types import ModuleType
 
 import mujoco
+import pytest
 
 from mjswan.mjlab import apply_mjlab_sim_options, ensure_mjlab_extensions
 
@@ -68,3 +69,23 @@ class TestMjlabCompat:
         assert (
             minimal_spec.option.disableflags & int(mujoco.mjtDisableBit.mjDSBL_CONTACT)
         ) == int(mujoco.mjtDisableBit.mjDSBL_CONTACT)
+
+    def test_mjlab_mujoco_cfg_sets_the_spec_options(self, minimal_spec):
+        mjlab_sim = pytest.importorskip("mjlab.sim.sim")
+        ensure_mjlab_extensions()
+        cfg = mjlab_sim.MujocoCfg(
+            timestep=0.001,
+            integrator="implicitfast",
+            iterations=10,
+            ls_iterations=20,
+            disableflags=("contact",),
+        )
+        sim_cfg = type("FakeSimCfg", (), {"mujoco": cfg})()
+
+        apply_mjlab_sim_options(minimal_spec, sim_cfg)
+
+        option = minimal_spec.option
+        assert option.timestep == 0.001
+        assert option.integrator == int(mujoco.mjtIntegrator.mjINT_IMPLICITFAST)
+        assert (option.iterations, option.ls_iterations) == (10, 20)
+        assert option.disableflags & int(mujoco.mjtDisableBit.mjDSBL_CONTACT)

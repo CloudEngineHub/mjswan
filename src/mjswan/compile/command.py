@@ -33,7 +33,7 @@ from .record import (
 )
 from .replay import _EventReplayEnv, _EvReplayEntity
 from .rng import DrawRecorder, ReplayRng
-from .slot import SlotKey, TaggedKey, _slot_input_name
+from .slot import _COMMAND_NS, SlotKey, TaggedKey, _slot_input_name
 
 _ENTITY_WRITE_METHODS = {
     "write_joint_state_to_sim": "joint_state",
@@ -76,7 +76,9 @@ class _RecordCommand:
                 _EvRecEntity(self._orig[a], self._entity_name, self.log, self.captures),
             )
         if self._orig_env is not None:
-            self.term._env = _EventCaptureEnv(self._orig_env, self.log, self.captures)
+            self.term._env = _EventCaptureEnv(
+                self._orig_env, self.log, self.captures, commands=True
+            )
         return self
 
     def __exit__(self, *exc: object) -> None:
@@ -84,6 +86,12 @@ class _RecordCommand:
             setattr(self.term, a, v)
         if self._orig_env is not None:
             self.term._env = self._orig_env
+
+
+def _slot_example(key: SlotKey, value: torch.Tensor) -> torch.Tensor:
+    """The graph input for a slot. The browser serves another command's state as
+    float32, so a flag crosses as 0 or 1 and is cast back inside the graph."""
+    return value.float() if key[0] == _COMMAND_NS else value
 
 
 def _snapshot_state(term: Any) -> dict[str, torch.Tensor]:
@@ -130,6 +138,7 @@ class _CommandModule(nn.Module):
         entity_name: str,
         *,
         dynamic_keys: list[SlotKey],
+        dynamic_dtypes: list[torch.dtype],
         tensor_consts: dict[TaggedKey, torch.Tensor],
         scalar_consts: dict[TaggedKey, Any],
     ):
@@ -139,6 +148,7 @@ class _CommandModule(nn.Module):
         self._entity_attr_names = entity_attr_names
         self._entity_name = entity_name
         self._dynamic_keys = dynamic_keys
+        self._dynamic_dtypes = dynamic_dtypes
         self._scalar_consts = scalar_consts
         self._env_ids = torch.arange(term.num_envs)
         self._const_buffers = _register_consts(self, tensor_consts)
@@ -153,8 +163,11 @@ class _CommandModule(nn.Module):
 
         served: dict[TaggedKey, Any] = dict(self._scalar_consts)
         served.update(_const_values(self, self._const_buffers))
-        for (entity, field_name), tensor in zip(self._dynamic_keys, dynamic):
-            served[("data", entity, field_name)] = tensor
+        for key, dtype, tensor in zip(
+            self._dynamic_keys, self._dynamic_dtypes, dynamic
+        ):
+            # Another command's state is served under its slot key, as in _ReplayEnv.
+            served[key if key[0] == _COMMAND_NS else ("data", *key)] = tensor.to(dtype)
 
         captures: WriteCaptures = {}
         orig = {a: getattr(self._term, a) for a in self._entity_attr_names}
@@ -164,7 +177,9 @@ class _CommandModule(nn.Module):
         if orig_env is not None:
             # `real_env` is the env being swapped out, not the term: `num_envs`
             # forwards to `_env`, so the term would forward to itself.
-            self._term._env = _EventReplayEnv(served, captures, real_env=orig_env)
+            self._term._env = _EventReplayEnv(
+                served, captures, real_env=orig_env, commands=True
+            )
         try:
             prev = {}
             for field_name, value in zip(self._state_fields, state_inputs):
@@ -260,11 +275,17 @@ def trace_command_term(
     dynamic, tensor_consts, scalar_consts = _classify_tagged(log)
 
     dynamic_keys = sorted(dynamic)
+    dynamic_dtypes = [dynamic[k].dtype for k in dynamic_keys]
     dyn_names = [_slot_input_name(k) for k in dynamic_keys]
     prev_names = [f"prev_{f}" for f in state_fields]
 
     mask = torch.ones(term.num_envs, dtype=torch.bool)
-    example = (*(dynamic[k] for k in dynamic_keys), *state_example, mask, ref_rand)
+    example = (
+        *(_slot_example(k, dynamic[k]) for k in dynamic_keys),
+        *state_example,
+        mask,
+        ref_rand,
+    )
     input_names = [*dyn_names, *prev_names, "resample_mask", "rand"]
     output_names = [f"next_{f}" for f in state_fields] + output_write_names
 
@@ -274,6 +295,7 @@ def trace_command_term(
         entity_attr_names,
         entity_name,
         dynamic_keys=dynamic_keys,
+        dynamic_dtypes=dynamic_dtypes,
         tensor_consts=tensor_consts,
         scalar_consts=scalar_consts,
     ).eval()

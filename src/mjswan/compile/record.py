@@ -480,11 +480,20 @@ class _EvRecScene:
 class _EventCaptureEnv:
     """Proxy env for event and command tracing: records reads, captures writes,
     never mutates the sim. Same contract as :class:`_EventReplayEnv`: any other read
-    raises."""
+    raises.
 
-    def __init__(self, real, log, captures):
+    *commands* serves ``env.command_manager``, which only a command body may read.
+    """
+
+    def __init__(self, real, log, captures, *, commands: bool = False):
         object.__setattr__(self, "_real", real)
         object.__setattr__(self, "scene", _EvRecScene(real.scene, log, captures))
+        if commands:
+            object.__setattr__(
+                self,
+                "command_manager",
+                _RecordingCommandManager(real.command_manager, log, {}),
+            )
 
     def __getattr__(self, name: str) -> Any:
         return _forward_env_attr(self._real, name, _EVENT_ENV_READS)
