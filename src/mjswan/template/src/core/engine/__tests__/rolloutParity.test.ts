@@ -32,6 +32,7 @@ import type {
 import type { FusedObservationConfig } from '../../observation/FusedObservation';
 import { createOnnxSession, type OnnxSession, type SlotReader } from '../../onnx/session';
 import { createSlotReader, type SlotReaderContext } from '../../onnx/slotReader';
+import { isFusedTerminationConfig } from '../../termination/FusedTermination';
 import { TerminationManager } from '../../termination/TerminationManager';
 import { PolicyRunner } from '../../policy/PolicyRunner';
 import type {
@@ -46,6 +47,8 @@ const FIXTURES = join(__dirname, 'fixtures/rollout');
 interface Step {
   action: number[];
   data: Record<string, number[]>;
+  /** mjlab's `episode_length_buf` at this state. */
+  episode_length: number;
   native: Record<string, number[]>;
   obs: number[];
   terminations: Record<string, boolean>;
@@ -78,7 +81,7 @@ function contextFor(task: TaskFixture, step: Step): SlotReaderContext {
   for (const [key, values] of Object.entries(step.data)) {
     mjData[key] = Float64Array.from(values);
   }
-  return { mjModel, mjData } as unknown as SlotReaderContext;
+  return { mjModel, mjData, episodeLength: step.episode_length } as unknown as SlotReaderContext;
 }
 
 /** Reads one native input's fixture value for the current step. */
@@ -236,13 +239,7 @@ describe.each(Object.keys(TASKS))('rollout parity vs mjlab — %s', taskId => {
   it('reproduces every termination verdict at every step', async () => {
     for (const [index, step] of task.steps.entries()) {
       seek(step);
-      // `evaluate()` is sync while ORT is not, so a call kicks the graph and reports
-      // the previous verdict. Reading this state's takes kick → drain → read, plus a
-      // trailing drain so the next iteration is not shifted by a step.
-      terminations.evaluate(EMPTY_STATE, 0);
-      await drainPending();
-      const result = terminations.evaluate(EMPTY_STATE, 0);
-      await drainPending();
+      const result = await terminations.evaluate(EMPTY_STATE);
 
       const expected = Object.entries(step.terminations)
         .filter(([, fired]) => fired)
@@ -254,12 +251,13 @@ describe.each(Object.keys(TASKS))('rollout parity vs mjlab — %s', taskId => {
 
   it('keeps a rollout that could tell a right verdict from a constant one', () => {
     // Without a firing state the comparison above would pass for a graph hardwired to
-    // `false`. The dumper tilts the root through an orientation limit for this.
-    const traced = Object.entries(task.terminations).filter(
-      ([, entry]) => 'onnx' in entry || 'fused' in entry,
+    // `false`. The dumper tilts the root through an orientation limit and sets the
+    // episode counter either side of the horizon for this.
+    const names = Object.entries(task.terminations).flatMap(([name, entry]) =>
+      isFusedTerminationConfig(entry) ? entry.lanes.map(lane => lane.name) : [name],
     );
-    if (traced.length === 0) return; // Cartpole: its only termination is native.
-    for (const [name] of traced) {
+    expect(names.length).toBeGreaterThan(0);
+    for (const name of names) {
       const verdicts = task.steps.map(step => step.terminations[name]);
       expect(verdicts, `${name} never fires`).toContain(true);
       expect(verdicts, `${name} never clears`).toContain(false);
@@ -275,8 +273,3 @@ describe.each(Object.keys(TASKS))('rollout parity vs mjlab — %s', taskId => {
     expect(layout.length).toBeGreaterThan(0);
   });
 });
-
-/** Let every already-scheduled promise settle (the ORT run is one). */
-async function drainPending(): Promise<void> {
-  for (let i = 0; i < 8; i++) await new Promise(resolve => setTimeout(resolve, 0));
-}

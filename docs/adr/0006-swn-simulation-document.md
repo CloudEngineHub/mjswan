@@ -359,7 +359,11 @@ structurally impossible within a scene.
   cannot serve; the layout is otherwise this ADR's. `format: 3` made
   `camera.azimuth` MuJoCo's, the direction the camera looks, where earlier
   formats measured it toward the camera; an engine reads an earlier document's
-  azimuth 180° around, so its view is unchanged.
+  azimuth 180° around, so its view is unchanged. `format: 4` added the `env`
+  input slot (`{"env": "episode_length_buf"}`), the runtime's episode step
+  counter, which mjlab's `time_out` is traced through; a format-3 engine cannot
+  serve it, so no episode would end on time. An engine still runs an earlier
+  document's native `time_out` marker.
 
 The two are not redundant because they are read by different parties for
 different decisions — one by the host choosing an engine, one by the engine

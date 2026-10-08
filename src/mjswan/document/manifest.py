@@ -16,7 +16,11 @@ MANIFEST_NAME = "manifest.json"
 #:
 #: 3: ``camera.azimuth`` is MuJoCo's, the direction the camera looks, not toward the
 #: camera. An older engine would show every scene from the opposite side.
-DOCUMENT_FORMAT = 3
+#:
+#: 4: ``input_slots`` may carry the episode step counter (``{"env": ...}``), which
+#: ``time_out`` is traced through. An older engine cannot serve it, so no episode would
+#: ever time out.
+DOCUMENT_FORMAT = 4
 
 #: Input slots the runtime fills itself rather than from an observation group: the
 #: recurrent carry (``is_init``, ``adapt_hx``) and the step counter (``time_step``).

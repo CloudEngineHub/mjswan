@@ -19,10 +19,14 @@ export type TerminationResult = {
   reasons: string[];
 };
 
-/** Absent for a policy whose terminations are all native or legacy. */
+/** Absent for a policy whose terminations are all plugin terms. */
 export type TerminationManagerDeps = {
   onnxSessions?: OnnxSessionCache;
   readOnnxSlot?: SlotReader;
+  /** mjlab's `episode_length_buf`, for a pre-format-4 `time_out`. */
+  episodeLength?: () => number;
+  /** The control period, for a pre-format-4 `time_out`'s step limit. */
+  stepDt?: number;
 };
 
 /** Whether an entry names a traced-ONNX termination. */
@@ -30,7 +34,7 @@ function isOnnxEntry(entry: TerminationConfigEntry): entry is OnnxTerminationCon
   return typeof (entry as { onnx?: unknown }).onnx === 'string';
 }
 
-/** Matched on `native` being present: its text is a description, not a wire enum. */
+/** A pre-format-4 `time_out` marker, matched on `native` being present: its text is prose. */
 function isNativeTimeOutEntry(
   entry: TerminationConfigEntry,
 ): entry is TimeOutTerminationConfig {
@@ -39,10 +43,8 @@ function isNativeTimeOutEntry(
 
 export class TerminationManager {
   private terms: { name: string; term: TerminationBase; isTimeOut: boolean }[] = [];
-  /** Episode time, accumulated from the control `dt` the caller passes. */
-  private elapsedS = 0;
-  /** Fused graphs, driven once per evaluation before their lanes are read. */
-  private fused: FusedTermination[] = [];
+  /** Every graph, fused or not, run before any term is read. */
+  private graphs: (OnnxTermination | FusedTermination)[] = [];
 
   constructor(
     config: Record<string, TerminationConfigEntry>,
@@ -58,6 +60,7 @@ export class TerminationManager {
       if (isOnnxEntry(entry)) {
         const term = this.buildOnnxTermination(name, entry, runner, deps);
         if (term) {
+          this.graphs.push(term);
           this.terms.push({ name, term, isTimeOut: entry.time_out ?? false });
         }
         continue;
@@ -65,7 +68,12 @@ export class TerminationManager {
       if (isNativeTimeOutEntry(entry)) {
         this.terms.push({
           name,
-          term: new TimeOutTermination(runner, { ...entry, name }, () => this.elapsedS),
+          term: new TimeOutTermination(
+            runner,
+            { ...entry, name },
+            deps.episodeLength ?? (() => 0),
+            deps.stepDt ?? 0,
+          ),
           isTimeOut: entry.time_out ?? false,
         });
         continue;
@@ -108,7 +116,7 @@ export class TerminationManager {
       return;
     }
     const group = new FusedTermination(entry, { session, readSlot });
-    this.fused.push(group);
+    this.graphs.push(group);
     entry.lanes.forEach((lane, index) => {
       this.terms.push({
         name: lane.name,
@@ -140,11 +148,12 @@ export class TerminationManager {
     return new OnnxTermination(runner, { ...entry, name }, { session, readSlot });
   }
 
-  /** OR-reduce every term to one verdict, `time_out` split out; `dt` feeds its counter. */
-  evaluate(state: PolicyState, dt = 0): TerminationResult {
-    this.elapsedS += dt;
-    // Drive each fused graph once, before its lanes are read below.
-    for (const group of this.fused) group.kick();
+  /**
+   * OR-reduce every term to one verdict, `time_out` split out. Every graph is awaited
+   * first, so a verdict is this step's, as in mjlab.
+   */
+  async evaluate(state: PolicyState): Promise<TerminationResult> {
+    await Promise.all(this.graphs.map((graph) => graph.step()));
     let terminated = false;
     let truncated = false;
     const reasons: string[] = [];
@@ -169,8 +178,7 @@ export class TerminationManager {
   }
 
   reset(): void {
-    this.elapsedS = 0;
-    for (const group of this.fused) group.reset();
+    for (const graph of this.graphs) graph.reset();
     for (const { term } of this.terms) {
       term.reset?.();
     }

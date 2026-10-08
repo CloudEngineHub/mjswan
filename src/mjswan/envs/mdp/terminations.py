@@ -1,8 +1,7 @@
 """Custom termination registry.
 
 mjswan reimplements none of mjlab's termination functions: a task's real function
-object is traced to ONNX at build time, and one reading no time-varying state (like
-``time_out``) is classified native automatically. This module carries only the
+object is traced to ONNX at build time. This module carries only the
 ``TerminationBinding`` escape hatch, for a term that cannot be traced at all.
 """
 

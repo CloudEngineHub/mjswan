@@ -366,13 +366,13 @@ terminations = {
 }
 ```
 
-mjlab's `time_out` is classified **native** by function, as `last_action` is: it compares
-the episode step counter the runtime owns, so there is nothing to trace. The build ships
-the task's `episode_length_s` alongside the marker, and the runtime compares it against
-episode time accumulated from `control_dt`.
+mjlab's `time_out` reads `env.episode_length_buf`, which becomes an `env` input slot the
+browser fills from its own control-step counter, zeroed on reset as mjlab's is. The
+horizon (`max_episode_length`, `ceil(episode_length_s / step_dt)` steps) is baked into
+the graph, so an episode ends on the step it ends in mjlab.
 
-Everything else is traced, and a termination that reads no simulation state fails the
-build: a constant fires every step or never. Terminations in a group fuse into one graph
+A termination that reads no simulation state fails the build: a constant fires every
+step or never. Terminations in a group fuse into one graph
 emitting a bool *lane* per term, so the manager keeps per-term reset reasons and its
 terminated-vs-truncated split. A group with a single traced term is deliberately left
 unfused — one graph out of one buys no call and costs a wire shape.
@@ -418,7 +418,9 @@ mjlab's own `Entity` and `Scene`. It takes a *zero-argument callable* returning 
 `MjSpec` (mjlab's `EntityCfg.spec_fn` contract), configures no managers, and is never
 stepped. Pass `entity_name=` to match whatever your terms use as `asset_cfg.name`, and
 `commands=` for trace-time stand-ins of commands the browser owns (a `ui_command` has no
-Python side).
+Python side). Its episodes have no time limit, so mjlab's `time_out` never fires; for one
+that does, pass `episode_length_s=` with the scene's `control_dt=`, since the horizon is
+baked into the graph as a count of control steps.
 
 Without it, a policy with observation or termination terms raises at build time with a
 message naming this call.

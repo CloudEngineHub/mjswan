@@ -1,9 +1,8 @@
-"""Terms the runtime evaluates itself, so there is nothing to trace.
+"""Observation terms the runtime evaluates itself, so there is nothing to trace.
 
 Named by function: mjlab's ``last_action`` and ``generated_commands`` read env-level
-state the browser already holds every frame, and ``time_out`` compares
-``episode_length_buf``, a clock the runtime owns, against the horizon. Each becomes a
-marker entry carrying the selector it needs.
+state the browser already holds every frame. Each becomes a marker entry carrying the
+selector it needs.
 """
 
 from __future__ import annotations
@@ -16,16 +15,8 @@ NATIVE_OBSERVATION_FUNCS: dict[str, str] = {
 }
 
 
-NATIVE_TERMINATION_FUNCS: frozenset[str] = frozenset({"time_out"})
-
-
 def _native_observation_kind(func: Callable[..., Any]) -> str | None:
     return NATIVE_OBSERVATION_FUNCS.get(getattr(func, "__name__", ""))
-
-
-def is_native_termination(func: Any) -> bool:
-    """Whether *func* is the runtime's native `time_out` rather than a traced body."""
-    return getattr(func, "__name__", "") in NATIVE_TERMINATION_FUNCS
 
 
 def native_observation_entry(

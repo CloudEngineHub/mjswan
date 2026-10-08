@@ -202,9 +202,10 @@ export function sanitizeName(name: string): string {
 /**
  * The newest document format this reader understands (ADR 0006 §7). A ceiling: every
  * earlier format still parses. 2 added `sim` input slots and their `rows`; 3 made
- * `camera.azimuth` MuJoCo's, the direction the camera looks.
+ * `camera.azimuth` MuJoCo's, the direction the camera looks; 4 added the `env` input
+ * slot that `time_out` is traced through.
  */
-export const MAX_DOCUMENT_FORMAT = 3;
+export const MAX_DOCUMENT_FORMAT = 4;
 
 /**
  * Refuse a document this reader cannot read: one without a `format`, or one newer than it

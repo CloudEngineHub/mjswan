@@ -31,15 +31,19 @@ os.environ.setdefault("MUJOCO_GL", "disable")
 ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "src/mjswan/template/src/core/engine/__tests__/fixtures/rollout"
 
-# Cartpole is the minimal shape (two entity-data slots, one native termination);
+# Cartpole is the minimal shape (two entity-data slots, `time_out` as a lone graph);
 # G1-Velocity-Flat the wide one (builtin sensors, `joint_pos_biased`, seven terms in a
-# 99-wide fused group, native inputs, a traced termination beside `time_out`).
+# 99-wide fused group, native inputs, `time_out` fused with `fell_over`).
 #
 # Velocity-Rough's raycast slot and Lift-Cube-Yam's command-state slot are covered by
 # `raycast.test.ts` and the `OnnxCommand` tests; both need a stub this format lacks.
 TASKS = ("Mjlab-Cartpole-Balance", "Mjlab-Velocity-Flat-Unitree-G1")
 
 STEPS = 20
+
+# In control steps: past the rollout, so no episode ends inside it, and short enough to
+# feed exactly as float32.
+HORIZON = 2 * STEPS
 
 # Fixed so a regeneration is a reviewable diff rather than a fixture of fresh numbers.
 SEED = 0
@@ -160,6 +164,17 @@ def _append_tilt_sweep(env: Any, cfg: Any, record: Any, num_actions: int) -> Non
         record(_action(0, num_actions))
 
 
+def _append_horizon_sweep(env: Any, record: Any, num_actions: int) -> None:
+    """Set the episode counter either side of the horizon, recording each state.
+
+    A rollout never records `time_out` firing: mjlab resets the episode in the step
+    that reaches the horizon, before the verdict is read.
+    """
+    for steps in (env.max_episode_length - 1, env.max_episode_length):
+        env.episode_length_buf[:] = steps
+        record(_action(0, num_actions))
+
+
 def _dump_task(task_id: str, out_dir: Path) -> dict[str, Any]:
     import torch
     from mjlab.envs import ManagerBasedRlEnv
@@ -176,6 +191,8 @@ def _dump_task(task_id: str, out_dir: Path) -> dict[str, Any]:
     with contextlib.redirect_stdout(io.StringIO()):
         env = ManagerBasedRlEnv(cfg, device="cpu")
         env.reset(seed=SEED)
+    # Play configs never time out. Set before tracing, which bakes the horizon in.
+    cfg.episode_length_s = HORIZON * env.step_dt
 
     # The Builder's own serializers, so the test loads the bytes that really ship.
     group_entry = serialize_observation_group(
@@ -208,6 +225,7 @@ def _dump_task(task_id: str, out_dir: Path) -> dict[str, Any]:
                 "data": {
                     name: _data_field(env, name, count) for name, count in DATA_ARRAYS
                 },
+                "episode_length": int(env.episode_length_buf[0]),
                 "native": _native_inputs(env, group_entry),
                 "obs": _flat(env.observation_manager.compute_group("actor")),
                 "terminations": _termination_verdicts(env, cfg),
@@ -220,6 +238,7 @@ def _dump_task(task_id: str, out_dir: Path) -> dict[str, Any]:
         record(action)
 
     _append_tilt_sweep(env, cfg, record, num_actions)
+    _append_horizon_sweep(env, record, num_actions)
 
     # The walking tasks randomize `encoder_bias`, so the reader needs the same lookup.
     encoder_bias: dict[str, float] = {}
@@ -260,14 +279,16 @@ def main() -> None:
             p.relative_to(OUT_DIR).as_posix()
             for p in (OUT_DIR / task_id).rglob("*.onnx")
         )
-        traced = [n for n, e in payload["terminations"].items() if "onnx" in e]
+        terminations = sum(
+            len(entry.get("lanes", [entry]))
+            for entry in payload["terminations"].values()
+        )
         print(
             f"{task_id}: {len(payload['steps'])} steps, "
             f"obs width {payload['group']['size']}, "
             f"{len(payload['group']['input_slots'])} slots + "
             f"{len(payload['group']['native_inputs'])} native, "
-            f"{len(payload['terminations'])} terminations "
-            f"({len(traced)} traced), graphs: {', '.join(graphs)}"
+            f"{terminations} terminations, graphs: {', '.join(graphs)}"
         )
     print(f"wrote {index} ({index.stat().st_size / 1024:.1f} KiB)")
 

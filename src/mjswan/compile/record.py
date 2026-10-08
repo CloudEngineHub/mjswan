@@ -26,6 +26,8 @@ from .proxy import (
 )
 from .slot import (
     _COMMAND_NS,
+    _ENV_NS,
+    _ENV_SLOT_DTYPES,
     _EVENT_ENV_READS,
     _SENSOR_NS,
     _SIM_NS,
@@ -312,7 +314,8 @@ class _RecordingCommandManager:
 
 class _RecordingEnv:
     """Proxy env recording the reads a term makes (entity data, sim data, sensors,
-    commands). Same contract as :class:`_ReplayEnv`: any other read raises."""
+    commands, the episode counter). Same contract as :class:`_ReplayEnv`: any other
+    read raises."""
 
     def __init__(self, real: Any, reader_fields: Collection[str] = READER_FIELDS):
         object.__setattr__(self, "_real", real)
@@ -334,6 +337,11 @@ class _RecordingEnv:
             return _RecordingCommandManager(
                 self._real.command_manager, self._log, self._commands
             )
+        if name in _ENV_SLOT_DTYPES:
+            value = getattr(self._real, name)
+            # Logged as the float32 the browser feeds; the term still sees mjlab's dtype.
+            self._log.append(((_ENV_NS, name), value.to(torch.float32)))
+            return value
         return _forward_env_attr(self._real, name, _TERM_ENV_READS)
 
 

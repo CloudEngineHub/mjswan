@@ -14,6 +14,7 @@ from .record import _merge_narrowing, _RecordingSimData
 from .replay import _narrowed_field
 from .slot import (
     _COMMAND_NS,
+    _ENV_NS,
     _SENSOR_NS,
     _SIM_NS,
     SimRows,
@@ -125,18 +126,18 @@ def _classify_slots(
 ) -> bool:
     """Split a recorded read log into graph inputs and baked constants.
 
-    Sensor, command-state and raw sim-data reads are live state by definition; an
-    entity data field is dynamic unless it is a model-derived constant. Returns whether
-    *this* log contributed a dynamic slot, which a group's caller needs per term.
+    Sensor, command-state, raw sim-data and env-counter reads are live state by
+    definition; an entity data field is dynamic unless it is a model-derived constant.
+    Returns whether *this* log contributed a dynamic slot, which a group's caller needs
+    per term.
     """
     saw_dynamic = False
     for key, value in log:
         if not isinstance(value, torch.Tensor):
             continue  # non-tensor attribute access, not a graph slot
         namespace, field_name = key
-        if namespace in (_SENSOR_NS, _COMMAND_NS, _SIM_NS) or _is_dynamic_field(
-            field_name
-        ):
+        live = namespace in (_SENSOR_NS, _COMMAND_NS, _SIM_NS, _ENV_NS)
+        if live or _is_dynamic_field(field_name):
             dynamic.setdefault(key, value)
             saw_dynamic = True
         else:

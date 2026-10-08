@@ -12,6 +12,9 @@
  * graph; a reader replaces that math with one input. The build emits a value slot only
  * for the fields `READER_FIELDS` (compile/slot.py) lists, kept in step by hand.
  *
+ * An `env` slot is the runtime's step counter, fed as float32 like every slot; the graph
+ * casts it back to mjlab's int64, exactly below 2^24 steps.
+ *
  * Entities resolve as `indexing.ts` describes; an unknown field returns null and the
  * caller holds its previous value.
  */
@@ -40,6 +43,8 @@ export type SlotReaderContext = {
   /** Needed to cast a `RayCastSensor`'s rays (`mj_ray`); absent before load. */
   mujoco?: MainModule | null;
   commandManager?: { getTerm(name: string): unknown } | null;
+  /** Control steps since the last reset: mjlab's `episode_length_buf`. */
+  episodeLength?: number;
 };
 
 export type SlotReaderOptions = {
@@ -176,6 +181,11 @@ export function createSlotReader(
       const term = context.commandManager?.getTerm(slot.command);
       if (!isCommandStateSource(term)) return null;
       return term.getStateField(slot.field ?? '');
+    }
+
+    if (slot.env) {
+      if (slot.env !== 'episode_length_buf' || context.episodeLength === undefined) return null;
+      return new Float32Array([context.episodeLength]);
     }
 
     const { mjModel, mjData } = context;

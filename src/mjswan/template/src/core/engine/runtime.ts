@@ -279,6 +279,8 @@ export class mjswanRuntime {
   private onnxInputDict: Record<string, ort.Tensor> | null;
   private onnxInferencing: boolean;
   private onnxTimeStep: number;
+  /** Control steps since the last reset: mjlab's `episode_length_buf`, which graphs read. */
+  private episodeLength = 0;
   private terminationManager: TerminationManager | null;
   private eventManager: EventManager | null;
   private terrainData: TerrainData | null;
@@ -374,6 +376,7 @@ export class mjswanRuntime {
         mjModel: this.mjModel,
         mjData: this.mjData,
         commandManager: this.commandManager,
+        episodeLength: this.episodeLength,
       }),
       {
         jointBias: (name) => this.jointBias.get(name) ?? 0,
@@ -1189,12 +1192,15 @@ export class mjswanRuntime {
           await this.runOnnxInference(obs);
         }
         this.executeSimulationSteps();
+        this.episodeLength += 1;
 
         // Pre-forward, as in mjlab: derived state lags by one substep, consistently.
         let autoReset = false;
-        if (this.terminationManager && this.policyStateBuilder) {
+        // Held across the awaits below: `setPolicy` can null the field mid-step.
+        const terminations = this.terminationManager;
+        if (terminations && this.policyStateBuilder) {
           const postState = this.policyStateBuilder.build();
-          const result = this.terminationManager.evaluate(postState, target);
+          const result = await terminations.evaluate(postState);
           if (result.done) {
             autoReset = true;
             // Awaited so the writes precede the forward; caught so a failure costs a reset.
@@ -1204,7 +1210,7 @@ export class mjswanRuntime {
               console.warn('[mjswanRuntime] reset terms failed:', error);
             }
             // Last, as in mjlab's `_reset_idx`.
-            this.terminationManager.reset();
+            terminations.reset();
           }
         }
 
@@ -1420,7 +1426,12 @@ export class mjswanRuntime {
           config.terminations,
           { ...this.policyPlugins.terminations },
           runner,
-          { onnxSessions: this.policyGraphs, readOnnxSlot: this.readOnnxSlot }
+          {
+            onnxSessions: this.policyGraphs,
+            readOnnxSlot: this.readOnnxSlot,
+            episodeLength: () => this.episodeLength,
+            stepDt: this.timestep * this.decimation,
+          }
         );
         console.log(`[TerminationManager] ${this.terminationManager.size} termination term(s) loaded`);
       }
@@ -1773,6 +1784,9 @@ export class mjswanRuntime {
       this.onnxInputDict = this.onnxModule.initInput();
     }
     this.onnxTimeStep = 0;
+    // Before the reset terms, not after as in mjlab: the loop may step while a UI reset's
+    // terms run, and zeroing after them would drop that step. No reset term reads it.
+    this.episodeLength = 0;
     this.lastSimState.bodies.clear();
 
     await applyResetTerms({

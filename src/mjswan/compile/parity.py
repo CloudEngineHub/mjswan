@@ -14,7 +14,7 @@ import numpy as np
 import torch
 
 from .event import _env_ids, trace_event_term
-from .native import is_native_termination, native_observation_entry
+from .native import native_observation_entry
 from .record import WriteCaptures, _EventCaptureEnv, _flatten_captures
 from .rng import DrawRecorder
 from .slot import _COMMAND_NS, read_slot, slot_label
@@ -113,9 +113,15 @@ def _iter_obs_terms(
     return out
 
 
-def _iter_termination_terms(env: Any) -> list[tuple[str, Callable[..., torch.Tensor]]]:
+def _iter_termination_terms(
+    env: Any,
+) -> list[tuple[str, Callable[..., torch.Tensor], dict[str, Any]]]:
     tm = env.termination_manager
-    return [(name, tm.get_term_cfg(name).func) for name in tm.active_terms]
+    out = []
+    for term_name in tm.active_terms:
+        cfg = tm.get_term_cfg(term_name)
+        out.append((term_name, cfg.func, dict(cfg.params)))
+    return out
 
 
 def _iter_event_terms(
@@ -146,8 +152,8 @@ def run_parity(
     """Trace a task's terms and assert live-vs-ONNX parity over ``n_steps``.
 
     ``env`` must be a freshly constructed mjlab env; this function resets it.
-    Observation terms are checked every step; ``reset``-mode Event terms are
-    checked by replaying ``n_event_draws`` fresh recorded RNG draws (§2b).
+    Observation and termination terms are checked every step; ``reset``-mode Event
+    terms are checked by replaying ``n_event_draws`` fresh recorded RNG draws (§2b).
 
     ``reader_fields`` is passed to :func:`trace_term`; an empty set traces every
     ``EntityData`` property through to raw sim slots, putting mjlab's own property math
@@ -159,21 +165,29 @@ def run_parity(
     torch.manual_seed(seed)
     env.reset()
 
-    # --- Trace observation terms; classify the rest. --------------------
-    exports: dict[str, TermExport] = {}
-    sessions: dict[str, ort.InferenceSession] = {}
-    term_meta: list[tuple[str, Callable[..., torch.Tensor], dict[str, Any]]] = []
-
-    obs_terms = _iter_obs_terms(env, obs_group) if include_obs else []
-    for term_name, func, params in obs_terms:
+    # --- Trace observation and termination terms; classify the rest. -----
+    checks: list[
+        tuple[TermReport, TermExport, Any, Callable[..., torch.Tensor], dict[str, Any]]
+    ] = []
+    terms = (
+        [("observation", *t) for t in _iter_obs_terms(env, obs_group)]
+        + [("termination", *t) for t in _iter_termination_terms(env)]
+        if include_obs
+        else []
+    )
+    for kind, term_name, func, params in terms:
         # Classified before tracing, as the build does: the recording proxy refuses
         # `last_action`'s `env.action_manager` read.
-        native = native_observation_entry(term_name, func, params, env)
+        native = (
+            native_observation_entry(term_name, func, params, env)
+            if kind == "observation"
+            else None
+        )
         if native is not None:
             report.terms.append(
                 TermReport(
                     name=term_name,
-                    kind="observation",
+                    kind=kind,
                     representation="native",
                     passed=True,
                     note=native["native"],
@@ -188,52 +202,34 @@ def run_parity(
             report.terms.append(
                 TermReport(
                     name=term_name,
-                    kind="observation",
+                    kind=kind,
                     representation="native",
-                    passed=True,
+                    # The build bakes a constant observation but refuses a termination.
+                    passed=kind == "observation",
                     note=str(exc).split(";")[0],
                 )
             )
             continue
-        exports[term_name] = export
-        sessions[term_name] = ort.InferenceSession(
+        tr = TermReport(
+            name=term_name,
+            kind=kind,
+            representation="onnx",
+            input_slots=[slot_label(k) for k in export.input_slots],
+            constant_slots=[f"{e}.{f}" for e, f in export.constant_slots],
+        )
+        report.terms.append(tr)
+        session = ort.InferenceSession(
             export.onnx_bytes, providers=["CPUExecutionProvider"]
         )
-        term_meta.append((term_name, func, params))
-        report.terms.append(
-            TermReport(
-                name=term_name,
-                kind="observation",
-                representation="onnx",
-                input_slots=[slot_label(k) for k in export.input_slots],
-                constant_slots=[f"{e}.{f}" for e, f in export.constant_slots],
-            )
-        )
+        checks.append((tr, export, session, func, params))
 
-    if include_obs:
-        for term_name, func in _iter_termination_terms(env):
-            native = is_native_termination(func)
-            report.terms.append(
-                TermReport(
-                    name=term_name,
-                    kind="termination",
-                    representation="native" if native else "onnx",
-                    passed=True,
-                    note="elapsed_s >= episode_length_s" if native else "",
-                )
-            )
-            # Non-native terminations would be traced here; Cartpole has only time_out.
-
-    reports_by_name = {t.name: t for t in report.terms}
     action_dim = env.action_manager.total_action_dim
 
     # --- Step and compare every term every step. ------------------------
     for _ in range(n_steps):
         action = torch.rand((env.num_envs, action_dim)) * 2.0 - 1.0
         env.step(action)
-        for term_name, func, params in term_meta:
-            export = exports[term_name]
-            session = sessions[term_name]
+        for tr, export, session, func, params in checks:
             feeds = _declared_feeds(
                 session,
                 {
@@ -244,7 +240,6 @@ def run_parity(
             (onnx_out,) = session.run([export.output_name], feeds)
             live_out = _to_numpy(func(env, **params))
             diff = float(np.max(np.abs(onnx_out - live_out))) if live_out.size else 0.0
-            tr = reports_by_name[term_name]
             tr.max_abs_diff = max(tr.max_abs_diff, diff)
             tr.steps_checked += 1
             if not np.allclose(onnx_out, live_out, atol=atol, rtol=rtol):

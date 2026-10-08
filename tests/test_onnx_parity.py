@@ -4,10 +4,10 @@ Layer: L3 (requires the ``examples`` extras — mjlab / torch / onnxruntime — 
 one-time warp CPU-kernel compile, so it is marked ``slow``/``mjlab`` and skipped
 when those deps are absent).
 
-Two scopes. **Cartpole** is asserted in detail — every observation term traced,
-``time_out`` classified native, both reset Events replayed against recorded RNG draws
-— because it is small enough for each claim to be specific. **Every other reference
-task** goes through :func:`parity_sweep`, the same harness over a wider term set.
+Two scopes. **Cartpole** is asserted in detail (every observation term and ``time_out``
+traced, both reset Events replayed against recorded RNG draws) because it is small
+enough for each claim to be specific. **Every other reference task** goes through
+:func:`parity_sweep`, the same harness over a wider term set.
 
 Run the whole thing with::
 
@@ -55,9 +55,11 @@ def test_observation_terms_are_onnx(cartpole_report):
     assert {"cart_pos", "pole_angle", "cart_vel", "pole_vel"} <= onnx_terms
 
 
-def test_time_out_is_native(cartpole_report):
+def test_time_out_is_traced_through_the_episode_counter(cartpole_report):
     time_out = next(t for t in cartpole_report.terms if t.name == "time_out")
-    assert time_out.representation == "native"
+    assert time_out.representation == "onnx"
+    assert time_out.input_slots == ["env:episode_length_buf"]
+    assert time_out.steps_checked == cartpole_report.n_steps
 
 
 def test_every_onnx_obs_term_checked_every_step(cartpole_report):
@@ -137,9 +139,11 @@ def test_no_term_is_silently_unchecked(sweep_report):
     graphs = [
         t
         for t in sweep_report.terms
-        if t.representation == "onnx" and t.kind == "observation"
+        if t.representation == "onnx" and t.kind in ("observation", "termination")
     ]
-    assert graphs, "no observation term traced to a graph — the task serialized empty"
+    assert any(t.kind == "observation" for t in graphs), (
+        "no observation term traced to a graph: the task serialized empty"
+    )
     for term in graphs:
         assert term.steps_checked == sweep_report.n_steps, (
             f"{term.name} compared on {term.steps_checked} of "

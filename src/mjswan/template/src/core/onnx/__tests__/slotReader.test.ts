@@ -502,6 +502,19 @@ describe('createSlotReader — sim slots', () => {
   });
 });
 
+describe('createSlotReader: env slots', () => {
+  it('serves the episode step counter as a one-element float32 array', () => {
+    const read = createSlotReader(() => context({ episodeLength: 499 }));
+    close(read({ env: 'episode_length_buf', shape: [1] }), [499]);
+  });
+
+  it('returns null for a counter the runtime does not keep', () => {
+    const read = createSlotReader(() => context({ episodeLength: 3 }));
+    expect(read({ env: 'common_step_counter' })).toBeNull();
+    expect(createSlotReader(() => context())({ env: 'episode_length_buf' })).toBeNull();
+  });
+});
+
 describe('slotDims', () => {
   it('rebuilds the traced rank with batch pinned to 1', () => {
     // site_pos_w is (batch, num_sites, 3) — feeding (1, 6) would be rejected.

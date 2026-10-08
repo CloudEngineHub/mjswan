@@ -1,14 +1,12 @@
 /**
- * One graph for several termination terms — the same trade as observation fusion, since
+ * One graph for several termination terms: the same trade as observation fusion, since
  * the fixed per-`ort.run()` cost does not shrink with the graph.
  *
  * The output is a bool *lane* per term rather than one verdict: the manager reports
  * which term fired and splits `time_out` from real terminations, both of which OR-ing
  * inside the graph would throw away. Lanes wear the single-term interface
- * (`FusedLane`), and the manager drives the graph once per evaluation.
- *
- * **Async boundary.** As in `OnnxTermination`: `evaluate()` is sync while ORT is not, so
- * a frame arriving mid-inference is skipped and the verdicts are one frame old.
+ * (`FusedLane`), and the manager runs the graph once per evaluation, before any lane
+ * is read.
  */
 
 import { TerminationBase, type TerminationConfig } from './TerminationBase';
@@ -52,7 +50,6 @@ function isTruthy(data: OnnxTensorLike['data'], lane: number): boolean {
 
 export class FusedTermination {
   private verdicts: boolean[];
-  private inFlight = false;
 
   constructor(
     private readonly config: FusedTerminationConfig,
@@ -73,41 +70,30 @@ export class FusedTermination {
     this.verdicts = this.config.lanes.map(() => false);
   }
 
-  /** Kick off one evaluation; skipped while a previous one is still running. */
-  kick(): void {
-    if (this.inFlight) return;
-    this.inFlight = true;
-    // As in `OnnxTermination`: a swallowed failure freezes every lane's verdict.
-    void this.step()
-      .catch((error) => {
-        console.warn('[FusedTermination] graph failed:', error);
-      })
-      .finally(() => {
-        this.inFlight = false;
-      });
-  }
-
-  /** Run the graph once and latch every lane. Exposed for deterministic tests. */
+  /** Run the graph once and latch every lane; as in `OnnxTermination`, a failure holds them. */
   async step(): Promise<void> {
-    const { feeds, missing } = buildFeeds(this.config.input_slots, this.deps.readSlot);
-    if (missing) {
-      // Hold every lane: a termination slipping through is worse than a late one.
-      console.warn(
-        `[FusedTermination] could not read slot ${missing}; holding the previous verdicts.`,
-      );
-      return;
+    try {
+      const { feeds, missing } = buildFeeds(this.config.input_slots, this.deps.readSlot);
+      if (missing) {
+        console.warn(
+          `[FusedTermination] could not read slot ${missing}; holding the previous verdicts.`,
+        );
+        return;
+      }
+      const outputs = await this.deps.session.run(feeds);
+      const first = Object.values(outputs)[0];
+      if (!first) {
+        console.warn('[FusedTermination] the graph produced no output.');
+        return;
+      }
+      this.verdicts = this.config.lanes.map((_, lane) => isTruthy(first.data, lane));
+    } catch (error) {
+      console.warn('[FusedTermination] graph failed:', error);
     }
-    const outputs = await this.deps.session.run(feeds);
-    const first = Object.values(outputs)[0];
-    if (!first) {
-      console.warn('[FusedTermination] the graph produced no output.');
-      return;
-    }
-    this.verdicts = this.config.lanes.map((_, lane) => isTruthy(first.data, lane));
   }
 }
 
-/** One lane of a fused graph, read-only — the manager drives the shared graph. */
+/** One lane of a fused graph, read-only: the manager runs the shared graph. */
 export class FusedLane extends TerminationBase {
   constructor(
     runner: PolicyRunner,

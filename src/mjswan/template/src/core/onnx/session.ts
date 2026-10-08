@@ -24,8 +24,8 @@ export interface OnnxTensorLike {
 
 /**
  * A dynamic runtime read a term's graph declares as an input, mirroring
- * `mjswan.compile.tracer.slot_to_json`. Distinguished by which field is set:
- * `entity`+`field`, `sensor`, `sensor`+`field`, or `command`+`field`.
+ * `mjswan.compile.slot.slot_to_json`. Distinguished by which field is set:
+ * `entity`+`field`, `sensor`, `sensor`+`field`, `command`+`field`, `sim`, or `env`.
  *
  * `input` is the graph input name, build-supplied because sensor and command names
  * carry dots the build folds to identifiers — not reproducible here. `shape` is the
@@ -43,6 +43,8 @@ export interface OnnxInputSlot {
    * order. Absent means the whole field.
    */
   rows?: number[];
+  /** An env-level buffer: only `episode_length_buf`, the runtime's step counter. */
+  env?: string;
   input?: string;
   shape?: number[];
 }

@@ -1,7 +1,7 @@
 /**
- * mjlab's `time_out`, native because its body compares env-level step counters rather
- * than reading entity state — there is nothing to put in a graph. Evaluates the build's
- * `elapsed_s >= episode_length_s` against time the manager accumulates from `dt`.
+ * `time_out` as a document before format 4 carries it: a native marker, not a graph.
+ * Counts steps against `ceil(episode_length_s / step_dt)` as mjlab does, since summed
+ * time drifts.
  *
  * A *truncation*, not a failure: the manager keeps the two apart.
  */
@@ -15,22 +15,23 @@ export interface TimeOutTerminationConfig extends TerminationConfig {
 }
 
 export class TimeOutTermination extends TerminationBase {
-  private readonly episodeLengthS: number;
-  private getElapsedS: () => number;
+  /** mjlab's `max_episode_length`. */
+  private readonly maxEpisodeLength: number;
 
   constructor(
     runner: PolicyRunner,
     config: TimeOutTerminationConfig,
-    getElapsedS: () => number,
+    private readonly episodeLength: () => number,
+    stepDt: number,
   ) {
     super(runner, config);
     // No finite horizon never times out; nor does a missing value, which would fire always.
     const declared = config.episode_length_s ?? 0;
-    this.episodeLengthS = declared > 0 ? declared : Number.POSITIVE_INFINITY;
-    this.getElapsedS = getElapsedS;
+    this.maxEpisodeLength =
+      declared > 0 && stepDt > 0 ? Math.ceil(declared / stepDt) : Number.POSITIVE_INFINITY;
   }
 
   evaluate(_state: PolicyState): boolean {
-    return this.getElapsedS() >= this.episodeLengthS;
+    return this.episodeLength() >= this.maxEpisodeLength;
   }
 }

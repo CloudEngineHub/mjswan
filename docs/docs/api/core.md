@@ -607,6 +607,8 @@ mjswan.build_single_entity_trace_env(
     device: str = "cpu",
     zero_geom_margins: bool = True,
     commands: dict[str, Any] | None = None,
+    control_dt: float | None = None,
+    episode_length_s: float | None = None,
 ) -> Any
 ```
 
@@ -624,6 +626,8 @@ pass it to [`SceneHandle.set_trace_env`](#scenehandleset_trace_env).
 | `device` | `str` | `"cpu"` | Torch device for the entity's tensors. |
 | `zero_geom_margins` | `bool` | `True` | Zero every geom's contact margin before compiling, which mujoco_warp's collision backend requires of some robot XMLs. Safe here since nothing is simulated. |
 | `commands` | `dict[str, Any] \| None` | `None` | Trace-time stand-ins for commands the browser owns — a `ui_command` has no Python side, so a term doing arithmetic on its value needs a shape to trace against. |
+| `control_dt` | `float \| None` | `None` | The scene's `control_dt`, the unit `time_out`'s horizon is counted in. |
+| `episode_length_s` | `float \| None` | `None` | When `time_out` ends an episode. Unset means no time limit, as in mjlab's play configs; set, it needs `control_dt`. |
 
 Joint defaults come from the model's first keyframe, matching what the browser resets to,
 so a `*_rel` observation subtracts the same pose on both sides.
@@ -1234,7 +1238,7 @@ it could reorder the observation the policy reads: a subclass's own field (PAC-M
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `func` | `Callable \| TerminationBinding` | required | The term body. `time_out` is classified native automatically, since it reads no time-varying state. |
+| `func` | `Callable \| TerminationBinding` | required | The term body. Any traceable `func(env, **params) -> Tensor` (mjlab's own included) or a binding naming a hand-written TypeScript class. |
 | `params` | `dict` | `{}` | Forwarded at trace time. |
 | `time_out` | `bool` | `False` | Marks this as a truncation rather than a terminal failure. |
 
