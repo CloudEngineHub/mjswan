@@ -22,7 +22,7 @@ def serialize_termination(
     out_dir: Path,
     *,
     scope: str | None = None,
-) -> dict[str, Any] | None:
+) -> dict[str, Any]:
     from ...compile import trace_term
     from ...compile.slot import slots_json
     from ...compile.term import ConstantTerm
@@ -96,9 +96,7 @@ def serialize_terminations(
     if len(fusable) == 1:
         # Fusing one term buys nothing and costs a wire shape, so don't.
         name, term_cfg = next(iter(fusable.items()))
-        entry = serialize_termination(name, term_cfg, env, out_dir, scope=scope)
-        if entry is not None:
-            result[name] = entry
+        result[name] = serialize_termination(name, term_cfg, env, out_dir, scope=scope)
         return result
 
     result[FUSED_TERMINATION_KEY] = _fused_termination_entry(

@@ -45,7 +45,6 @@ export class TerminationManager {
   private terms: { name: string; term: TerminationBase; isTimeOut: boolean }[] = [];
   /** Every graph, fused or not, run before any term is read. */
   private graphs: (OnnxTermination | FusedTermination)[] = [];
-  private fused: FusedTermination[] = [];
 
   constructor(
     config: Record<string, TerminationConfigEntry>,
@@ -118,7 +117,6 @@ export class TerminationManager {
     }
     const group = new FusedTermination(entry, { session, readSlot });
     this.graphs.push(group);
-    this.fused.push(group);
     entry.lanes.forEach((lane, index) => {
       this.terms.push({
         name: lane.name,
@@ -180,7 +178,7 @@ export class TerminationManager {
   }
 
   reset(): void {
-    for (const group of this.fused) group.reset();
+    for (const graph of this.graphs) graph.reset();
     for (const { term } of this.terms) {
       term.reset?.();
     }

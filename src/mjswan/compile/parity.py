@@ -238,7 +238,6 @@ def run_parity(
                 },
             )
             (onnx_out,) = session.run([export.output_name], feeds)
-            onnx_out = onnx_out.astype(np.float32)
             live_out = _to_numpy(func(env, **params))
             diff = float(np.max(np.abs(onnx_out - live_out))) if live_out.size else 0.0
             tr.max_abs_diff = max(tr.max_abs_diff, diff)

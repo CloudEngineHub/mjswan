@@ -159,7 +159,10 @@ def build_single_entity_trace_env(
         decimation=1, scene=scene_cfg, episode_length_s=episode_length_s
     )
     if control_dt is not None:
-        _set_step_dt(env_cfg, control_dt)
+        if not control_dt > 0:
+            raise ValueError(f"control_dt must be positive, got {control_dt!r}.")
+        # decimation=1 keeps step_dt exact; an ulp off can shift the horizon a step.
+        env_cfg.sim.mujoco.timestep = control_dt
     # Through `build_mjlab_env` for its quieting.
     env = build_mjlab_env(env_cfg, device=device)
     env.reset()
@@ -167,22 +170,6 @@ def build_single_entity_trace_env(
         # After reset(), since mjlab builds its own empty manager during construction.
         env.command_manager = TraceCommandManager(commands)
     return env
-
-
-def _set_step_dt(env_cfg: Any, control_dt: float) -> None:
-    """Make ``env_cfg.step_dt`` exactly ``control_dt``, in substeps near mjlab's default.
-
-    Exact rather than close: ``ceil(episode_length_s / step_dt)`` jumps by one step when
-    the quotient is a whole number and ``step_dt`` is off by an ulp.
-    """
-    if not control_dt > 0:
-        raise ValueError(f"control_dt must be positive, got {control_dt!r}.")
-    decimation = max(1, round(control_dt / env_cfg.sim.mujoco.timestep))
-    timestep = control_dt / decimation
-    if timestep * decimation != control_dt:
-        decimation, timestep = 1, control_dt
-    env_cfg.decimation = decimation
-    env_cfg.sim.mujoco.timestep = timestep
 
 
 def _keyframe_joint_pos(spec: Any) -> dict[str, float]:
