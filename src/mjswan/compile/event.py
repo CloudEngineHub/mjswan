@@ -48,11 +48,13 @@ class _EventModule(nn.Module):
         tensor_consts: dict[TaggedKey, torch.Tensor],
         scalar_consts: dict[TaggedKey, Any],
         *,
+        env_ids: torch.Tensor | None,
         real_env: Any,
     ):
         super().__init__()
         self._func = func
         self._params = params
+        self._env_ids = env_ids
         self._dynamic_keys = dynamic_keys
         self._scalar_consts = scalar_consts
         self._real_env = real_env
@@ -67,7 +69,7 @@ class _EventModule(nn.Module):
         captures: WriteCaptures = {}
         env = _EventReplayEnv(served, captures, real_env=self._real_env)
         with ReplayRng(self._func, rand):
-            self._func(env, None, **self._params)
+            self._func(env, self._env_ids, **self._params)
         _, tensors = _flatten_captures(captures)
         return tuple(tensors)
 
@@ -101,19 +103,22 @@ def trace_event_term(
     *,
     name: str,
     mode: str,
+    is_global_time: bool = False,
     opset: int = 17,
 ) -> EventExport:
     """Trace a side-effecting (write-to-sim) event term body to ONNX.
 
     The written tensors become the graph outputs and randomness arrives as ``rand``.
     Time-varying ``entity.data`` fields become graph inputs; everything else the term
-    reads (scene tensors, control-flow scalars) is baked in.
+    reads (scene tensors, control-flow scalars) is baked in. The body gets the
+    ``env_ids`` mjlab would pass it in ``mode``.
     """
+    env_ids = _env_ids(mode, is_global_time=is_global_time)
     log: list[tuple[TaggedKey, Any]] = []
     captures: WriteCaptures = {}
     proxy = _EventCaptureEnv(env, log, captures)
     with DrawRecorder(func) as rec:
-        func(proxy, None, **params)
+        func(proxy, env_ids, **params)
 
     if not captures:
         raise ValueError(
@@ -134,7 +139,13 @@ def trace_event_term(
     input_names = [*dyn_input_names, "rand"]
 
     module = _EventModule(
-        func, params, dynamic_keys, tensor_consts, scalar_consts, real_env=env
+        func,
+        params,
+        dynamic_keys,
+        tensor_consts,
+        scalar_consts,
+        env_ids=env_ids,
+        real_env=env,
     ).eval()
     _prepare_single_env_export(env.num_envs)
     # `rand` keeps its traced length: it is one flat draw vector, not a batch of rows.
@@ -181,6 +192,15 @@ def trace_event_term(
         constant_slots=[":".join(str(p) for p in k) for k in sorted(tensor_consts)],
         input_shapes=[list(dynamic[k].shape) for k in dynamic_keys],
     )
+
+
+def _env_ids(mode: str, *, is_global_time: bool = False) -> torch.Tensor | None:
+    """The ``env_ids`` mjlab's ``EventManager.apply`` passes a term: ``None`` at startup
+    and for a global-time interval, else the firing env's id (0 in a single-env trace).
+    A body that indexes ``data[env_ids]`` traces an extra axis on ``None``."""
+    if mode == "startup" or (mode == "interval" and is_global_time):
+        return None
+    return torch.arange(1)
 
 
 def _static_ids(ids: Any) -> Any:

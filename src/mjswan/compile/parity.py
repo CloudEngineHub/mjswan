@@ -13,7 +13,7 @@ from typing import Any, Callable, Collection
 import numpy as np
 import torch
 
-from .event import trace_event_term
+from .event import _env_ids, trace_event_term
 from .native import is_native_termination, native_observation_entry
 from .record import WriteCaptures, _EventCaptureEnv, _flatten_captures
 from .rng import DrawRecorder
@@ -120,13 +120,13 @@ def _iter_termination_terms(env: Any) -> list[tuple[str, Callable[..., torch.Ten
 
 def _iter_event_terms(
     env: Any, mode: str
-) -> list[tuple[str, Callable[..., None], dict[str, Any]]]:
+) -> list[tuple[str, Callable[..., None], dict[str, Any], bool]]:
     em = env.event_manager
     names = em.active_terms.get(mode, [])
     out = []
     for term_name in names:
         cfg = em.get_term_cfg(term_name)
-        out.append((term_name, cfg.func, dict(cfg.params)))
+        out.append((term_name, cfg.func, dict(cfg.params), cfg.is_global_time))
     return out
 
 
@@ -252,11 +252,18 @@ def run_parity(
 
     # --- Event terms: trace once, then replay fresh recorded RNG draws. -----
     for mode in event_modes:
-        for term_name, func, params in _iter_event_terms(env, mode):
+        for term_name, func, params, is_global_time in _iter_event_terms(env, mode):
             tr = TermReport(name=term_name, kind="event", representation="onnx")
             report.terms.append(tr)
             try:
-                export = trace_event_term(func, params, env, name=term_name, mode=mode)
+                export = trace_event_term(
+                    func,
+                    params,
+                    env,
+                    name=term_name,
+                    mode=mode,
+                    is_global_time=is_global_time,
+                )
             except Exception as exc:  # noqa: BLE001 — untraceable term → native fallback
                 tr.representation = "native"
                 tr.note = f"{type(exc).__name__}: {str(exc).splitlines()[0][:80]}"
@@ -267,12 +274,13 @@ def run_parity(
             session = ort.InferenceSession(
                 export.onnx_bytes, providers=["CPUExecutionProvider"]
             )
+            env_ids = _env_ids(mode, is_global_time=is_global_time)
             for _ in range(n_event_draws):
                 # Record a fresh reference invocation (real draws, no sim write).
                 captures: WriteCaptures = {}
                 proxy = _EventCaptureEnv(env, [], captures)
                 with DrawRecorder(func) as rec:
-                    func(proxy, None, **params)
+                    func(proxy, env_ids, **params)
                 _, ref_tensors = _flatten_captures(captures)
                 feeds = {"rand": _to_numpy(rec.rand_vector)}
                 for in_name, slot in zip(export.input_names, export.input_slots):
