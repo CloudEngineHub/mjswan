@@ -115,7 +115,11 @@ def test_command_read_passes_parity() -> None:
     assert report.passed, report
 
 
-def test_command_read_of_a_flag_is_refused() -> None:
-    term, _ = _follower(read_flag=True)
-    with pytest.raises(ValueError, match="leader.is_standing"):
-        trace_command_term(term, ["level"], name="follower", command_field="level")
+def test_command_read_of_a_flag_crosses_as_float() -> None:
+    term, leader = _follower(read_flag=True)
+    export = trace_command_term(term, ["level"], name="follower", command_field="level")
+    assert (_COMMAND_NS, "leader.is_standing") in export.input_slots
+
+    leader.is_standing = torch.tensor([True])
+    report = run_command_parity(term, ["level"], name="follower", command_field="level")
+    assert report.passed, report

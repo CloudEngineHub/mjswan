@@ -17,8 +17,8 @@ shortcuts.
 - **A traced command can read another command.** `env.command_manager.get_command()` and
   `get_term(...).<field>` inside `_resample_command` / `_update_command` become
   `{command, field}` input slots, served from that command's state as an observation's
-  are. A float field only: the browser serves command state as float32, so a bool flag
-  is refused at build time.
+  are. The browser serves that state as float32, so a flag such as `is_standing_env`
+  crosses as 0 or 1 and is cast back inside the graph.
 
 - **`JointVelocityActionCfg` runs in the browser** as the `joint_velocity` control type.
   The target `scale * a + offset` is a velocity actuator's `ctrl`, and a motor gets

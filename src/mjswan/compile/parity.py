@@ -356,7 +356,7 @@ def run_command_parity(
                     manager.get_command(command)
                     if attr == "command"
                     else getattr(manager.get_term(command), attr)
-                )
+                ).float()
             else:
                 value = getattr(entity.data, fld)
             out[in_name] = _to_numpy(value)
