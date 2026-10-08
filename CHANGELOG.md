@@ -14,6 +14,12 @@ shortcuts.
 
 ### Added
 
+- **A traced command can read another command.** `env.command_manager.get_command()` and
+  `get_term(...).<field>` inside `_resample_command` / `_update_command` become
+  `{command, field}` input slots, served from that command's state as an observation's
+  are. The browser serves that state as float32, so a flag such as `is_standing_env`
+  crosses as 0 or 1 and is cast back inside the graph.
+
 - **`JointVelocityActionCfg` runs in the browser** as the `joint_velocity` control type.
   The target `scale * a + offset` is a velocity actuator's `ctrl`, and a motor gets
   `damping * (target - qvel)`. An mjlab task needs no extra argument: the default offset
@@ -672,6 +678,12 @@ shortcuts.
   from the UI or a command now restarts that count. A traced termination's verdict is no
   longer a step late: the manager waits for every termination graph before it decides
   the step.
+
+- **An mjlab scene runs at mjlab's timestep, integrator and solver settings.** The
+  exported spec took only `MujocoCfg`'s flags, so the browser stepped at MuJoCo's
+  defaults (0.002 s, Euler, 100 iterations) whatever the task set, and a control step
+  that is not a whole number of 0.002 s steps ran at the wrong rate. mjlab's own
+  `MujocoCfg.apply` now writes the spec's `option`.
 
 - **An event term that indexes its `env_ids` traces.** The tracer called every event
   body with `env_ids=None`, which mjlab's `EventManager` passes only at startup and for

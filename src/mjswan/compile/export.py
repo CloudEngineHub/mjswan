@@ -152,15 +152,17 @@ def _classify_tagged(
 ]:
     """Split an event/command read log into dynamic inputs, tensor and scalar constants.
 
-    Only a time-varying ``entity.data`` field becomes a graph input; scene tensors and
-    control-flow scalars are baked.
+    Only a time-varying ``entity.data`` field or another command's state becomes a
+    graph input; scene tensors and control-flow scalars are baked.
     """
     dynamic: dict[SlotKey, torch.Tensor] = {}
     tensor_consts: dict[TaggedKey, torch.Tensor] = {}
     scalar_consts: dict[TaggedKey, Any] = {}
     for key, value in log:
         is_tensor = isinstance(value, torch.Tensor)
-        if key[0] == "data" and _is_dynamic_field(key[2]) and is_tensor:
+        if key[0] == _COMMAND_NS and is_tensor:
+            dynamic.setdefault(key, value)
+        elif key[0] == "data" and _is_dynamic_field(key[2]) and is_tensor:
             dynamic.setdefault((key[1], key[2]), value)
         elif is_tensor:
             tensor_consts.setdefault(key, value)
