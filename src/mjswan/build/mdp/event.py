@@ -295,6 +295,7 @@ def serialize_event(
             env,
             name=name,
             mode=term_cfg.mode,
+            is_global_time=getattr(term_cfg, "is_global_time", False),
         )
     except (ValueError, UnsupportedEnvRead) as exc:
         nothing_to_write = _event_writes_nothing_reason(term_cfg, env, resolved)
