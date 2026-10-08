@@ -33,7 +33,7 @@ from .record import (
 )
 from .replay import _EventReplayEnv, _EvReplayEntity
 from .rng import DrawRecorder, ReplayRng
-from .slot import SlotKey, TaggedKey, _slot_input_name
+from .slot import _COMMAND_NS, SlotKey, TaggedKey, _slot_input_name
 
 _ENTITY_WRITE_METHODS = {
     "write_joint_state_to_sim": "joint_state",
@@ -76,7 +76,9 @@ class _RecordCommand:
                 _EvRecEntity(self._orig[a], self._entity_name, self.log, self.captures),
             )
         if self._orig_env is not None:
-            self.term._env = _EventCaptureEnv(self._orig_env, self.log, self.captures)
+            self.term._env = _EventCaptureEnv(
+                self._orig_env, self.log, self.captures, commands=True
+            )
         return self
 
     def __exit__(self, *exc: object) -> None:
@@ -84,6 +86,15 @@ class _RecordCommand:
             setattr(self.term, a, v)
         if self._orig_env is not None:
             self.term._env = self._orig_env
+
+
+def _served_key(key: SlotKey) -> TaggedKey:
+    """The tagged key the replay env serves a dynamic slot under."""
+    namespace, name = key
+    if namespace == _COMMAND_NS:
+        command, _, attr = name.partition(".")
+        return ("command", command, attr)
+    return ("data", namespace, name)
 
 
 def _snapshot_state(term: Any) -> dict[str, torch.Tensor]:
@@ -153,8 +164,8 @@ class _CommandModule(nn.Module):
 
         served: dict[TaggedKey, Any] = dict(self._scalar_consts)
         served.update(_const_values(self, self._const_buffers))
-        for (entity, field_name), tensor in zip(self._dynamic_keys, dynamic):
-            served[("data", entity, field_name)] = tensor
+        for key, tensor in zip(self._dynamic_keys, dynamic):
+            served[_served_key(key)] = tensor
 
         captures: WriteCaptures = {}
         orig = {a: getattr(self._term, a) for a in self._entity_attr_names}
@@ -164,7 +175,9 @@ class _CommandModule(nn.Module):
         if orig_env is not None:
             # `real_env` is the env being swapped out, not the term: `num_envs`
             # forwards to `_env`, so the term would forward to itself.
-            self._term._env = _EventReplayEnv(served, captures, real_env=orig_env)
+            self._term._env = _EventReplayEnv(
+                served, captures, real_env=orig_env, commands=True
+            )
         try:
             prev = {}
             for field_name, value in zip(self._state_fields, state_inputs):

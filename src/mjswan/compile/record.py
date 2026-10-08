@@ -33,6 +33,7 @@ from .slot import (
     READER_FIELDS,
     SimRows,
     SlotKey,
+    TaggedKey,
     _forward_env_attr,
     _sim_tensor,
 )
@@ -477,14 +478,45 @@ class _EvRecScene:
         return value
 
 
+class _EvRecCommandManager:
+    """Logs a command body's reads of other commands under ``("command", name, attr)``.
+
+    The browser updates commands in config order and serves each one's state to the
+    graphs after it, as mjlab's ``CommandManager.compute`` does.
+    """
+
+    def __init__(self, real: Any, log: list[tuple[TaggedKey, Any]]):
+        self._real = real
+        self._log = log
+
+    def get_term(self, name: str) -> Any:
+        def on_tensor(attr: str, value: Any) -> Any:
+            self._log.append((("command", name, attr), value))
+            return value
+
+        return _command_proxy(self._real.get_term(name), on_tensor)
+
+    def get_command(self, name: str) -> Any:
+        value = self._real.get_command(name)
+        self._log.append((("command", name, "command"), value))
+        return value
+
+
 class _EventCaptureEnv:
     """Proxy env for event and command tracing: records reads, captures writes,
     never mutates the sim. Same contract as :class:`_EventReplayEnv`: any other read
-    raises."""
+    raises.
 
-    def __init__(self, real, log, captures):
+    *commands* serves ``env.command_manager``, which only a command body may read.
+    """
+
+    def __init__(self, real, log, captures, *, commands: bool = False):
         object.__setattr__(self, "_real", real)
         object.__setattr__(self, "scene", _EvRecScene(real.scene, log, captures))
+        if commands:
+            object.__setattr__(
+                self, "command_manager", _EvRecCommandManager(real.command_manager, log)
+            )
 
     def __getattr__(self, name: str) -> Any:
         return _forward_env_attr(self._real, name, _EVENT_ENV_READS)

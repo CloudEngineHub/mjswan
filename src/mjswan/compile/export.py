@@ -144,6 +144,17 @@ def _classify_slots(
     return saw_dynamic
 
 
+def _command_slot(name: str, attr: str, value: torch.Tensor) -> SlotKey:
+    """The slot for a command body's read of another command's state."""
+    if not value.is_floating_point():
+        raise ValueError(
+            f"A command term read {name}.{attr}, a {value.dtype} tensor. The browser "
+            "serves another command's state as float32, so read a float field, or "
+            "derive the flag from one."
+        )
+    return (_COMMAND_NS, f"{name}.{attr}")
+
+
 def _classify_tagged(
     log: list[tuple[TaggedKey, Any]],
 ) -> tuple[
@@ -151,15 +162,17 @@ def _classify_tagged(
 ]:
     """Split an event/command read log into dynamic inputs, tensor and scalar constants.
 
-    Only a time-varying ``entity.data`` field becomes a graph input; scene tensors and
-    control-flow scalars are baked.
+    Only a time-varying ``entity.data`` field or another command's state becomes a
+    graph input; scene tensors and control-flow scalars are baked.
     """
     dynamic: dict[SlotKey, torch.Tensor] = {}
     tensor_consts: dict[TaggedKey, torch.Tensor] = {}
     scalar_consts: dict[TaggedKey, Any] = {}
     for key, value in log:
         is_tensor = isinstance(value, torch.Tensor)
-        if key[0] == "data" and _is_dynamic_field(key[2]) and is_tensor:
+        if key[0] == "command" and is_tensor:
+            dynamic.setdefault(_command_slot(key[1], key[2], value), value)
+        elif key[0] == "data" and _is_dynamic_field(key[2]) and is_tensor:
             dynamic.setdefault((key[1], key[2]), value)
         elif is_tensor:
             tensor_consts.setdefault(key, value)

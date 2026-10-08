@@ -17,7 +17,7 @@ from .event import _env_ids, trace_event_term
 from .native import is_native_termination, native_observation_entry
 from .record import WriteCaptures, _EventCaptureEnv, _flatten_captures
 from .rng import DrawRecorder
-from .slot import read_slot, slot_label
+from .slot import _COMMAND_NS, read_slot, slot_label
 from .term import TermExport, trace_term
 
 
@@ -344,11 +344,22 @@ def run_command_parity(
     env_ids = torch.arange(term.num_envs)
 
     def _dyn_feeds() -> dict[str, np.ndarray]:
-        # Dynamic slots read runtime state off the term's entity; feed live values.
+        # Dynamic slots read runtime state off the term's entity or another command;
+        # feed live values.
         entity = getattr(term, entity_attr_names[0]) if entity_attr_names else None
         out = {}
-        for in_name, (_ent, fld) in zip(export.input_names, export.input_slots):
-            out[in_name] = _to_numpy(getattr(entity.data, fld))
+        for in_name, (namespace, fld) in zip(export.input_names, export.input_slots):
+            if namespace == _COMMAND_NS:
+                command, _, attr = fld.partition(".")
+                manager = term._env.command_manager
+                value = (
+                    manager.get_command(command)
+                    if attr == "command"
+                    else getattr(manager.get_term(command), attr)
+                )
+            else:
+                value = getattr(entity.data, fld)
+            out[in_name] = _to_numpy(value)
         return out
 
     for _ in range(n_draws):
