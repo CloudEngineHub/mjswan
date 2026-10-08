@@ -344,8 +344,7 @@ def run_command_parity(
     env_ids = torch.arange(term.num_envs)
 
     def _dyn_feeds() -> dict[str, np.ndarray]:
-        # Dynamic slots read runtime state off the term's entity or another command;
-        # feed live values.
+        # Feed each dynamic slot its live value: entity data or another command's state.
         entity = getattr(term, entity_attr_names[0]) if entity_attr_names else None
         out = {}
         for in_name, (namespace, fld) in zip(export.input_names, export.input_slots):

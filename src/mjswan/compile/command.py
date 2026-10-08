@@ -88,15 +88,6 @@ class _RecordCommand:
             self.term._env = self._orig_env
 
 
-def _served_key(key: SlotKey) -> TaggedKey:
-    """The tagged key the replay env serves a dynamic slot under."""
-    namespace, name = key
-    if namespace == _COMMAND_NS:
-        command, _, attr = name.partition(".")
-        return ("command", command, attr)
-    return ("data", namespace, name)
-
-
 def _slot_example(key: SlotKey, value: torch.Tensor) -> torch.Tensor:
     """The graph input for a slot. The browser serves another command's state as
     float32, so a flag crosses as 0 or 1 and is cast back inside the graph."""
@@ -175,7 +166,8 @@ class _CommandModule(nn.Module):
         for key, dtype, tensor in zip(
             self._dynamic_keys, self._dynamic_dtypes, dynamic
         ):
-            served[_served_key(key)] = tensor.to(dtype)
+            # Another command's state is served under its slot key, as in _ReplayEnv.
+            served[key if key[0] == _COMMAND_NS else ("data", *key)] = tensor.to(dtype)
 
         captures: WriteCaptures = {}
         orig = {a: getattr(self._term, a) for a in self._entity_attr_names}

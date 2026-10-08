@@ -144,11 +144,6 @@ def _classify_slots(
     return saw_dynamic
 
 
-def _command_slot(name: str, attr: str) -> SlotKey:
-    """The slot for a command body's read of another command's state."""
-    return (_COMMAND_NS, f"{name}.{attr}")
-
-
 def _classify_tagged(
     log: list[tuple[TaggedKey, Any]],
 ) -> tuple[
@@ -164,8 +159,8 @@ def _classify_tagged(
     scalar_consts: dict[TaggedKey, Any] = {}
     for key, value in log:
         is_tensor = isinstance(value, torch.Tensor)
-        if key[0] == "command" and is_tensor:
-            dynamic.setdefault(_command_slot(key[1], key[2]), value)
+        if key[0] == _COMMAND_NS and is_tensor:
+            dynamic.setdefault(key, value)
         elif key[0] == "data" and _is_dynamic_field(key[2]) and is_tensor:
             dynamic.setdefault((key[1], key[2]), value)
         elif is_tensor:

@@ -317,39 +317,14 @@ class _EvReplayScene:
             ) from None
 
 
-class _EvReplayCommandManager:
-    """Serves the other commands' recorded state back to a command body."""
-
-    def __init__(self, served, real: Any):
-        self._served = served
-        self._real = real
-
-    def _read(self, name: str, attr: str) -> Any:
-        try:
-            return self._served[("command", name, attr)]
-        except KeyError:
-            raise AttributeError(
-                f"Command term read {name}.{attr} during tracing that the discovery "
-                "pass never saw: the term's control flow is input-dependent, which is "
-                "not traceable (ADR 0005 §Consequences)."
-            ) from None
-
-    def get_term(self, name: str) -> Any:
-        return _command_proxy(
-            self._real.get_term(name), lambda attr, _v: self._read(name, attr)
-        )
-
-    def get_command(self, name: str) -> Any:
-        return self._read(name, "command")
-
-
 class _EventReplayEnv:
     def __init__(self, served, captures, *, real_env: Any, commands: bool = False):
         self.scene = _EvReplayScene(served, captures, real_env)
         self._real_env = real_env
         if commands:
-            self.command_manager = _EvReplayCommandManager(
-                served, real_env.command_manager
+            manager = real_env.command_manager
+            self.command_manager = _ReplayCommandManager(
+                served, {name: manager.get_term(name) for name in manager.active_terms}
             )
 
     def __getattr__(self, name: str) -> Any:
