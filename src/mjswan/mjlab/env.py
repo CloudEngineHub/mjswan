@@ -11,6 +11,7 @@ from __future__ import annotations
 import contextlib
 import io
 import re
+from collections.abc import Iterator
 from typing import Any, Callable
 
 
@@ -92,6 +93,47 @@ class TraceCommandManager:
 
     def get_command(self, name: str) -> Any:
         return self.get_term(name).command
+
+
+class TraceActionManager:
+    """Stand-in ``ActionManager`` for a trace env with no action terms of its own.
+
+    A traced ``last_action`` reads the policy's output, whose width a plain scene's env
+    cannot know. Only the shape matters: the value becomes a graph input the runtime
+    serves from the policy's last action.
+    """
+
+    def __init__(self, num_actions: int, *, num_envs: int = 1, device: Any = "cpu"):
+        import torch
+
+        self.action = torch.zeros((num_envs, num_actions), device=device)
+        self.total_action_dim = num_actions
+        # No terms, so a term-scoped `last_action` still fails, naming none.
+        self.active_terms: list[str] = []
+        self.action_term_dim: list[int] = []
+
+
+@contextlib.contextmanager
+def policy_actions(env: Any, num_actions: int) -> Iterator[None]:
+    """Give *env* a :class:`TraceActionManager` of the policy's width while tracing,
+    unless it has action terms of its own, as an mjlab task's env does."""
+    had = hasattr(env, "action_manager")
+    real = getattr(env, "action_manager", None)
+    if env is None or not num_actions or getattr(real, "total_action_dim", 0):
+        yield
+        return
+    env.action_manager = TraceActionManager(
+        num_actions,
+        num_envs=getattr(env, "num_envs", 1),
+        device=getattr(env, "device", "cpu"),
+    )
+    try:
+        yield
+    finally:
+        if had:
+            env.action_manager = real
+        else:
+            del env.action_manager
 
 
 #: mjlab's play configs' episode length for "no time limit".

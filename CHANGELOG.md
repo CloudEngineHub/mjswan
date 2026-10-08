@@ -283,6 +283,19 @@ shortcuts.
 
 ### Changed
 
+- **mjlab's `last_action` is traced like any other observation**
+  ([#155](https://github.com/ttktjmt/mjswan/issues/155)). Its body reads
+  `env.action_manager.action`, which the tracer serves as an `action` input slot
+  (`{"action": "action"}`) and the browser fills from the policy's last output (after
+  `clip_actions`, zeroed on reset). `last_action(action_name=...)` reads the same slot and
+  slices its term's columns out in the graph. Documents no longer carry the `prev_action`
+  marker, and `run_parity` now checks the term at every step. Any term reading the action
+  vector or a term's `raw_action` traces rather than raising `UnsupportedEnvRead`. A plain
+  scene's trace env has no action terms, so while tracing the build gives it a stand-in of
+  the policy's width (`policy_num_actions`, else `policy_joint_names`). This is
+  **document format 5**, since a format-4 engine cannot serve the slot; the engine still
+  runs an earlier document's marker.
+
 - **mjlab's `time_out` is traced like any other termination**
   ([#130](https://github.com/ttktjmt/mjswan/issues/130)). Its body reads
   `env.episode_length_buf`, which the tracer serves as an `env` input slot

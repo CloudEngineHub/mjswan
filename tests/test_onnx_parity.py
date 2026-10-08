@@ -201,7 +201,7 @@ def test_every_property_traced_through_matches_mjlab(traced_report):
         entity_fields = [
             label.split(".", 1)[1]
             for label in term.input_slots
-            if not label.startswith(("sensor:", "command:", "sim:"))
+            if not label.startswith(("sensor:", "command:", "sim:", "env:", "action:"))
         ]
         assert not (set(entity_fields) & properties), term.input_slots
 

@@ -369,6 +369,8 @@ export class mjswanRuntime {
     this.policyGraphs = new OnnxSessionCache();
     this.modelFieldDefaults = null;
     this.termRng = new SeededRng(termSeed);
+    // Lazy: the context is rebuilt on every slot read, and only an `action` slot needs it.
+    const lastActions = () => this.policyRunner?.getLastActions() ?? null;
     // Re-reads mjModel/mjData per call so a scene rebuild needs no rewiring.
     this.readOnnxSlot = createSlotReader(
       () => ({
@@ -377,6 +379,7 @@ export class mjswanRuntime {
         mjData: this.mjData,
         commandManager: this.commandManager,
         episodeLength: this.episodeLength,
+        lastActions,
       }),
       {
         jointBias: (name) => this.jointBias.get(name) ?? 0,
@@ -1906,7 +1909,7 @@ export class mjswanRuntime {
         return;
       }
       // Before `setLastActions`, which is what both the action terms and the
-      // `prev_action` observation slot read — mirroring rsl-rl, where the clamp lands
+      // `action` observation slot read — mirroring rsl-rl, where the clamp lands
       // ahead of `env.step` and so ahead of the action manager recording the action.
       clampActions(action, this.clipActions);
       this.policyRunner.setLastActions(action);

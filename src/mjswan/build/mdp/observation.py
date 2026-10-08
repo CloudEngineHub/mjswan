@@ -25,19 +25,15 @@ def _tensor_width(value: Any) -> int:
 def _native_observation_entry(
     name: str, func: Any, params: dict[str, Any], env: Any
 ) -> dict[str, Any] | None:
-    """Classify a known non-``entity.data`` observation func into a native marker.
+    """Classify ``generated_commands`` into a native marker, else ``None`` (traced).
 
-    ``last_action`` and ``generated_commands`` read env-level state the runtime already
-    holds every frame, so they need no graph. Returns ``None`` for anything else, which
-    the caller then traces.
-
-    Checked before tracing rather than by catching the tracer's error: a scene pairing
-    ``generated_commands`` with a browser-only ``UiCommand`` fails mjlab's own assert
-    during discovery.
+    It reads a command the runtime already holds, so it needs no graph. Checked before
+    tracing rather than by catching the tracer's error: a scene pairing it with a
+    browser-only ``UiCommand`` fails mjlab's own assert during discovery.
     """
     from ...compile.native import native_observation_entry
 
-    entry = native_observation_entry(name, func, params, env)
+    entry = native_observation_entry(name, func, params)
     if entry is None:
         return None
 
@@ -46,7 +42,6 @@ def _native_observation_entry(
     except Exception:  # noqa: BLE001 (best-effort; runtime resolves it instead)
         width = 0
     if width:
-        # A zero width means "no action manager", not a term of no width.
         entry["size"] = width
     return entry
 
@@ -182,44 +177,31 @@ def _group_is_fusable(group: ObservationGroupCfg) -> bool:
     return True
 
 
-def policy_native_sizes(
-    data: dict[str, Any], commands: Mapping[str, CommandTermConfig] | None
+def native_command_sizes(
+    commands: Mapping[str, CommandTermConfig] | None,
 ) -> dict[str, int]:
-    """Widths of the native observation terms, keyed as :func:`_native_size` reads them.
+    """Each command's width, for a native ``generated_commands`` reading it.
 
-    A trace env built for a plain ``add_scene()`` scene has neither an action term nor
-    the command, so a fused graph takes its fixed widths from the policy config
-    instead: the action count, and the command's value-bearing UI inputs (a button
+    A trace env built for a plain ``add_scene()`` scene has no command manager, so a
+    fused graph takes the width from the command's value-bearing UI inputs (a button
     carries none).
     """
     sizes: dict[str, int] = {}
-    num_actions = data.get("policy_num_actions") or len(
-        data.get("policy_joint_names") or ()
-    )
-    if num_actions:
-        sizes["prev_action"] = int(num_actions)
     for name, cmd in (commands or {}).items():
         if cmd.ui is None:
             continue
         width = sum(1 for inp in cmd.ui.inputs if not isinstance(inp, ButtonConfig))
-        if not width:
-            continue
-        sizes[f"command:{name}"] = width
+        if width:
+            sizes[name] = width
     return sizes
 
 
 def _native_size(
-    term_cfg: ObservationTermCfg, native_sizes: dict[str, int]
+    term_cfg: ObservationTermCfg, command_sizes: dict[str, int]
 ) -> int | None:
     """Declared width for a native term, or ``None`` if it isn't native."""
-    func_name = getattr(term_cfg.func, "__name__", None)
-    if func_name == "last_action":
-        # The whole vector; a term-scoped one needs `action_offset` for its slice.
-        if term_cfg.params.get("action_name") is not None:
-            return None
-        return native_sizes.get("prev_action")
-    if func_name == "generated_commands":
-        return native_sizes.get(f"command:{term_cfg.params['command_name']}")
+    if getattr(term_cfg.func, "__name__", None) == "generated_commands":
+        return command_sizes.get(term_cfg.params["command_name"])
     return None
 
 
@@ -228,7 +210,7 @@ def _fused_group_entry(
     env: Any,
     out_dir: Path,
     group_name: str,
-    native_sizes: dict[str, int] | None = None,
+    command_sizes: dict[str, int] | None = None,
     *,
     scope: str | None = None,
 ) -> dict[str, Any]:
@@ -242,7 +224,7 @@ def _fused_group_entry(
             params=resolved_params(term_cfg.params, env),
             clip=tuple(term_cfg.clip) if term_cfg.clip else None,
             scale=term_cfg.scale,
-            native_size=_native_size(term_cfg, native_sizes or {}),
+            native_size=_native_size(term_cfg, command_sizes or {}),
         )
         for name, term_cfg in group.terms.items()
     ]
@@ -282,7 +264,7 @@ def serialize_observation_group(
     env: Any,
     out_dir: Path,
     group_name: str = "policy",
-    native_sizes: dict[str, int] | None = None,
+    command_sizes: dict[str, int] | None = None,
     *,
     scope: str | None = None,
 ) -> list[dict[str, Any]] | dict[str, Any]:
@@ -292,7 +274,7 @@ def serialize_observation_group(
     if _group_is_fusable(group):
         try:
             return _fused_group_entry(
-                group, env, out_dir, group_name, native_sizes, scope=scope
+                group, env, out_dir, group_name, command_sizes, scope=scope
             )
         except ConstantGroup:
             # Only knowable by tracing, so not a `_group_is_fusable` static check.

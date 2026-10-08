@@ -363,7 +363,11 @@ structurally impossible within a scene.
   input slot (`{"env": "episode_length_buf"}`), the runtime's episode step
   counter, which mjlab's `time_out` is traced through; a format-3 engine cannot
   serve it, so no episode would end on time. An engine still runs an earlier
-  document's native `time_out` marker.
+  document's native `time_out` marker. `format: 5` added the `action` input slot
+  (`{"action": "action"}`), the policy's last action, which mjlab's `last_action`
+  is traced through; a format-4 engine cannot serve it, so the observation group
+  would freeze. An engine still runs an earlier document's native `prev_action`
+  marker.
 
 The two are not redundant because they are read by different parties for
 different decisions — one by the host choosing an engine, one by the engine

@@ -18,7 +18,7 @@ from .debug_vis import debug_vis_entry
 from .event import model_field_dr_descriptor, serialize_event, serialize_events
 from .graph import onnx_ref, stamp_provenance, write_onnx
 from .observation import (
-    policy_native_sizes,
+    native_command_sizes,
     serialize_observation_group,
     serialize_observation_term,
 )
@@ -35,8 +35,8 @@ __all__ = [
     "contact_sensor_descriptor",
     "debug_vis_entry",
     "model_field_dr_descriptor",
+    "native_command_sizes",
     "onnx_ref",
-    "policy_native_sizes",
     "raycast_sensor_descriptor",
     "serialize_actions",
     "serialize_command",

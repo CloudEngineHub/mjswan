@@ -280,7 +280,7 @@ class PolicyConfig:
     rsl-rl's ``RslRlVecEnvWrapper.step`` clamps to ``[-clip_actions, +clip_actions]``
     *before* ``env.step``, so the action manager — and therefore any ``last_action``
     observation — sees the clamped vector. The browser mirrors that placement: the clamp
-    lands on the ONNX output before the action terms or the ``prev_action`` slot read it.
+    lands on the ONNX output before the action terms or the ``action`` slot read it.
 
     Not ``ActionTermCfg.clip``, which bounds ``raw * scale + offset`` per target and
     lives on the action term.

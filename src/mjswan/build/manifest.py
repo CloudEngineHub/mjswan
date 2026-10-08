@@ -17,13 +17,14 @@ from typing import TYPE_CHECKING, Any
 from .._version import __version__
 from ..document import DOCUMENT_FORMAT
 from ..document.manifest import DEFAULT_IN_KEYS, DEFAULT_OUT_KEYS, RUNTIME_INPUT_SLOTS
+from ..mjlab.env import policy_actions
 from ..mjlab.gui import record_scene_gui
 from ..viewer import ViewerConfig
 from .asset import motion_key
 from .frontend import uses_custom_js
 from .mdp import (
     debug_vis_entry,
-    policy_native_sizes,
+    native_command_sizes,
     serialize_actions,
     serialize_command,
     serialize_events,
@@ -150,43 +151,44 @@ def mdp_entry(
             name: serialize_command(name, cmd, env, scene_dir, scope=scope)
             for name, cmd in mdp.commands.items()
         }
-    if mdp.observations:
-        on_term("observations")
-        native_sizes = policy_native_sizes(
-            {
-                "policy_joint_names": first.policy_joint_names,
-                "policy_num_actions": first.policy_num_actions,
-                **{
-                    k: first_sidecar[k]
-                    for k in ("policy_joint_names", "policy_num_actions")
-                    if k in first_sidecar and getattr(first, k) is None
-                },
-            },
-            mdp.commands,
-        )
-        # Authored groups first, never overwritten: the key names the fused graph too.
-        obs_config = dict(first_sidecar.get("observations") or {})
-        for key, group in mdp.observations.items():
-            target_key = f"{key}_monitor" if key in obs_config else key
-            obs_config[target_key] = serialize_observation_group(
-                group, env, scene_dir, target_key, native_sizes, scope=scope
+    # The sidecar's values only where the policy leaves them unset.
+    policy = {
+        k: first_sidecar.get(k) if getattr(first, k) is None else getattr(first, k)
+        for k in ("policy_joint_names", "policy_num_actions")
+    }
+    num_actions = policy["policy_num_actions"] or len(
+        policy["policy_joint_names"] or ()
+    )
+    # A term reading the last action needs its width, which a plain scene's env lacks.
+    with policy_actions(env, num_actions):
+        if mdp.observations:
+            on_term("observations")
+            command_sizes = native_command_sizes(mdp.commands)
+            # Authored groups first, never overwritten: the key names the fused graph.
+            obs_config = dict(first_sidecar.get("observations") or {})
+            for key, group in mdp.observations.items():
+                target_key = f"{key}_monitor" if key in obs_config else key
+                obs_config[target_key] = serialize_observation_group(
+                    group, env, scene_dir, target_key, command_sizes, scope=scope
+                )
+            entry["observations"] = obs_config
+        elif first_sidecar.get("observations"):
+            entry["observations"] = first_sidecar["observations"]
+        if mdp.actions:
+            entry["actions"] = serialize_actions(
+                mdp.actions, first_sidecar.get("actions")
             )
-        entry["observations"] = obs_config
-    elif first_sidecar.get("observations"):
-        entry["observations"] = first_sidecar["observations"]
-    if mdp.actions:
-        entry["actions"] = serialize_actions(mdp.actions, first_sidecar.get("actions"))
-    elif first_sidecar.get("actions"):
-        entry["actions"] = first_sidecar["actions"]
-    if mdp.terminations:
-        on_term("terminations")
-        terminations = serialize_terminations(
-            mdp.terminations, env, scene_dir, scope=scope
-        )
-        if terminations:
-            entry["terminations"] = terminations
-    elif first_sidecar.get("terminations"):
-        entry["terminations"] = first_sidecar["terminations"]
+        elif first_sidecar.get("actions"):
+            entry["actions"] = first_sidecar["actions"]
+        if mdp.terminations:
+            on_term("terminations")
+            terminations = serialize_terminations(
+                mdp.terminations, env, scene_dir, scope=scope
+            )
+            if terminations:
+                entry["terminations"] = terminations
+        elif first_sidecar.get("terminations"):
+            entry["terminations"] = first_sidecar["terminations"]
     if mdp.events:
         events = serialize_events(
             mdp.events,

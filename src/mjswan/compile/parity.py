@@ -176,10 +176,10 @@ def run_parity(
         else []
     )
     for kind, term_name, func, params in terms:
-        # Classified before tracing, as the build does: the recording proxy refuses
-        # `last_action`'s `env.action_manager` read.
+        # Classified before tracing, as the build does: a trace env without the
+        # command fails `generated_commands`' own assert.
         native = (
-            native_observation_entry(term_name, func, params, env)
+            native_observation_entry(term_name, func, params)
             if kind == "observation"
             else None
         )

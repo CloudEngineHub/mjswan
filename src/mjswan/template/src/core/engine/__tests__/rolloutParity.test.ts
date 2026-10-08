@@ -49,6 +49,8 @@ interface Step {
   data: Record<string, number[]>;
   /** mjlab's `episode_length_buf` at this state. */
   episode_length: number;
+  /** mjlab's `action_manager.action` at this state. */
+  last_action: number[];
   native: Record<string, number[]>;
   obs: number[];
   terminations: Record<string, boolean>;
@@ -74,14 +76,23 @@ async function sessionFor(taskId: string, ref: string): Promise<OnnxSession> {
 }
 
 /** One step's `mjModel`/`mjData` view — mjlab's arrays, so its vector is the answer. */
-function contextFor(task: TaskFixture, step: Step): SlotReaderContext {
+function contextFor(
+  task: TaskFixture,
+  step: Step,
+  lastActions: () => Float32Array | null,
+): SlotReaderContext {
   const { names, ...rest } = task.model;
   const mjModel = { ...rest, names: Uint8Array.from(names as number[]).buffer };
   const mjData: Record<string, Float64Array> = {};
   for (const [key, values] of Object.entries(step.data)) {
     mjData[key] = Float64Array.from(values);
   }
-  return { mjModel, mjData, episodeLength: step.episode_length } as unknown as SlotReaderContext;
+  return {
+    mjModel,
+    mjData,
+    episodeLength: step.episode_length,
+    lastActions,
+  } as unknown as SlotReaderContext;
 }
 
 /** Reads one native input's fixture value for the current step. */
@@ -172,18 +183,16 @@ describe.each(Object.keys(TASKS))('rollout parity vs mjlab — %s', taskId => {
   let runner: PolicyRunner;
   let terminations: TerminationManager;
 
+  // The last action through the real runner, as `runtime.ts` serves it.
   const readSlot: SlotReader = slot =>
-    createSlotReader(() => contextFor(task, current), {
+    createSlotReader(() => contextFor(task, current, () => runner.getLastActions()), {
       jointBias: name => task.encoder_bias[name] ?? 0,
     })(slot);
 
-  /** mjlab's `action_manager.action` for the current step, stored as the runtime does. */
-  const readActions = nativeReader(task, () => current, 'prev_action');
-
-  /** Advance to one fixture step, pushing its action through the real runner. */
+  /** Advance to one fixture step, storing mjlab's action as the runtime does. */
   const seek = (step: Step): void => {
     current = step;
-    runner.setLastActions(readActions());
+    runner.setLastActions(Float32Array.from(step.last_action));
   };
 
   beforeAll(async () => {
@@ -218,9 +227,9 @@ describe.each(Object.keys(TASKS))('rollout parity vs mjlab — %s', taskId => {
     expect(first.some((v, i) => Math.abs(v - last[i]) > 1e-6)).toBe(true);
   }, 120_000);
 
-  it('keeps the native inputs that make the manager wiring observable', () => {
-    // Guards the harness: those two paths are only exercised by a task whose group has native
-    // inputs, so a regenerated fixture that lost them would silently stop testing them.
+  it('keeps the inputs that make the manager wiring observable', () => {
+    // Guards the harness: those two paths are only exercised by a task whose group reads
+    // them, so a regenerated fixture that lost them would silently stop testing them.
     const natives = task.group.native_inputs ?? [];
     const command = natives.find(native => native.native === 'command');
     if (command) {
@@ -228,12 +237,13 @@ describe.each(Object.keys(TASKS))('rollout parity vs mjlab — %s', taskId => {
       // Found by name in the real manager, which is what `getCommand` resolves.
       expect(runner.getContext()?.commandManager?.termNames()).toContain(command.command_name);
     }
-    if (natives.some(native => native.native === 'prev_action')) {
+    const action = task.group.input_slots?.find(slot => slot.action);
+    if (action) {
+      expect(action.shape).toEqual([1, task.num_actions]);
       expect(runner.getNumActions()).toBe(task.num_actions);
-      expect(readActions().length).toBe(task.num_actions);
     }
     // Cartpole has neither; assert that, so this reads as a property, not a skipped check.
-    if (natives.length === 0) expect(taskId).toBe('Mjlab-Cartpole-Balance');
+    if (!command && !action) expect(taskId).toBe('Mjlab-Cartpole-Balance');
   });
 
   it('reproduces every termination verdict at every step', async () => {

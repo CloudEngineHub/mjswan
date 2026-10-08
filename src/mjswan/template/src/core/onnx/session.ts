@@ -45,6 +45,8 @@ export interface OnnxInputSlot {
   rows?: number[];
   /** An env-level buffer: only `episode_length_buf`, the runtime's step counter. */
   env?: string;
+  /** The policy's last action: only `action`, mjlab's `env.action_manager.action`. */
+  action?: string;
   input?: string;
   shape?: number[];
 }

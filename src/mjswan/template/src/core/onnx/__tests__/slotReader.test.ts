@@ -515,6 +515,20 @@ describe('createSlotReader: env slots', () => {
   });
 });
 
+describe('createSlotReader: action slots', () => {
+  it('serves the policy’s last action whole', () => {
+    const read = createSlotReader(() => context({ lastActions: () => new Float32Array([1, 2, 3, 9]) }));
+    close(read({ action: 'action', shape: [1, 4] }), [1, 2, 3, 9]);
+  });
+
+  it('returns null for a buffer the runtime does not keep, or with no policy', () => {
+    const read = createSlotReader(() => context({ lastActions: () => new Float32Array(4) }));
+    expect(read({ action: 'prev_action' })).toBeNull();
+    expect(createSlotReader(() => context({ lastActions: () => null }))({ action: 'action' })).toBeNull();
+    expect(createSlotReader(() => context())({ action: 'action' })).toBeNull();
+  });
+});
+
 describe('slotDims', () => {
   it('rebuilds the traced rank with batch pinned to 1', () => {
     // site_pos_w is (batch, num_sites, 3) — feeding (1, 6) would be rejected.

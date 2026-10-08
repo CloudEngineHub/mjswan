@@ -33,7 +33,8 @@ OUT_DIR = ROOT / "src/mjswan/template/src/core/engine/__tests__/fixtures/rollout
 
 # Cartpole is the minimal shape (two entity-data slots, `time_out` as a lone graph);
 # G1-Velocity-Flat the wide one (builtin sensors, `joint_pos_biased`, seven terms in a
-# 99-wide fused group, native inputs, `time_out` fused with `fell_over`).
+# 99-wide fused group, the last-action slot, a native command input, `time_out` fused
+# with `fell_over`).
 #
 # Velocity-Rough's raycast slot and Lift-Cube-Yam's command-state slot are covered by
 # `raycast.test.ts` and the `OnnxCommand` tests; both need a stub this format lacks.
@@ -112,17 +113,14 @@ def _termination_verdicts(env: Any, cfg: Any) -> dict[str, bool]:
 def _native_inputs(env: Any, group_entry: dict[str, Any]) -> dict[str, list[float]]:
     """The values the orchestrator supplies natively, not through a graph.
 
-    `prev_action` and `command` are computed browser-side (the policy's own last
-    output; a live command term), so feeding mjlab's value here keeps the
-    comparison about the graph and the pipeline. Both are covered separately by
-    the `PolicyRunner` and `OnnxCommand` suites.
+    A `command` is a live command term browser-side, so feeding mjlab's value here keeps
+    the comparison about the graph and the pipeline. The `OnnxCommand` suite covers the
+    term itself.
     """
     natives: dict[str, list[float]] = {}
     for native in group_entry.get("native_inputs", []):
         kind = native["native"]
-        if kind == "prev_action":
-            natives[native["input"]] = _flat(env.action_manager.action)
-        elif kind == "command":
+        if kind == "command":
             natives[native["input"]] = _flat(
                 env.command_manager.get_command(native["command_name"])
             )
@@ -226,6 +224,7 @@ def _dump_task(task_id: str, out_dir: Path) -> dict[str, Any]:
                     name: _data_field(env, name, count) for name, count in DATA_ARRAYS
                 },
                 "episode_length": int(env.episode_length_buf[0]),
+                "last_action": _flat(env.action_manager.action),
                 "native": _native_inputs(env, group_entry),
                 "obs": _flat(env.observation_manager.compute_group("actor")),
                 "terminations": _termination_verdicts(env, cfg),

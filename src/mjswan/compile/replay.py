@@ -15,16 +15,20 @@ import torch
 from torch.utils._pytree import tree_map
 
 from .proxy import (
+    _action_term_proxy,
     _command_proxy,
     _FieldProxy,
+    _forward_action_attr,
     _plain,
     _sensor_proxy,
     _SimStandIn,
     _traces_through,
     _with_sim_data,
+    action_term_window,
 )
 from .record import _index_rows, _WriteCaptureMixin
 from .slot import (
+    _ACTION_NS,
     _COMMAND_NS,
     _ENV_NS,
     _ENV_SLOT_DTYPES,
@@ -241,6 +245,38 @@ class _ReplayCommandManager:
         return self._slots[(_COMMAND_NS, f"{name}.command")]
 
 
+class _ReplayActionManager:
+    """Serves the recorded last action back; a term's ``raw_action`` slices it in-graph."""
+
+    def __init__(self, slots: dict[SlotKey, torch.Tensor], real: Any):
+        self._slots = slots
+        self._real = real
+
+    @property
+    def action(self) -> torch.Tensor:
+        return self._action()
+
+    def get_term(self, name: str) -> Any:
+        offset, dim = action_term_window(self._real, name)
+        return _action_term_proxy(
+            self._real.get_term(name),
+            lambda: self._action()[:, offset : offset + dim],
+        )
+
+    def _action(self) -> torch.Tensor:
+        value = self._slots.get((_ACTION_NS, "action"))
+        if value is None:
+            raise AttributeError(
+                "Term read the last action during tracing, which the discovery pass "
+                "never saw: the term's control flow is input-dependent, which is not "
+                "traceable (ADR 0005 §Consequences)."
+            )
+        return value
+
+    def __getattr__(self, name: str) -> Any:
+        return _forward_action_attr(self._real, name)
+
+
 class _ReplayEnv:
     def __init__(
         self,
@@ -260,6 +296,8 @@ class _ReplayEnv:
         self._real_env = real_env
 
     def __getattr__(self, name: str) -> Any:
+        if name == "action_manager":
+            return _ReplayActionManager(self._slots, self._real_env.action_manager)
         if name in _ENV_SLOT_DTYPES:
             value = self._slots.get((_ENV_NS, name))
             if value is None:

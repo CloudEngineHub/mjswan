@@ -45,6 +45,8 @@ def _is_dynamic_field(field_name: str) -> bool:
 #   (_SIM_NS, field)                 -> env.sim.data.<field> == entity.data.data.<field>
 #                                       (raw; maybe narrowed to rows)
 #   (_ENV_NS, buffer)                -> env.<buffer> (an env-level counter)
+#   (_ACTION_NS, "action")           -> env.action_manager.action (the policy's last
+#                                       action; a term's `raw_action` slices it)
 SlotKey = tuple[str, str]
 
 
@@ -60,6 +62,7 @@ _SENSOR_NS = "__sensor__"
 _COMMAND_NS = "__command__"
 _SIM_NS = "__sim__"
 _ENV_NS = "__env__"
+_ACTION_NS = "__action__"
 
 
 #: Env-level buffers served as slots, with the dtype mjlab keeps each in. The browser
@@ -91,6 +94,8 @@ _TERM_ENV_READS = (
     "env.command_manager",
     "env.sim.data.<field>",
     "env.episode_length_buf",
+    "env.action_manager.action",
+    "env.action_manager.get_term(...).raw_action",
 )
 #: What an event or command body may read off ``env``.
 _EVENT_ENV_READS = ("env.scene[...]", "env.scene.<attr>")
@@ -228,6 +233,8 @@ def _slot_input_name(key: SlotKey) -> str:
         return f"sim__{name_part}"
     if namespace == _ENV_NS:
         return f"env__{name_part}"
+    if namespace == _ACTION_NS:
+        return f"action__{name_part}"
     return f"{namespace}__{name_part}"
 
 
@@ -242,6 +249,8 @@ def slot_label(key: SlotKey) -> str:
         return f"sim:{name_part}"
     if namespace == _ENV_NS:
         return f"env:{name_part}"
+    if namespace == _ACTION_NS:
+        return f"action:{name_part}"
     return f"{namespace}.{name_part}"
 
 
@@ -252,12 +261,12 @@ def slot_to_json(
 ) -> dict[str, Any]:
     """Serialize one input slot for the manifest's MDP entry.
 
-    Five shapes, told apart by which keys are present: ``{"entity", "field"}``,
+    Six shapes, told apart by which keys are present: ``{"entity", "field"}``,
     ``{"sensor"}``, ``{"command", "field"}``, ``{"sim"}`` (a raw ``mjData`` field,
-    whole, or the ``rows`` of its element axis the graph takes, in order), or
-    ``{"env"}`` (an env-level counter the runtime keeps). All carry ``input`` (the graph
-    input name) and ``shape``: the runtime feeds a flat array and cannot recover the
-    rank without it.
+    whole, or the ``rows`` of its element axis the graph takes, in order), ``{"env"}``
+    (an env-level counter the runtime keeps), or ``{"action"}`` (the policy's last
+    action). All carry ``input`` (the graph input name) and ``shape``: the runtime feeds
+    a flat array and cannot recover the rank without it.
     """
     namespace, name_part = key
     entry: dict[str, Any]
@@ -281,6 +290,8 @@ def slot_to_json(
             entry["rows"] = [int(r) for r in rows]
     elif namespace == _ENV_NS:
         entry = {"env": name_part, "input": _slot_input_name(key)}
+    elif namespace == _ACTION_NS:
+        entry = {"action": name_part, "input": _slot_input_name(key)}
     else:
         entry = {
             "entity": namespace,
@@ -349,4 +360,6 @@ def read_slot(
         return value if rows is None else value[:, list(rows)]
     if namespace == _ENV_NS:
         return getattr(env, name_part)
+    if namespace == _ACTION_NS:
+        return getattr(env.action_manager, name_part)
     return getattr(env.scene[namespace].data, name_part)

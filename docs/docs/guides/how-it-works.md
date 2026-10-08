@@ -149,9 +149,10 @@ manifest's MDP entry, and the browser's slot reader serves each one from `mjMode
 ]
 ```
 
-Five slot namespaces exist: an entity `data` field (as above), a named MuJoCo sensor's
+Six slot namespaces exist: an entity `data` field (as above), a named MuJoCo sensor's
 `sensordata` window, a live command's state field, the episode step counter mjlab's
-`time_out` reads (`{"env": "episode_length_buf"}`), and a raw `mjData` field:
+`time_out` reads (`{"env": "episode_length_buf"}`), the policy's last action mjlab's
+`last_action` reads (`{"action": "action"}`), and a raw `mjData` field:
 
 ```json
 { "sim": "cvel", "input": "sim__cvel", "shape": [1, 17, 6], "rows": [1, 4, 7] }
@@ -174,13 +175,15 @@ value as one entity `data` slot instead and keeps the math out of the graph.
 Anything model-derived and therefore constant — an entity's indices, `default_joint_pos`,
 `encoder_bias` — is baked into the graph instead of becoming a slot.
 
-A handful of values have no simulation slot at all — the previous action, a command's
-current value, a baked constant — so they arrive as **native inputs** the orchestrator
-fills in:
+The action slot is the whole vector the policy last output, after `clip_actions`. A
+term-scoped `last_action(action_name=...)` reads the same slot, and the graph slices that
+action term's columns out of it.
+
+mjlab's `generated_commands` is still a **native input** the orchestrator fills in, since
+a trace env may hold no term for a command the browser owns:
 
 ```json
 "native_inputs": [
-  { "name": "last_action", "native": "prev_action", "input": "native__last_action", "size": 29 },
   { "name": "velocity_cmd", "native": "command", "input": "native__velocity_cmd", "command_name": "velocity", "size": 3 }
 ]
 ```

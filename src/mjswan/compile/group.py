@@ -145,8 +145,8 @@ class _GroupModule(nn.Module):
 def _native_example(term: GroupTermSpec, env: Any) -> torch.Tensor:
     """Example value fixing a native term's graph-input width.
 
-    The env is asked first; a bare trace env has no action terms or command manager, so
-    the build hands the width down as ``native_size``.
+    The env is asked first; a bare trace env has no command manager, so the build hands
+    the width down as ``native_size``.
     """
     try:
         value = term.func(env, **term.params).detach()
@@ -158,11 +158,7 @@ def _native_example(term: GroupTermSpec, env: Any) -> torch.Tensor:
         return torch.zeros(1, term.native_size)
     raise ValueError(
         f"Observation term {term.name!r} is native, but neither the trace env nor "
-        "the policy config gives its width. Set the policy's "
-        "`policy_joint_names`/`policy_num_actions` (for `last_action`), or declare "
-        "the command's UI inputs (for `generated_commands`). A term-scoped "
-        "`last_action` has no config answer at all: it needs a trace env whose "
-        "action manager holds the term."
+        "the scene's commands give its width. Declare the command's UI inputs."
     )
 
 
@@ -201,7 +197,7 @@ def trace_observation_group(
     readers = _reader_fields(reader_fields)
 
     for term in terms:
-        entry = native_observation_entry(term.name, term.func, term.params, env)
+        entry = native_observation_entry(term.name, term.func, term.params)
         if entry is not None:
             entry["input"] = "native__" + re.sub(r"\W", "_", term.name)
             value = _native_example(term, env)

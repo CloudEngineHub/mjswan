@@ -45,6 +45,8 @@ export type SlotReaderContext = {
   commandManager?: { getTerm(name: string): unknown } | null;
   /** Control steps since the last reset: mjlab's `episode_length_buf`. */
   episodeLength?: number;
+  /** The policy's last action, zeroed on reset: mjlab's `action_manager.action`. */
+  lastActions?: () => Float32Array | null;
 };
 
 export type SlotReaderOptions = {
@@ -186,6 +188,11 @@ export function createSlotReader(
     if (slot.env) {
       if (slot.env !== 'episode_length_buf' || context.episodeLength === undefined) return null;
       return new Float32Array([context.episodeLength]);
+    }
+
+    if (slot.action) {
+      if (slot.action !== 'action') return null;
+      return context.lastActions?.() ?? null;
     }
 
     const { mjModel, mjData } = context;

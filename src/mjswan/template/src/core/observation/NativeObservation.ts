@@ -2,7 +2,7 @@
  * Observation terms that are a plain read of state the orchestrator already owns, so
  * tracing them would only wrap an identity graph around a value in hand. The build
  * marks them `native`:
- * - `prev_action` — mjlab's `last_action`.
+ * - `prev_action` — mjlab's `last_action`, in a document before format 5.
  * - `command` — mjlab's `generated_commands`, the named term's current value.
  * - `constant` — reads nothing from the env; its value is baked at build time.
  *

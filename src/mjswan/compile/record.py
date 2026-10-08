@@ -15,16 +15,20 @@ import torch
 from torch.utils._pytree import tree_leaves, tree_map
 
 from .proxy import (
+    _action_term_proxy,
     _command_proxy,
     _FieldProxy,
+    _forward_action_attr,
     _is_sensor,
     _plain,
     _sensor_proxy,
     _SimStandIn,
     _traces_through,
     _with_sim_data,
+    action_term_window,
 )
 from .slot import (
+    _ACTION_NS,
     _COMMAND_NS,
     _ENV_NS,
     _ENV_SLOT_DTYPES,
@@ -312,10 +316,50 @@ class _RecordingCommandManager:
         return getattr(self._real, name)
 
 
+class _RecordingActionManager:
+    """Wraps the real ``ActionManager``, logging reads of the policy's last action.
+
+    A term's ``raw_action`` is its slice of that vector, so it logs the whole vector:
+    one slot the runtime serves, sliced inside the graph.
+    """
+
+    def __init__(self, real: Any, log: list[tuple[SlotKey, Any]]):
+        self._real = real
+        self._log = log
+
+    @property
+    def action(self) -> torch.Tensor:
+        return self._logged_action()
+
+    def get_term(self, name: str) -> Any:
+        action_term_window(self._real, name)
+        real = self._real.get_term(name)
+
+        def raw_action() -> torch.Tensor:
+            self._logged_action()
+            return real.raw_action
+
+        return _action_term_proxy(real, raw_action)
+
+    def _logged_action(self) -> torch.Tensor:
+        value = self._real.action
+        if value.shape[-1] == 0:
+            raise ValueError(
+                "Term read the policy's last action, but the trace env has no action "
+                "terms to give it a width. For a plain scene the build takes it from "
+                "the policy's `policy_num_actions` or `policy_joint_names`; set one."
+            )
+        self._log.append(((_ACTION_NS, "action"), value))
+        return value
+
+    def __getattr__(self, name: str) -> Any:
+        return _forward_action_attr(self._real, name)
+
+
 class _RecordingEnv:
     """Proxy env recording the reads a term makes (entity data, sim data, sensors,
-    commands, the episode counter). Same contract as :class:`_ReplayEnv`: any other
-    read raises."""
+    commands, the episode counter, the last action). Same contract as
+    :class:`_ReplayEnv`: any other read raises."""
 
     def __init__(self, real: Any, reader_fields: Collection[str] = READER_FIELDS):
         object.__setattr__(self, "_real", real)
@@ -337,6 +381,8 @@ class _RecordingEnv:
             return _RecordingCommandManager(
                 self._real.command_manager, self._log, self._commands
             )
+        if name == "action_manager":
+            return _RecordingActionManager(self._real.action_manager, self._log)
         if name in _ENV_SLOT_DTYPES:
             value = getattr(self._real, name)
             # Logged as the float32 the browser feeds; the term still sees mjlab's dtype.
