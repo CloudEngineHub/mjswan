@@ -880,6 +880,8 @@ def _fake_trace_env():
         def __init__(self, entities):
             self.scene = _Scene(entities)
             self.action_manager = _ActionManager()
+            self.episode_length_buf = torch.tensor([0])
+            self.max_episode_length = 1000
 
     data = _Data(
         joint_pos=torch.tensor([[0.1, 0.2]]),
@@ -917,12 +919,8 @@ def _fake_root_height_below_minimum(env, *, minimum_height, entity_name="robot",
     return env.scene[entity_name].data.root_link_pos_w[:, 2] < minimum_height
 
 
-# Named `time_out` because the serializer classifies the native rule by `func.__name__`.
-def time_out(env, *, max_episode_length=1e9, **_):
-    import torch
-
-    del env, max_episode_length
-    return torch.tensor([False])
+def _fake_time_out(env, **_):
+    return env.episode_length_buf >= env.max_episode_length
 
 
 # ===========================================================================
@@ -1032,15 +1030,16 @@ class TestSaveWebPolicyJson:
             name="Policy",
             policy=minimal_onnx,
             terminations={
-                "time_out": TerminationTermCfg(func=time_out, time_out=True),
+                "time_out": TerminationTermCfg(func=_fake_time_out, time_out=True),
             },
         )
         data = self._policy_json(self._run(builder, tmp_path), "Policy")
         assert "terminations" in data
         assert "time_out" in data["terminations"]
-        # A term reading no dynamic entity state is classified native (ADR 0005).
+        # Traced like any term, through the runtime's episode counter (ADR 0005).
         entry = data["terminations"]["time_out"]
-        assert entry["native"] == "elapsed_s >= episode_length_s"
+        assert entry["onnx"] == "mdp/policy/term/time_out.onnx"
+        assert entry["input_slots"][0]["env"] == "episode_length_buf"
         assert entry["time_out"] is True
 
     def test_no_config_path_both_blocks_emitted(
@@ -1088,7 +1087,7 @@ class TestSaveWebPolicyJson:
             name="Policy",
             policy=minimal_onnx,
             terminations={
-                "time_out": TerminationTermCfg(func=time_out, time_out=True),
+                "time_out": TerminationTermCfg(func=_fake_time_out, time_out=True),
             },
         )
         data = self._policy_json(self._run(builder, tmp_path), "Policy")
@@ -1917,13 +1916,11 @@ class TestSaveWebPolicyJson:
             name="Policy",
             policy=minimal_onnx,
             terminations={
-                "time_out": TerminationTermCfg(func=time_out, time_out=True),
+                "time_out": TerminationTermCfg(func=_fake_time_out, time_out=True),
             },
         )
         data = self._policy_json(self._run(builder, tmp_path), "Policy")
         term = data["terminations"]["time_out"]
-        # A term reading no dynamic entity state is classified native (ADR 0005).
-        assert term["native"] == "elapsed_s >= episode_length_s"
         assert term.get("time_out") is True
 
     def test_bad_orientation_params_serialized(

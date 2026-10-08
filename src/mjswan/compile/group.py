@@ -357,8 +357,7 @@ def trace_termination_group(
 ) -> TerminationGroupExport:
     """Fuse termination terms into one graph, one bool lane each.
 
-    Same mechanics as :func:`trace_observation_group`. ``time_out`` never reaches here:
-    it is classified native by name first (:func:`is_native_termination`).
+    Same mechanics as :func:`trace_observation_group`.
     """
     dynamic: dict[SlotKey, torch.Tensor] = {}
     constants: dict[SlotKey, torch.Tensor] = {}
@@ -389,10 +388,7 @@ def trace_termination_group(
             )
 
     if not dynamic:
-        raise ValueError(
-            f"Termination group {name!r} reads no time-varying state; every term "
-            "should be native (e.g. time_out)."
-        )
+        raise ValueError(f"Termination group {name!r} reads no time-varying state.")
 
     sim_rows = _narrow_inputs(dynamic, sims)
     dynamic_keys = sorted(dynamic)

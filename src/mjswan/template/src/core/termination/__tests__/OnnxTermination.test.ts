@@ -1,10 +1,10 @@
 /**
- * Termination terms under ADR 0005: traced-ONNX bodies, the native `time_out`,
+ * Termination terms under ADR 0005: traced-ONNX bodies, the legacy native `time_out`,
  * and the manager's OR-reduce with truncation split out.
  *
  * The graph's math is validated Python-side by the parity harness; what matters
- * here is the native half — bool decoding, the skip-if-in-flight async boundary,
- * holding the previous verdict rather than reporting "not done" on missing state,
+ * here is the native half: bool decoding, a verdict that is this step's rather than the
+ * last, holding the previous verdict rather than reporting "not done" on missing state,
  * and terminated-vs-truncated bookkeeping.
  */
 import { describe, expect, it, vi } from 'vitest';
@@ -44,10 +44,6 @@ class FakeSession implements OnnxSession {
   flush(): void {
     this.pending.shift()?.();
   }
-
-  get inFlightCount(): number {
-    return this.pending.length;
-  }
 }
 
 const runner = {} as unknown as PolicyRunner;
@@ -82,23 +78,6 @@ describe('OnnxTermination', () => {
     expect(term.evaluate({} as never)).toBe(false);
   });
 
-  it('does not block, and skips frames while inference is in flight', async () => {
-    const session = new FakeSession(() => Uint8Array.from([1]), true);
-    const term = new OnnxTermination(runner, FELL_OVER_CFG, {
-      session,
-      readSlot: () => new Float32Array([0, 0, 1]),
-    });
-    // First evaluate kicks inference off and returns the (not yet updated) verdict.
-    expect(term.evaluate({} as never)).toBe(false);
-    for (let i = 0; i < 10; i++) term.evaluate({} as never);
-    expect(session.calls.length).toBe(1); // 9 frames skipped, not queued
-    expect(session.inFlightCount).toBe(1);
-
-    session.flush();
-    await settle();
-    expect(term.evaluate({} as never)).toBe(true);
-  });
-
   it('holds the previous verdict when a slot is unreadable', async () => {
     const session = new FakeSession(() => Uint8Array.from([1]));
     let available = true;
@@ -120,23 +99,47 @@ describe('OnnxTermination', () => {
     expect(term.evaluate({} as never)).toBe(true);
   });
 
-  it('warns and keeps evaluating when the graph run rejects', async () => {
-    // `.finally()` re-throws, so an uncaught rejection here is an unhandled one every
-    // frame — and the verdict freezes, which for `false` is an episode that never ends.
-    const session: OnnxSession = { run: () => Promise.reject(new Error('boom')) };
+  it('warns and holds the verdict when the graph run rejects', async () => {
+    // Escaping `step()`, a rejection would stop the step loop; unreported, a verdict
+    // frozen at `false` is an episode that never ends.
+    let fail = false;
+    const session: OnnxSession = {
+      run: () =>
+        fail
+          ? Promise.reject(new Error('boom'))
+          : Promise.resolve({ done: { data: Uint8Array.from([1]), dims: [1] } }),
+    };
     const term = new OnnxTermination(runner, FELL_OVER_CFG, {
       session,
       readSlot: () => new Float32Array([0, 0, 1]),
     });
+    await term.step();
+
+    fail = true;
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
-    expect(() => term.evaluate({} as never)).not.toThrow();
-    await settle();
-
+    await expect(term.step()).resolves.toBeUndefined();
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
-    // The in-flight flag cleared, so the next frame retries rather than wedging.
-    expect(term.evaluate({} as never)).toBe(false);
+    expect(term.evaluate({} as never)).toBe(true);
+  });
+
+  it('warns and holds the verdict when a slot read throws', async () => {
+    let fail = false;
+    const term = new OnnxTermination(runner, FELL_OVER_CFG, {
+      session: new FakeSession(() => Uint8Array.from([1])),
+      readSlot: () => {
+        if (fail) throw new Error('boom');
+        return new Float32Array([0, 0, 1]);
+      },
+    });
+    await term.step();
+
+    fail = true;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await expect(term.step()).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+    expect(term.evaluate({} as never)).toBe(true);
   });
 
   it('reset() clears the verdict', async () => {
@@ -153,17 +156,18 @@ describe('OnnxTermination', () => {
 });
 
 describe('TimeOutTermination', () => {
-  it('fires once elapsed reaches the episode length', () => {
-    let elapsed = 0;
+  it('fires on the step the counter reaches ceil(episode_length_s / step_dt)', () => {
+    // Summing 0.02 five hundred times falls short of 10, so a clock would fire at 501.
+    let steps = 0;
     const term = new TimeOutTermination(
       runner,
-      { name: 'time_out', episode_length_s: 2.0 },
-      () => elapsed,
+      { name: 'time_out', episode_length_s: 10 },
+      () => steps,
+      0.02,
     );
+    steps = 499;
     expect(term.evaluate({} as never)).toBe(false);
-    elapsed = 1.9;
-    expect(term.evaluate({} as never)).toBe(false);
-    elapsed = 2.0;
+    steps = 500;
     expect(term.evaluate({} as never)).toBe(true);
   });
 
@@ -174,6 +178,7 @@ describe('TimeOutTermination', () => {
         runner,
         { name: 'time_out', episode_length_s },
         () => 1e9,
+        0.02,
       );
       expect(term.evaluate({} as never)).toBe(false);
     }
@@ -181,7 +186,8 @@ describe('TimeOutTermination', () => {
 });
 
 describe('TerminationManager', () => {
-  it('accumulates dt for the native time_out and reports truncation', () => {
+  it('counts a legacy native time_out in steps and reports truncation', async () => {
+    let steps = 2;
     const manager = new TerminationManager(
       {
         time_out: {
@@ -193,32 +199,16 @@ describe('TerminationManager', () => {
       },
       {},
       runner,
+      { episodeLength: () => steps, stepDt: 0.2 },
     );
-    expect(manager.evaluate({} as never, 0.2).done).toBe(false);
-    const result = manager.evaluate({} as never, 0.4); // elapsed 0.6 >= 0.5
+    expect((await manager.evaluate({} as never)).done).toBe(false);
+    steps = 3; // ceil(0.5 / 0.2)
+    const result = await manager.evaluate({} as never);
     expect(result.done).toBe(true);
     // A timeout is a truncation, not a failure.
     expect(result.truncated).toBe(true);
     expect(result.terminated).toBe(false);
     expect(result.reasons).toEqual(['time_out']);
-  });
-
-  it('reset() clears elapsed time', () => {
-    const manager = new TerminationManager(
-      {
-        time_out: {
-          name: 'time_out',
-          native: 'elapsed_s >= episode_length_s',
-          episode_length_s: 0.5,
-          time_out: true,
-        } as never,
-      },
-      {},
-      runner,
-    );
-    manager.evaluate({} as never, 1.0);
-    manager.reset();
-    expect(manager.evaluate({} as never, 0.1).done).toBe(false);
   });
 
   it('builds an ONNX term and reports it as a termination, not a truncation', async () => {
@@ -232,13 +222,38 @@ describe('TerminationManager', () => {
         readOnnxSlot: () => new Float32Array([0, 0, 1]),
       },
     );
-    manager.evaluate({} as never, 0.02); // kicks inference off
-    await settle();
-    const result = manager.evaluate({} as never, 0.02);
+    const result = await manager.evaluate({} as never);
     expect(result.done).toBe(true);
     expect(result.terminated).toBe(true);
     expect(result.truncated).toBe(false);
     expect(result.reasons).toEqual(['fell_over']);
+  });
+
+  it('waits for the graph, so a verdict is never a step late', async () => {
+    // A traced `time_out` read a step late would end every episode one step long.
+    const session = new FakeSession(call => Uint8Array.from([call]), true);
+    const manager = new TerminationManager(
+      { fell_over: { ...FELL_OVER_CFG } as never },
+      {},
+      runner,
+      {
+        onnxSessions: { get: () => session } as never,
+        readOnnxSlot: () => new Float32Array([0, 0, 1]),
+      },
+    );
+    let settled = false;
+    const first = manager.evaluate({} as never).then(result => {
+      settled = true;
+      return result;
+    });
+    await settle();
+    expect(settled).toBe(false);
+    session.flush();
+    expect((await first).done).toBe(false);
+
+    const second = manager.evaluate({} as never);
+    session.flush();
+    expect((await second).done).toBe(true);
   });
 
   it('warns and skips an ONNX term whose session is missing', () => {
@@ -283,11 +298,8 @@ describe('FusedTermination', () => {
     // Four terms, but the manager only ever runs one graph.
     expect(manager.size).toBe(4);
 
-    manager.evaluate({} as never, 0.02); // kicks inference
-    await settle();
-    const result = manager.evaluate({} as never, 0.02);
-    // Two evaluations, two runs — one apiece, not one per lane; unfused this would be 8.
-    expect(session.calls.length).toBe(2);
+    const result = await manager.evaluate({} as never);
+    expect(session.calls.length).toBe(1);
     expect(result.reasons).toEqual(['anchor_ori']);
     expect(result.terminated).toBe(true);
     expect(result.truncated).toBe(false);
@@ -300,9 +312,7 @@ describe('FusedTermination', () => {
       onnxSessions: { get: () => session } as never,
       readOnnxSlot: () => new Float32Array([0, 0, 0.4]),
     });
-    manager.evaluate({} as never, 0.02);
-    await settle();
-    const result = manager.evaluate({} as never, 0.02);
+    const result = await manager.evaluate({} as never);
     expect(result.reasons).toEqual(['time_out']);
     expect(result.truncated).toBe(true);
     expect(result.terminated).toBe(false);
@@ -314,9 +324,7 @@ describe('FusedTermination', () => {
       onnxSessions: { get: () => session } as never,
       readOnnxSlot: () => new Float32Array([0, 0, 0.4]),
     });
-    manager.evaluate({} as never, 0.02);
-    await settle();
-    expect(manager.evaluate({} as never, 0.02).reasons).toEqual([
+    expect((await manager.evaluate({} as never)).reasons).toEqual([
       'anchor_pos',
       'ee_body_pos',
     ]);
@@ -342,15 +350,26 @@ describe('FusedTermination', () => {
     warn.mockRestore();
   });
 
-  it('skips a frame that arrives mid-inference rather than queueing', () => {
-    const session = new FakeSession(() => Uint8Array.from([1, 0, 0, 0]), true);
+  it('warns and holds every lane when the graph run rejects', async () => {
+    let fail = false;
+    const session: OnnxSession = {
+      run: () =>
+        fail
+          ? Promise.reject(new Error('boom'))
+          : Promise.resolve({ done: { data: Uint8Array.from([1, 0, 0, 1]), dims: [4] } }),
+    };
     const group = new FusedTermination(FUSED, {
       session,
       readSlot: () => new Float32Array([0, 0, 0.4]),
     });
-    for (let i = 0; i < 10; i++) group.kick();
-    expect(session.calls.length).toBe(1);
-    expect(session.inFlightCount).toBe(1);
+    await group.step();
+
+    fail = true;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await expect(group.step()).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+    expect(FUSED.lanes.map((_, i) => group.verdict(i))).toEqual([true, false, false, true]);
   });
 
   it('reset() clears every lane', async () => {

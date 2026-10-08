@@ -1234,7 +1234,7 @@ it could reorder the observation the policy reads: a subclass's own field (PAC-M
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `func` | `Callable \| TerminationBinding` | required | The term body. `time_out` is classified native automatically, since it reads no time-varying state. |
+| `func` | `Callable \| TerminationBinding` | required | The term body. mjlab's `time_out` is traced like any other, through the browser's episode step counter. |
 | `params` | `dict` | `{}` | Forwarded at trace time. |
 | `time_out` | `bool` | `False` | Marks this as a truncation rather than a terminal failure. |
 

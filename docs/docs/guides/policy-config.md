@@ -366,13 +366,14 @@ terminations = {
 }
 ```
 
-mjlab's `time_out` is classified **native** by function, as `last_action` is: it compares
-the episode step counter the runtime owns, so there is nothing to trace. The build ships
-the task's `episode_length_s` alongside the marker, and the runtime compares it against
-episode time accumulated from `control_dt`.
+mjlab's `time_out` is traced like every other term. It reads `env.episode_length_buf`,
+which becomes an `env` input slot the browser fills from its own step counter: zeroed on
+reset and advanced once per control step before the terminations run, as mjlab's is. The
+horizon (`max_episode_length`, `ceil(episode_length_s / step_dt)` steps) is baked into
+the graph, so the episode ends on the step it ends in mjlab.
 
-Everything else is traced, and a termination that reads no simulation state fails the
-build: a constant fires every step or never. Terminations in a group fuse into one graph
+A termination that reads no simulation state fails the build: a constant fires every
+step or never. Terminations in a group fuse into one graph
 emitting a bool *lane* per term, so the manager keeps per-term reset reasons and its
 terminated-vs-truncated split. A group with a single traced term is deliberately left
 unfused — one graph out of one buys no call and costs a wire shape.

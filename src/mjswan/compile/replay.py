@@ -26,6 +26,8 @@ from .proxy import (
 from .record import _index_rows, _WriteCaptureMixin
 from .slot import (
     _COMMAND_NS,
+    _ENV_NS,
+    _ENV_SLOT_DTYPES,
     _EVENT_ENV_READS,
     _SENSOR_NS,
     _SIM_NS,
@@ -254,9 +256,20 @@ class _ReplayEnv:
         )
         self.command_manager = _ReplayCommandManager(slots, commands or {})
         self.sim = _SimStandIn(_ReplaySimData(slots))
+        self._slots = slots
         self._real_env = real_env
 
     def __getattr__(self, name: str) -> Any:
+        if name in _ENV_SLOT_DTYPES:
+            value = self._slots.get((_ENV_NS, name))
+            if value is None:
+                raise AttributeError(
+                    f"Term read env.{name} during tracing that the discovery pass "
+                    "never saw: the term's control flow is input-dependent, which is "
+                    "not traceable (ADR 0005 §Consequences).",
+                    name=name,
+                )
+            return value.to(_ENV_SLOT_DTYPES[name])
         # Forwarded, not copied, so nothing drifts from the real env.
         return _forward_env_attr(self._real_env, name, _TERM_ENV_READS)
 

@@ -44,6 +44,7 @@ def _is_dynamic_field(field_name: str) -> bool:
 #   (_COMMAND_NS, "cmd.attr")        -> env.command_manager.get_term(cmd).<attr>
 #   (_SIM_NS, field)                 -> env.sim.data.<field> == entity.data.data.<field>
 #                                       (raw; maybe narrowed to rows)
+#   (_ENV_NS, buffer)                -> env.<buffer> (an env-level counter)
 SlotKey = tuple[str, str]
 
 
@@ -58,6 +59,12 @@ TaggedKey = tuple
 _SENSOR_NS = "__sensor__"
 _COMMAND_NS = "__command__"
 _SIM_NS = "__sim__"
+_ENV_NS = "__env__"
+
+
+#: Env-level buffers served as slots, with the dtype mjlab keeps each in. The browser
+#: feeds float32 like every slot, so the graph casts back: exact below 2**24 steps.
+_ENV_SLOT_DTYPES: dict[str, torch.dtype] = {"episode_length_buf": torch.long}
 
 
 #: Per narrowed sim slot: the rows the input carries, and the field's full row count.
@@ -67,11 +74,24 @@ SimRows = dict[SlotKey, tuple[list[int], int]]
 #: Env attributes every proxy forwards from the real env: trace-time constants a term
 #: may read for shapes or rates. Anything else is served by a proxy or raises, in
 #: discovery as in replay: a read reaching the real env would bake a silent constant.
-_FORWARDED_ENV_ATTRS = ("num_envs", "device", "physics_dt", "step_dt", "cfg")
+_FORWARDED_ENV_ATTRS = (
+    "num_envs",
+    "device",
+    "physics_dt",
+    "step_dt",
+    "max_episode_length",
+    "max_episode_length_s",
+    "cfg",
+)
 
 
 #: What a value-returning term may read off ``env``, for the error that names them.
-_TERM_ENV_READS = ("env.scene[...]", "env.command_manager", "env.sim.data.<field>")
+_TERM_ENV_READS = (
+    "env.scene[...]",
+    "env.command_manager",
+    "env.sim.data.<field>",
+    "env.episode_length_buf",
+)
 #: What an event or command body may read off ``env``.
 _EVENT_ENV_READS = ("env.scene[...]", "env.scene.<attr>")
 
@@ -194,6 +214,8 @@ def _slot_input_name(key: SlotKey) -> str:
         return "command__" + re.sub(r"\W", "_", name_part)
     if namespace == _SIM_NS:
         return f"sim__{name_part}"
+    if namespace == _ENV_NS:
+        return f"env__{name_part}"
     return f"{namespace}__{name_part}"
 
 
@@ -206,6 +228,8 @@ def slot_label(key: SlotKey) -> str:
         return f"command:{name_part}"
     if namespace == _SIM_NS:
         return f"sim:{name_part}"
+    if namespace == _ENV_NS:
+        return f"env:{name_part}"
     return f"{namespace}.{name_part}"
 
 
@@ -216,11 +240,12 @@ def slot_to_json(
 ) -> dict[str, Any]:
     """Serialize one input slot for the manifest's MDP entry.
 
-    Four shapes, told apart by which keys are present: ``{"entity", "field"}``,
-    ``{"sensor"}``, ``{"command", "field"}``, or ``{"sim"}`` (a raw ``mjData`` field,
-    whole, or the ``rows`` of its element axis the graph takes, in order). All carry
-    ``input`` (the graph input name) and ``shape``: the runtime feeds a flat array and
-    cannot recover the rank without it.
+    Five shapes, told apart by which keys are present: ``{"entity", "field"}``,
+    ``{"sensor"}``, ``{"command", "field"}``, ``{"sim"}`` (a raw ``mjData`` field,
+    whole, or the ``rows`` of its element axis the graph takes, in order), or
+    ``{"env"}`` (an env-level counter the runtime keeps). All carry ``input`` (the graph
+    input name) and ``shape``: the runtime feeds a flat array and cannot recover the
+    rank without it.
     """
     namespace, name_part = key
     entry: dict[str, Any]
@@ -242,6 +267,8 @@ def slot_to_json(
         entry = {"sim": name_part, "input": _slot_input_name(key)}
         if rows is not None:
             entry["rows"] = [int(r) for r in rows]
+    elif namespace == _ENV_NS:
+        entry = {"env": name_part, "input": _slot_input_name(key)}
     else:
         entry = {
             "entity": namespace,
@@ -308,4 +335,6 @@ def read_slot(
     if namespace == _SIM_NS:
         value = _sim_tensor(getattr(env.sim.data, name_part))
         return value if rows is None else value[:, list(rows)]
+    if namespace == _ENV_NS:
+        return getattr(env, name_part)
     return getattr(env.scene[namespace].data, name_part)

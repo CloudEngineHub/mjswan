@@ -149,8 +149,9 @@ manifest's MDP entry, and the browser's slot reader serves each one from `mjMode
 ]
 ```
 
-Four slot namespaces exist: an entity `data` field (as above), a named MuJoCo sensor's
-`sensordata` window, a live command's state field, and a raw `mjData` field:
+Five slot namespaces exist: an entity `data` field (as above), a named MuJoCo sensor's
+`sensordata` window, a live command's state field, the episode step counter mjlab's
+`time_out` reads (`{"env": "episode_length_buf"}`), and a raw `mjData` field:
 
 ```json
 { "sim": "cvel", "input": "sim__cvel", "shape": [1, 17, 6], "rows": [1, 4, 7] }
@@ -202,8 +203,8 @@ called with `resample_mask = 1`.
 !!! note "Replay is approximate, not bit-for-bit"
     Traced term calls are asynchronous, and the runtime skips a call that is still
     in flight rather than blocking the frame. A skipped frame consumes one fewer draw,
-    so later draws shift — and a termination verdict arriving a frame late moves the
-    reset frame, which is control flow rather than randomness. Startup randomization is
+    so later draws shift. Terminations are the exception: the step waits for their
+    graphs, so a reset lands on the step it does in mjlab. Startup randomization is
     drawn synchronously and *is* fully reproducible; a command's resample schedule is
     drawn before the in-flight check and is timing-independent too. Inference adds
     nothing: every graph runs on the same wasm build on every machine.
@@ -211,7 +212,7 @@ called with `resample_mask = 1`.
 ## Artifact layout
 
 For an mjlab velocity task with eleven checkpoints of one run, one traced command, two
-reset events and one traced termination:
+reset events and two terminations:
 
 ```
 dist/
@@ -221,7 +222,7 @@ dist/
         ├── scene.mjz                    # the MuJoCo model
         ├── mdp/mdp_0/                   # the run's MDP, traced once for all eleven checkpoints
         │   ├── obs/actor.onnx               # fused observation group
-        │   ├── term/fell_over.onnx          # traced termination body
+        │   ├── term/terminations.onnx       # fused terminations: time_out, fell_over
         │   ├── command/twist.onnx           # traced command body (stateful)
         │   └── event/
         │       ├── reset_base.onnx

@@ -279,6 +279,8 @@ export class mjswanRuntime {
   private onnxInputDict: Record<string, ort.Tensor> | null;
   private onnxInferencing: boolean;
   private onnxTimeStep: number;
+  /** Control steps since the last reset: mjlab's `episode_length_buf`, which graphs read. */
+  private episodeLength = 0;
   private terminationManager: TerminationManager | null;
   private eventManager: EventManager | null;
   private terrainData: TerrainData | null;
@@ -374,6 +376,7 @@ export class mjswanRuntime {
         mjModel: this.mjModel,
         mjData: this.mjData,
         commandManager: this.commandManager,
+        episodeLength: this.episodeLength,
       }),
       {
         jointBias: (name) => this.jointBias.get(name) ?? 0,
@@ -1189,12 +1192,13 @@ export class mjswanRuntime {
           await this.runOnnxInference(obs);
         }
         this.executeSimulationSteps();
+        this.episodeLength += 1;
 
         // Pre-forward, as in mjlab: derived state lags by one substep, consistently.
         let autoReset = false;
         if (this.terminationManager && this.policyStateBuilder) {
           const postState = this.policyStateBuilder.build();
-          const result = this.terminationManager.evaluate(postState, target);
+          const result = await this.terminationManager.evaluate(postState);
           if (result.done) {
             autoReset = true;
             // Awaited so the writes precede the forward; caught so a failure costs a reset.
@@ -1420,7 +1424,12 @@ export class mjswanRuntime {
           config.terminations,
           { ...this.policyPlugins.terminations },
           runner,
-          { onnxSessions: this.policyGraphs, readOnnxSlot: this.readOnnxSlot }
+          {
+            onnxSessions: this.policyGraphs,
+            readOnnxSlot: this.readOnnxSlot,
+            episodeLength: () => this.episodeLength,
+            stepDt: this.timestep * this.decimation,
+          }
         );
         console.log(`[TerminationManager] ${this.terminationManager.size} termination term(s) loaded`);
       }
@@ -1773,6 +1782,9 @@ export class mjswanRuntime {
       this.onnxInputDict = this.onnxModule.initInput();
     }
     this.onnxTimeStep = 0;
+    // Here rather than last, as mjlab has it: the loop may step while a UI reset's terms
+    // are in flight, and zeroing after them would drop that step. No reset term reads it.
+    this.episodeLength = 0;
     this.lastSimState.bodies.clear();
 
     await applyResetTerms({

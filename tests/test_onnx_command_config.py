@@ -610,12 +610,13 @@ def test_a_sensor_field_left_uncomputed_replays_as_none():
 
 # ---------------------------------------------------------------------------
 # Termination fusion, whose payoff scales with the traced-term count: the locomotion and
-# manipulation tasks have 0-1, the tracking tasks three beside the native `time_out`.
+# manipulation tasks have two or three counting `time_out`, the tracking tasks four.
 # ---------------------------------------------------------------------------
 
 
 def _term_env():
-    """Two entity fields, so a group can read one, the other, or both."""
+    """Two entity fields, so a group can read one, the other, or both, and the episode
+    counter mjlab's `time_out` reads."""
 
     class _Data:
         def __init__(self):
@@ -637,7 +638,8 @@ def _term_env():
     class _Env:
         def __init__(self):
             self.scene = _Scene()
-            self.max_episode_length_s = 20.0
+            self.episode_length_buf = torch.tensor([3])
+            self.max_episode_length = 1000
 
     return _Env()
 
@@ -650,15 +652,10 @@ def _tipped(env, *, limit=0.5):
     return env.scene["robot"].data.projected_gravity_b[:, 2] > -limit
 
 
-# Named `time_out` because the serializer classifies the native rule by `func.__name__`;
-# mjlab's own reads step counters a fake env does not have.
-def time_out(env):
-    del env
-    return torch.zeros(1, dtype=torch.bool)
-
-
 def test_terminations_fuse_into_one_graph_with_one_lane_per_term(tmp_path):
     pytest.importorskip("mjlab")
+    from mjlab.envs.mdp import time_out
+
     from mjswan.build.mdp import FUSED_TERMINATION_KEY, serialize_terminations
     from mjswan.managers.termination_manager import TerminationTermCfg
 
@@ -672,23 +669,22 @@ def test_terminations_fuse_into_one_graph_with_one_lane_per_term(tmp_path):
         tmp_path,
     )
 
-    # The native marker keeps its own entry: it reads no state to fuse.
-    assert entries["time_out"]["native"] == "elapsed_s >= episode_length_s"
-    assert entries["time_out"]["episode_length_s"] == 20.0
-
+    assert list(entries) == [FUSED_TERMINATION_KEY]
     fused = entries[FUSED_TERMINATION_KEY]
     assert fused["fused"] == "term/terminations.onnx"
     assert (tmp_path / fused["fused"]).exists()
     # One lane per term in graph output order, each flagged truncation or not.
     assert [(lane["name"], lane["time_out"]) for lane in fused["lanes"]] == [
+        ("time_out", True),
         ("too_low", False),
         ("tipped", False),
     ]
-    assert fused["lanes"][0]["func"] == f"{__name__}:_too_low"
-    # Slots are the union of what the two terms read, deduplicated.
-    assert sorted(s["field"] for s in fused["input_slots"]) == [
-        "projected_gravity_b",
-        "root_link_pos_w",
+    assert fused["lanes"][1]["func"] == f"{__name__}:_too_low"
+    # Slots are the union of what the three terms read, deduplicated.
+    assert sorted(s["input"] for s in fused["input_slots"]) == [
+        "env__episode_length_buf",
+        "robot__projected_gravity_b",
+        "robot__root_link_pos_w",
     ]
 
 
@@ -746,10 +742,7 @@ def test_a_lone_traced_termination_is_not_fused(tmp_path):
     from mjswan.managers.termination_manager import TerminationTermCfg
 
     entries = serialize_terminations(
-        {
-            "time_out": TerminationTermCfg(func=time_out, time_out=True),
-            "too_low": TerminationTermCfg(func=_too_low),
-        },
+        {"too_low": TerminationTermCfg(func=_too_low)},
         _term_env(),
         tmp_path,
     )
@@ -758,27 +751,65 @@ def test_a_lone_traced_termination_is_not_fused(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# `time_out` is native by name; a termination that reads nothing fails the build.
+# `time_out` traces through the episode counter; a termination that reads nothing
+# fails the build.
 # ---------------------------------------------------------------------------
 
 
-def test_time_out_is_native_by_name_and_never_traced(tmp_path):
+def test_a_lone_time_out_is_a_graph_over_the_episode_counter(tmp_path):
+    """Cartpole's only termination: unfused, it is still one graph like any term."""
     pytest.importorskip("mjlab")
+    from mjlab.envs.mdp import time_out
+
     from mjswan.build.mdp import serialize_terminations
     from mjswan.managers.termination_manager import TerminationTermCfg
-
-    def time_out(env):
-        # mjlab's body reads `env.episode_length_buf`, which no proxy serves.
-        raise AssertionError("the native rule must not be traced")
 
     entries = serialize_terminations(
         {"time_out": TerminationTermCfg(func=time_out, time_out=True)},
         _term_env(),
         tmp_path,
     )
-    assert entries["time_out"]["native"] == "elapsed_s >= episode_length_s"
-    assert entries["time_out"]["episode_length_s"] == 20.0
-    assert entries["time_out"]["time_out"] is True
+    entry = entries["time_out"]
+    assert entry["onnx"] == "term/time_out.onnx"
+    assert entry["time_out"] is True
+    assert entry["input_slots"] == [
+        {"env": "episode_length_buf", "input": "env__episode_length_buf", "shape": [1]}
+    ]
+
+
+@pytest.mark.parametrize("fused", [False, True], ids=["lone", "fused"])
+def test_time_out_fires_on_the_step_the_counter_reaches_the_horizon(fused):
+    """Fed the float32 the browser sends, the graph compares steps as mjlab does."""
+    pytest.importorskip("mjlab")
+    onnxruntime = pytest.importorskip("onnxruntime")
+    from mjlab.envs.mdp import time_out
+
+    from mjswan.compile import trace_term
+    from mjswan.compile.group import GroupTermSpec, trace_termination_group
+    from mjswan.compile.slot import read_slot
+
+    env = _term_env()
+    if fused:
+        specs = [
+            GroupTermSpec("time_out", time_out, {}),
+            GroupTermSpec("low", _too_low, {}),
+        ]
+        export = trace_termination_group(specs, env, name="terminations")
+    else:
+        export = trace_term(time_out, {}, env, name="time_out")
+    session = onnxruntime.InferenceSession(
+        export.onnx_bytes, providers=["CPUExecutionProvider"]
+    )
+
+    for steps in (0, 999, 1000):
+        env.episode_length_buf = torch.tensor([steps])
+        feeds = {
+            name: read_slot(env, key).numpy().astype("float32")
+            for name, key in zip(export.input_names, export.input_slots)
+        }
+        verdict = bool(session.run(None, feeds)[0].reshape(-1)[0])
+        assert verdict is (steps >= 1000)
+        assert verdict is bool(time_out(env).item())
 
 
 def _constant_false(env):
@@ -822,11 +853,13 @@ def test_discovery_refuses_an_env_read_the_tracer_does_not_serve():
     from mjswan.compile.slot import UnsupportedEnvRead
     from mjswan.compile.term import trace_term
 
-    def reads_the_horizon(env):
-        return env.scene["robot"].data.root_link_pos_w[:, 2] * env.max_episode_length_s
+    def reads_the_step_count(env):
+        return env.scene["robot"].data.root_link_pos_w[:, 2] * env.common_step_counter
 
-    with pytest.raises(UnsupportedEnvRead, match="env.max_episode_length_s") as excinfo:
-        trace_term(reads_the_horizon, {}, _term_env(), name="horizon")
+    env = _term_env()
+    env.common_step_counter = 7
+    with pytest.raises(UnsupportedEnvRead, match="env.common_step_counter") as excinfo:
+        trace_term(reads_the_step_count, {}, env, name="steps")
     # An AttributeError, so a term probing with `hasattr` still gets an answer.
     assert isinstance(excinfo.value, AttributeError)
     assert "env.sim.data" in str(excinfo.value)
@@ -982,14 +1015,14 @@ class TestATermThatReadsNumEnvs:
         assert export.reference_output.shape[0] == 4
 
     def test_an_undeclared_env_attr_still_raises(self):
-        """Only num_envs/device forward; everything else must stay an error."""
+        """Only the declared constants forward; everything else must stay an error."""
         from mjswan.compile import trace_term
 
-        def reads_episode_length(env, asset_name="robot"):
-            return env.scene[asset_name].data.root_pos_w * env.max_episode_length
+        def reads_step_count(env, asset_name="robot"):
+            return env.scene[asset_name].data.root_pos_w * env.common_step_counter
 
-        with pytest.raises(AttributeError, match="max_episode_length"):
-            trace_term(reads_episode_length, {}, self._env(1), name="bad")
+        with pytest.raises(AttributeError, match="common_step_counter"):
+            trace_term(reads_step_count, {}, self._env(1), name="bad")
 
 
 def test_a_command_terms_replay_env_does_not_forward_back_into_the_term():

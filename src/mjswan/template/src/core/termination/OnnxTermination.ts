@@ -2,12 +2,9 @@
  * A termination term whose body is a traced ONNX graph; one generic class covers every
  * one, since the graph and its input slots are data in `policy.json`.
  *
- * The output is ORT's `bool` dtype — a `Uint8Array` of 0/1 — and any non-zero element
- * means done, mjlab's per-env semantics at N=1.
- *
- * **Async boundary.** `evaluate()` is sync while ORT is not, so this kicks off inference
- * and reports the last completed verdict; a frame arriving mid-flight is skipped rather
- * than queued.
+ * The output is ORT's `bool` dtype (a `Uint8Array` of 0/1), and any non-zero element
+ * means done, mjlab's per-env semantics at N=1. The manager awaits `step()` before it
+ * reads `evaluate()`.
  */
 
 import { TerminationBase, type TerminationConfig } from './TerminationBase';
@@ -30,7 +27,6 @@ export class OnnxTermination extends TerminationBase {
   private readonly onnxConfig: OnnxTerminationConfig;
   private readonly deps: OnnxTerminationDeps;
   private done = false;
-  private inFlight = false;
 
   constructor(
     runner: PolicyRunner,
@@ -43,18 +39,6 @@ export class OnnxTermination extends TerminationBase {
   }
 
   evaluate(_state: PolicyState): boolean {
-    if (!this.inFlight) {
-      this.inFlight = true;
-      // Caught for the same reason the unreadable-slot path warns: the verdict silently
-      // sticks at its last value, and for `false` that means the episode never ends.
-      void this.step()
-        .catch((error) => {
-          console.warn(`[OnnxTermination] "${this.config.name}" failed:`, error);
-        })
-        .finally(() => {
-          this.inFlight = false;
-        });
-    }
     return this.done;
   }
 
@@ -62,24 +46,30 @@ export class OnnxTermination extends TerminationBase {
     this.done = false;
   }
 
-  /** Run one graph evaluation. Exposed for tests / deterministic stepping. */
+  /**
+   * Run the graph and latch its verdict. A failure holds the previous one and warns: a
+   * verdict stuck at `false` is an episode that never ends.
+   */
   async step(): Promise<void> {
-    const { feeds, missing } = buildFeeds(this.onnxConfig.input_slots, this.deps.readSlot);
-    if (missing) {
-      // Hold the previous verdict rather than letting a termination slip through.
-      console.warn(
-        `[OnnxTermination] "${this.config.name}" could not read slot ${missing}; ` +
-          'holding the previous verdict.',
-      );
-      return;
+    try {
+      const { feeds, missing } = buildFeeds(this.onnxConfig.input_slots, this.deps.readSlot);
+      if (missing) {
+        console.warn(
+          `[OnnxTermination] "${this.config.name}" could not read slot ${missing}; ` +
+            'holding the previous verdict.',
+        );
+        return;
+      }
+      const outputs = await this.deps.session.run(feeds);
+      const first = Object.values(outputs)[0];
+      if (!first) {
+        console.warn(`[OnnxTermination] "${this.config.name}" produced no output.`);
+        return;
+      }
+      this.done = isAnyTruthy(first.data);
+    } catch (error) {
+      console.warn(`[OnnxTermination] "${this.config.name}" failed:`, error);
     }
-    const outputs = await this.deps.session.run(feeds);
-    const first = Object.values(outputs)[0];
-    if (!first) {
-      console.warn(`[OnnxTermination] "${this.config.name}" produced no output.`);
-      return;
-    }
-    this.done = isAnyTruthy(first.data);
   }
 }
 
