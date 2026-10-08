@@ -29,8 +29,6 @@ class _Leader:
 
 
 class _Manager:
-    active_terms = ["leader"]
-
     def __init__(self, leader: _Leader) -> None:
         self.leader = leader
 

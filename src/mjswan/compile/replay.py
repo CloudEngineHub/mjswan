@@ -322,9 +322,11 @@ class _EventReplayEnv:
         self.scene = _EvReplayScene(served, captures, real_env)
         self._real_env = real_env
         if commands:
+            # Only the commands the body read: a trace env's manager may not list them.
+            read = {k[1].partition(".")[0] for k in served if k[0] == _COMMAND_NS}
             manager = real_env.command_manager
             self.command_manager = _ReplayCommandManager(
-                served, {name: manager.get_term(name) for name in manager.active_terms}
+                served, {name: manager.get_term(name) for name in read}
             )
 
     def __getattr__(self, name: str) -> Any:
