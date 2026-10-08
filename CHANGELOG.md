@@ -655,6 +655,12 @@ shortcuts.
 
 ### Fixed
 
+- **An mjlab scene runs at mjlab's timestep, integrator and solver settings.** The
+  exported spec took only `MujocoCfg`'s flags, so the browser stepped at MuJoCo's
+  defaults (0.002 s, Euler, 100 iterations) whatever the task set, and a control step
+  that is not a whole number of 0.002 s steps ran at the wrong rate. mjlab's own
+  `MujocoCfg.apply` now writes the spec's `option`.
+
 - **An event term that indexes its `env_ids` traces.** The tracer called every event
   body with `env_ids=None`, which mjlab's `EventManager` passes only at startup and for
   a global-time interval; reset and interval terms get the firing envs' ids. A term

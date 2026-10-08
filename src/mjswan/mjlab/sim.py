@@ -1,11 +1,13 @@
 """mjlab's simulation options, applied to the ``MjSpec`` a scene is built from.
 
-mjlab applies the MuJoCo flags on ``SimulationCfg.mujoco`` to the compiled model; the
-browser compiles the spec itself, so the same flags are written into the spec here.
+mjlab applies ``SimulationCfg.mujoco`` (timestep, integrator, solver settings, flags) to
+the compiled model; the browser compiles the spec itself, so the same options are
+written into the spec here.
 """
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
 import mujoco
@@ -39,7 +41,12 @@ def ensure_mjlab_extensions() -> None:
         return
 
     def apply_to_spec(self: Any, spec: mujoco.MjSpec) -> None:
-        _apply_mujoco_cfg_to_option(self, spec.option)
+        apply = getattr(self, "apply", None)
+        if callable(apply):
+            # mjlab's own setter touches only `model.opt`, which `spec.option` mirrors.
+            apply(SimpleNamespace(opt=spec.option))
+        else:
+            _apply_mujoco_cfg_to_option(self, spec.option)
 
     setattr(MujocoCfg, "apply_to_spec", apply_to_spec)
 
