@@ -366,11 +366,10 @@ terminations = {
 }
 ```
 
-mjlab's `time_out` is traced like every other term. It reads `env.episode_length_buf`,
-which becomes an `env` input slot the browser fills from its own step counter: zeroed on
-reset and advanced once per control step before the terminations run, as mjlab's is. The
+mjlab's `time_out` reads `env.episode_length_buf`, which becomes an `env` input slot the
+browser fills from its own control-step counter, zeroed on reset as mjlab's is. The
 horizon (`max_episode_length`, `ceil(episode_length_s / step_dt)` steps) is baked into
-the graph, so the episode ends on the step it ends in mjlab.
+the graph, so an episode ends on the step it ends in mjlab.
 
 A termination that reads no simulation state fails the build: a constant fires every
 step or never. Terminations in a group fuse into one graph

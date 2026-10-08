@@ -1036,7 +1036,6 @@ class TestSaveWebPolicyJson:
         data = self._policy_json(self._run(builder, tmp_path), "Policy")
         assert "terminations" in data
         assert "time_out" in data["terminations"]
-        # Traced like any term, through the runtime's episode counter (ADR 0005).
         entry = data["terminations"]["time_out"]
         assert entry["onnx"] == "mdp/policy/term/time_out.onnx"
         assert entry["input_slots"][0]["env"] == "episode_length_buf"

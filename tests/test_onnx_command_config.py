@@ -609,8 +609,8 @@ def test_a_sensor_field_left_uncomputed_replays_as_none():
 
 
 # ---------------------------------------------------------------------------
-# Termination fusion, whose payoff scales with the traced-term count: the locomotion and
-# manipulation tasks have two or three counting `time_out`, the tracking tasks four.
+# Termination fusion, whose payoff scales with the traced-term count: two or three in the
+# locomotion and manipulation tasks, four in the tracking tasks.
 # ---------------------------------------------------------------------------
 
 

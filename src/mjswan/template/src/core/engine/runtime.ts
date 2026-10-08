@@ -1784,8 +1784,8 @@ export class mjswanRuntime {
       this.onnxInputDict = this.onnxModule.initInput();
     }
     this.onnxTimeStep = 0;
-    // Here rather than last, as mjlab has it: the loop may step while a UI reset's terms
-    // are in flight, and zeroing after them would drop that step. No reset term reads it.
+    // Before the reset terms, not after as in mjlab: the loop may step while a UI reset's
+    // terms run, and zeroing after them would drop that step. No reset term reads it.
     this.episodeLength = 0;
     this.lastSimState.bodies.clear();
 

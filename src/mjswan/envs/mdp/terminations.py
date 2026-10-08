@@ -1,8 +1,8 @@
 """Custom termination registry.
 
 mjswan reimplements none of mjlab's termination functions: a task's real function
-object, ``time_out`` included, is traced to ONNX at build time. This module carries only
-the ``TerminationBinding`` escape hatch, for a term that cannot be traced at all.
+object is traced to ONNX at build time. This module carries only the
+``TerminationBinding`` escape hatch, for a term that cannot be traced at all.
 """
 
 from __future__ import annotations

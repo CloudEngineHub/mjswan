@@ -279,24 +279,20 @@ shortcuts.
 
 - **mjlab's `time_out` is traced like any other termination**
   ([#130](https://github.com/ttktjmt/mjswan/issues/130)). Its body reads
-  `env.episode_length_buf`, which the tracer now serves as an `env` input slot
-  (`{"env": "episode_length_buf"}`) and the browser fills from its own step counter: zeroed
-  with the sim state on every reset, advanced once per control step before the
-  terminations run, as mjlab's is. `max_episode_length` is baked into the graph. A lone
-  `time_out` is one graph, as Cartpole's is; beside other terminations it fuses into
-  theirs. The build drops `NATIVE_TERMINATION_FUNCS` and the
-  `elapsed_s >= episode_length_s` marker, and `run_parity` compares every termination at
-  every step where it used to report them passed unchecked. A term may also read
-  `max_episode_length` and `max_episode_length_s`, so one following the episode clock (a
-  gait phase, say) traces rather than raising `UnsupportedEnvRead`. This is **document
-  format 4**, since an engine reading format 3 cannot serve the slot; the engine still
-  runs a format-3 document's marker.
+  `env.episode_length_buf`, which the tracer serves as an `env` input slot
+  (`{"env": "episode_length_buf"}`) and the browser fills from its own control-step
+  counter; `max_episode_length` is baked into the graph. A lone `time_out` is one graph;
+  beside other terminations it fuses into theirs. Documents no longer carry the
+  `elapsed_s >= episode_length_s` marker, and `run_parity` now checks every termination
+  at every step. A term may also read `max_episode_length` and `max_episode_length_s`, so
+  one following the episode clock (a gait phase, say) traces rather than raising
+  `UnsupportedEnvRead`. This is **document format 4**, since a format-3 engine cannot
+  serve the slot; the engine still runs a format-3 document's marker.
 
-  The horizon bakes in as a count of the trace env's steps, so
-  `build_single_entity_trace_env` takes `control_dt` and `episode_length_s`. Unset, its
-  episodes have no time limit and a `time_out` traced against it never fires, as before.
-  A trace env with no episode length at all fails the build instead of ending every
-  episode at its first step.
+  `build_single_entity_trace_env` takes `control_dt` and `episode_length_s`, since the
+  horizon bakes in as a count of control steps. Unset, its episodes have no time limit,
+  so a `time_out` traced against it never fires, as before. A trace env with no episode
+  length fails the build instead of ending every episode at its first step.
 
 - **The motion-tracking ghost is a Debug Viz drawing, as in mjlab.** It is the **Motion**
   switch under Debug Viz and shows only while both that switch and **Enabled** are on.
@@ -671,13 +667,11 @@ shortcuts.
 ### Fixed
 
 - **An episode times out on the step mjlab's does.** The browser summed the control `dt`
-  in floating point against `episode_length_s`, and 500 additions of 0.02 fall short of
-  10, so an episode could run a step long; it now counts steps against
+  in floating point, so an episode could run a step long; it now counts steps against
   `ceil(episode_length_s / step_dt)` as mjlab does, for a document of any format. A reset
-  from the UI or a command restarts that count, where it used to leave the clock running.
-  And a traced termination's verdict is no longer a step late: the manager read the
-  previous step's result while starting this one's, and now waits for every termination
-  graph before it decides the step.
+  from the UI or a command now restarts that count. A traced termination's verdict is no
+  longer a step late: the manager waits for every termination graph before it decides
+  the step.
 
 - **An event term that indexes its `env_ids` traces.** The tracer called every event
   body with `env_ids=None`, which mjlab's `EventManager` passes only at startup and for
