@@ -128,8 +128,8 @@ both move here. `compile/` returns bytes and records (`TermExport`, `EventExport
 `compile/` itself splits by pass and by kind: `slot.py` (what a term may read, and how
 each read is named), `proxy.py` (the stand-ins both passes share), `record.py` (the
 discovery pass), `replay.py` (the replay pass), `export.py` (classification, narrowing,
-constants, the `torch.onnx.export` call), `native.py` (terms that need no graph), and
-`term.py` / `event.py` / `command.py` / `group.py` (one trace each). The package's
+constants, the `torch.onnx.export` call), and `term.py` / `event.py` / `command.py` /
+`group.py` (one trace each). The package's
 public names are unchanged.
 
 ### 6. `source/` fetches; `mjlab/runner.py` converts

@@ -464,6 +464,15 @@ describe('createSlotReader — command state slots', () => {
     }));
     expect(read({ command: 'velocity', field: 'target_pos' })).toBeNull();
   });
+
+  it('serves `command` from any term’s getCommand, traced state or not', () => {
+    // mjlab's `get_command()`, which `generated_commands` reads.
+    const read = createSlotReader(() => ({
+      ...context(),
+      commandManager: { getTerm: () => ({ getCommand: () => [0.5, 0, 1] }) },
+    }));
+    close(read({ command: 'velocity', field: 'command' }), [0.5, 0, 1]);
+  });
 });
 
 describe('createSlotReader — sim slots', () => {

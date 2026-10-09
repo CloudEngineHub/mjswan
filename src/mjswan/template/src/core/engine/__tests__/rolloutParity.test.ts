@@ -51,7 +51,8 @@ interface Step {
   episode_length: number;
   /** mjlab's `action_manager.action` at this state. */
   last_action: number[];
-  native: Record<string, number[]>;
+  /** mjlab's `get_command(name)` at this state, for each command the group reads. */
+  commands: Record<string, number[]>;
   obs: number[];
   terminations: Record<string, boolean>;
 }
@@ -95,23 +96,17 @@ function contextFor(
   } as unknown as SlotReaderContext;
 }
 
-/** Reads one native input's fixture value for the current step. */
-function nativeReader(task: TaskFixture, step: () => Step, kind: string): () => Float32Array {
-  const entry = (task.group.native_inputs ?? []).find(native => native.native === kind);
-  return () => Float32Array.from(entry ? (step().native[entry.input] ?? []) : []);
-}
-
-/** A command term serving one fixture value, registered like any plugin term. */
-function fixtureCommandClass(read: () => Float32Array): CommandTermConstructor {
+/** A command term serving its fixture value, registered like any plugin term. */
+function fixtureCommandClass(step: () => Step): CommandTermConstructor {
   return class FixtureCommand implements CommandTerm {
     constructor(
-      _termName: string,
+      private readonly termName: string,
       _config: CommandConfigEntry,
       _context: CommandTermContext,
     ) {}
 
     getCommand(): Float32Array {
-      return read();
+      return Float32Array.from(step().commands[this.termName] ?? []);
     }
   };
 }
@@ -132,16 +127,14 @@ async function harnessFor(
   readSlot: SlotReader,
 ): Promise<PolicyRunner> {
   const commandManager = new CommandManager();
-  // Under the build's own names, through the real registry, so both `getCommand` and
+  // Under the build's own names, through the real registry, so both the slot reader and
   // `FusedObservation`'s name binding run against a real manager.
   const commands: CommandsConfig = {};
-  for (const native of task.group.native_inputs ?? []) {
-    if (native.native === 'command' && native.command_name) {
-      commands[native.command_name] = { name: 'FixtureCommand' };
-    }
+  for (const slot of task.group.input_slots ?? []) {
+    if (slot.command) commands[slot.command] = { name: 'FixtureCommand' };
   }
   commandManager.initialize(commands, {} as unknown as CommandTermContext, {
-    FixtureCommand: fixtureCommandClass(nativeReader(task, step, 'command')),
+    FixtureCommand: fixtureCommandClass(step),
   });
 
   const sessions = new Map<string, OnnxSession>([
@@ -183,11 +176,15 @@ describe.each(Object.keys(TASKS))('rollout parity vs mjlab — %s', taskId => {
   let runner: PolicyRunner;
   let terminations: TerminationManager;
 
-  // The last action through the real runner, as `runtime.ts` serves it.
+  // The last action and the commands through the real runner, as `runtime.ts` serves them.
   const readSlot: SlotReader = slot =>
-    createSlotReader(() => contextFor(task, current, () => runner.getLastActions()), {
-      jointBias: name => task.encoder_bias[name] ?? 0,
-    })(slot);
+    createSlotReader(
+      () => ({
+        ...contextFor(task, current, () => runner.getLastActions()),
+        commandManager: runner.getContext()?.commandManager,
+      }),
+      { jointBias: name => task.encoder_bias[name] ?? 0 },
+    )(slot);
 
   /** Advance to one fixture step, storing mjlab's action as the runtime does. */
   const seek = (step: Step): void => {
@@ -230,12 +227,11 @@ describe.each(Object.keys(TASKS))('rollout parity vs mjlab — %s', taskId => {
   it('keeps the inputs that make the manager wiring observable', () => {
     // Guards the harness: those two paths are only exercised by a task whose group reads
     // them, so a regenerated fixture that lost them would silently stop testing them.
-    const natives = task.group.native_inputs ?? [];
-    const command = natives.find(native => native.native === 'command');
+    const command = task.group.input_slots?.find(slot => slot.command);
     if (command) {
-      expect(command.command_name, 'a command input must name its term').toBeTruthy();
-      // Found by name in the real manager, which is what `getCommand` resolves.
-      expect(runner.getContext()?.commandManager?.termNames()).toContain(command.command_name);
+      expect(command.field).toBe('command');
+      // Found by name in the real manager, which is what the slot reader resolves.
+      expect(runner.getContext()?.commandManager?.termNames()).toContain(command.command);
     }
     const action = task.group.input_slots?.find(slot => slot.action);
     if (action) {

@@ -236,6 +236,22 @@ describe('NativeObservation', () => {
     ).toThrow(/velocty.*does not define.*twist/s);
   });
 
+  it('refuses to build a traced term whose command slot names no command term', () => {
+    expect(
+      () =>
+        new OnnxObservation(
+          fakeRunner({ commands: { twist: new Float32Array(3) } }),
+          {
+            name: 'velocity_cmd',
+            onnx: 'obs/velocity_cmd.onnx',
+            size: 3,
+            input_slots: [{ command: 'velocty', field: 'command', input: 'command__velocty_command' }],
+          },
+          { session: new FakeSession([0, 0, 0]), readSlot: () => new Float32Array(3) },
+        ),
+    ).toThrow(/velocty.*does not define.*twist/s);
+  });
+
   it('refuses to build a command term with no command_name at all', () => {
     expect(
       () =>

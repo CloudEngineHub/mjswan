@@ -296,6 +296,17 @@ shortcuts.
   **document format 5**, since a format-4 engine cannot serve the slot; the engine still
   runs an earlier document's marker.
 
+- **mjlab's `generated_commands` is traced like any other observation**
+  ([#156](https://github.com/ttktjmt/mjswan/issues/156)). It reads
+  `env.command_manager.get_command(name)`, a `{"command": name, "field": "command"}`
+  input slot the browser serves from that command's current value, so documents no
+  longer carry the `command` marker and no observation is special-cased by name. A plain
+  scene's trace env has no term for a command only the browser drives, so while tracing
+  the build gives it a zero stand-in of the width it knows (a traced command's state,
+  else its value inputs); a command of unknown width fails the build by name. The engine
+  now refuses to load an observation whose command slot names no command, as it did for
+  the marker, and serves `field: "command"` from any term's `getCommand()`.
+
 - **mjlab's `time_out` is traced like any other termination**
   ([#130](https://github.com/ttktjmt/mjswan/issues/130)). Its body reads
   `env.episode_length_buf`, which the tracer serves as an `env` input slot
@@ -832,9 +843,8 @@ shortcuts.
   (`num_envs`, `device`, `physics_dt`, `step_dt`, `cfg`) or raises `UnsupportedEnvRead`
   naming what a term may read instead. Events and commands hold the same contract, so a
   model-field randomization (`geom_friction`, `body_mass`, …) is described from its
-  config rather than run against the live model at build time. `time_out` is native by
-  function name, as `last_action` and `generated_commands` are; a termination that traces
-  to a constant fails the build, `time_out=True` or not; and a baked observation term is
+  config rather than run against the live model at build time. A termination that traces
+  to a constant fails the build, `time_out=True` or not, and a baked observation term is
   named in a `RuntimeWarning`.
 - **White robots render white.** A `<material>` that declares no `metallic` (every
   material in Menagerie and mjlab, G1's `0.7 0.7 0.7` and Microduck's included) was

@@ -114,6 +114,14 @@ function isCommandStateSource(value: unknown): value is CommandStateSource {
   );
 }
 
+function hasGetCommand(value: unknown): value is { getCommand(): ArrayLike<number> } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { getCommand?: unknown }).getCommand === 'function'
+  );
+}
+
 /**
  * Build the `SlotReader` every ONNX-backed term reads its graph inputs through.
  *
@@ -181,8 +189,11 @@ export function createSlotReader(
 
     if (slot.command) {
       const term = context.commandManager?.getTerm(slot.command);
-      if (!isCommandStateSource(term)) return null;
-      return term.getStateField(slot.field ?? '');
+      const state = isCommandStateSource(term) ? term.getStateField(slot.field ?? '') : null;
+      if (state) return state;
+      // mjlab's `get_command()`, which every term answers, traced state or not.
+      if (slot.field === 'command' && hasGetCommand(term)) return Float32Array.from(term.getCommand());
+      return null;
     }
 
     if (slot.env) {

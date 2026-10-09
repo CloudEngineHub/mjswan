@@ -11,7 +11,8 @@ from __future__ import annotations
 import contextlib
 import io
 import re
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
+from types import SimpleNamespace
 from typing import Any, Callable
 
 
@@ -77,22 +78,50 @@ class TraceCommandManager:
     A traced term may read a command the browser owns and the trace env cannot build (a
     ``UiCommand``, a native ``TrackingCommand``). Only the tensor shapes matter: the
     values bake nothing, becoming graph inputs the runtime serves from the live command.
+    *fallback* (the env's own manager) answers for the rest.
     """
 
-    def __init__(self, terms: dict[str, Any]):
+    def __init__(self, terms: dict[str, Any], fallback: Any = None):
         self._terms = dict(terms)
+        self._fallback = fallback
 
     def get_term(self, name: str) -> Any:
-        if name not in self._terms:
+        if name in self._terms:
+            return self._terms[name]
+        term = _command_term(self._fallback, name)
+        if term is None:
+            known = {*self._terms, *getattr(self._fallback, "active_terms", ())}
             raise KeyError(
-                f"Trace env has no command {name!r}; it knows "
-                f"{sorted(self._terms)}. Pass it to "
-                "`build_single_entity_trace_env(commands=...)`."
+                f"Trace env has no command {name!r}; it knows {sorted(known)}. Pass it "
+                "to `build_single_entity_trace_env(commands=...)`."
             )
-        return self._terms[name]
+        return term
 
     def get_command(self, name: str) -> Any:
         return self.get_term(name).command
+
+
+def _command_term(manager: Any, name: str) -> Any:
+    """*manager*'s term *name*, or ``None``: mjlab's ``NullCommandManager`` answers
+    ``None`` where its ``CommandManager`` raises."""
+    try:
+        return manager.get_term(name)
+    except (AttributeError, KeyError):
+        return None
+
+
+@contextlib.contextmanager
+def _swapped(obj: Any, name: str, value: Any) -> Iterator[None]:
+    had = hasattr(obj, name)
+    old = getattr(obj, name, None)
+    setattr(obj, name, value)
+    try:
+        yield
+    finally:
+        if had:
+            setattr(obj, name, old)
+        else:
+            delattr(obj, name)
 
 
 class TraceActionManager:
@@ -117,23 +146,38 @@ class TraceActionManager:
 def policy_actions(env: Any, num_actions: int) -> Iterator[None]:
     """Give *env* a :class:`TraceActionManager` of the policy's width while tracing,
     unless it has action terms of its own, as an mjlab task's env does."""
-    had = hasattr(env, "action_manager")
     real = getattr(env, "action_manager", None)
     if env is None or not num_actions or getattr(real, "total_action_dim", 0):
         yield
         return
-    env.action_manager = TraceActionManager(
+    stand_in = TraceActionManager(
         num_actions,
         num_envs=getattr(env, "num_envs", 1),
         device=getattr(env, "device", "cpu"),
     )
-    try:
+    with _swapped(env, "action_manager", stand_in):
         yield
-    finally:
-        if had:
-            env.action_manager = real
-        else:
-            del env.action_manager
+
+
+@contextlib.contextmanager
+def mdp_commands(env: Any, widths: Mapping[str, int]) -> Iterator[None]:
+    """Give *env* a zero stand-in of each width in *widths* for a command it has no term
+    for, as a plain scene's env has none for a command only the browser holds."""
+    real = getattr(env, "command_manager", None)
+    missing = {n: w for n, w in widths.items() if _command_term(real, n) is None}
+    if env is None or not missing:
+        yield
+        return
+    import torch
+
+    num_envs = getattr(env, "num_envs", 1)
+    device = getattr(env, "device", "cpu")
+    stand_ins = {
+        n: SimpleNamespace(command=torch.zeros((num_envs, w), device=device))
+        for n, w in missing.items()
+    }
+    with _swapped(env, "command_manager", TraceCommandManager(stand_ins, real)):
+        yield
 
 
 #: mjlab's play configs' episode length for "no time limit".

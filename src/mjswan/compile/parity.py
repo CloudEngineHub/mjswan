@@ -14,7 +14,6 @@ import numpy as np
 import torch
 
 from .event import _env_ids, trace_event_term
-from .native import native_observation_entry
 from .record import WriteCaptures, _EventCaptureEnv, _flatten_captures
 from .rng import DrawRecorder
 from .slot import _COMMAND_NS, read_slot, slot_label
@@ -176,24 +175,6 @@ def run_parity(
         else []
     )
     for kind, term_name, func, params in terms:
-        # Classified before tracing, as the build does: a trace env without the
-        # command fails `generated_commands`' own assert.
-        native = (
-            native_observation_entry(term_name, func, params)
-            if kind == "observation"
-            else None
-        )
-        if native is not None:
-            report.terms.append(
-                TermReport(
-                    name=term_name,
-                    kind=kind,
-                    representation="native",
-                    passed=True,
-                    note=native["native"],
-                )
-            )
-            continue
         try:
             export = trace_term(
                 func, params, env, name=term_name, reader_fields=reader_fields

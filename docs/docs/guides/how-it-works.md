@@ -179,14 +179,13 @@ The action slot is the whole vector the policy last output, after `clip_actions`
 term-scoped `last_action(action_name=...)` reads the same slot, and the graph slices that
 action term's columns out of it.
 
-mjlab's `generated_commands` is still a **native input** the orchestrator fills in, since
-a trace env may hold no term for a command the browser owns:
+mjlab's `generated_commands` reads a command slot, `{"command": "velocity", "field":
+"command"}`, served from that command's current value. A plain scene's trace env holds no
+term for a command only the browser drives, so while tracing the build gives it a zero
+stand-in of the width it knows: the command's value inputs, or a traced command's state.
 
-```json
-"native_inputs": [
-  { "name": "velocity_cmd", "native": "command", "input": "native__velocity_cmd", "command_name": "velocity", "size": 3 }
-]
-```
+Documents before format 5 carried both values as **native inputs** the orchestrator
+filled in, and the engine still reads them.
 
 ### Randomness and state
 

@@ -191,6 +191,26 @@ describe('FusedObservation', () => {
     ).toThrow(/policy\.command.*heading.*twist/s);
   });
 
+  it('refuses to build when a command input slot names no command term', () => {
+    // The slot would read nothing and freeze the vector; fail at load instead.
+    const session = new FakeSession(() => new Float32Array(6));
+    const config: FusedObservationConfig = {
+      ...CFG,
+      input_slots: [
+        ...(CFG.input_slots ?? []),
+        { command: 'heading', field: 'command', input: 'command__heading_command', shape: [1, 3] },
+      ],
+      native_inputs: [],
+    };
+    expect(
+      () =>
+        new FusedObservation(fakeRunner(), config, {
+          session,
+          readSlot: () => new Float32Array([0, 0]),
+        }),
+    ).toThrow(/policy.*heading.*twist/s);
+  });
+
   it('conforms a wrong-width graph output to the declared size', async () => {
     const session = new FakeSession(() => Float32Array.from([1, 2, 3]));
     const term = new FusedObservation(fakeRunner(), CFG, {

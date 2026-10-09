@@ -17,14 +17,14 @@ from typing import TYPE_CHECKING, Any
 from .._version import __version__
 from ..document import DOCUMENT_FORMAT
 from ..document.manifest import DEFAULT_IN_KEYS, DEFAULT_OUT_KEYS, RUNTIME_INPUT_SLOTS
-from ..mjlab.env import policy_actions
+from ..mjlab.env import mdp_commands, policy_actions
 from ..mjlab.gui import record_scene_gui
 from ..viewer import ViewerConfig
 from .asset import motion_key
 from .frontend import uses_custom_js
 from .mdp import (
+    command_widths,
     debug_vis_entry,
-    native_command_sizes,
     serialize_actions,
     serialize_command,
     serialize_events,
@@ -159,17 +159,17 @@ def mdp_entry(
     num_actions = policy["policy_num_actions"] or len(
         policy["policy_joint_names"] or ()
     )
-    # A term reading the last action needs its width, which a plain scene's env lacks.
-    with policy_actions(env, num_actions):
+    widths = command_widths(mdp.commands, entry.get("commands", {}))
+    # A plain scene's env lacks the widths a last-action or command read needs.
+    with policy_actions(env, num_actions), mdp_commands(env, widths):
         if mdp.observations:
             on_term("observations")
-            command_sizes = native_command_sizes(mdp.commands)
             # Authored groups first, never overwritten: the key names the fused graph.
             obs_config = dict(first_sidecar.get("observations") or {})
             for key, group in mdp.observations.items():
                 target_key = f"{key}_monitor" if key in obs_config else key
                 obs_config[target_key] = serialize_observation_group(
-                    group, env, scene_dir, target_key, command_sizes, scope=scope
+                    group, env, scene_dir, target_key, scope=scope
                 )
             entry["observations"] = obs_config
         elif first_sidecar.get("observations"):

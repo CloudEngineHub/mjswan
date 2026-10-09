@@ -11,6 +11,7 @@
  */
 
 import { ObservationBase, type ObservationConfig } from './ObservationBase';
+import { assertCommandTermBound } from './NativeObservation';
 import {
   applyObservationPipeline,
   conformToSize,
@@ -54,6 +55,9 @@ export class OnnxObservation extends ObservationBase<OnnxObservationConfig> {
     deps: OnnxObservationDeps,
   ) {
     super(runner, config);
+    for (const slot of config.input_slots ?? []) {
+      if (slot.command) assertCommandTermBound(runner, config.name, slot.command);
+    }
     this.deps = deps;
     this.last = new Float32Array(config.size);
   }

@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ...envs.mdp.observations import ObservationBinding
-from ...managers.command_manager import ButtonConfig, CommandTermConfig
 from . import graph
 from .binding import require_ts_src
 from .provenance import graph_meta, resolved_params, term_provenance
@@ -20,30 +18,6 @@ if TYPE_CHECKING:
 def _tensor_width(value: Any) -> int:
     """Per-env element count of a term's output (batch axis folded away)."""
     return int(value.detach().reshape(1, -1).shape[-1])
-
-
-def _native_observation_entry(
-    name: str, func: Any, params: dict[str, Any], env: Any
-) -> dict[str, Any] | None:
-    """Classify ``generated_commands`` into a native marker, else ``None`` (traced).
-
-    It reads a command the runtime already holds, so it needs no graph. Checked before
-    tracing rather than by catching the tracer's error: a scene pairing it with a
-    browser-only ``UiCommand`` fails mjlab's own assert during discovery.
-    """
-    from ...compile.native import native_observation_entry
-
-    entry = native_observation_entry(name, func, params)
-    if entry is None:
-        return None
-
-    try:
-        width = _tensor_width(func(env, **params))
-    except Exception:  # noqa: BLE001 (best-effort; runtime resolves it instead)
-        width = 0
-    if width:
-        entry["size"] = width
-    return entry
 
 
 def _apply_observation_pipeline(
@@ -106,11 +80,6 @@ def serialize_observation_term(
     params = resolved_params(term_cfg.params, env)
 
     provenance = term_provenance(func, params)
-
-    native_entry = _native_observation_entry(name, func, params, env)
-    if native_entry is not None:
-        native_entry.update(provenance)
-        return _apply_observation_pipeline(native_entry, term_cfg, group_history_length)
 
     try:
         export = trace_term(func, params, env, name=name)
@@ -177,40 +146,11 @@ def _group_is_fusable(group: ObservationGroupCfg) -> bool:
     return True
 
 
-def native_command_sizes(
-    commands: Mapping[str, CommandTermConfig] | None,
-) -> dict[str, int]:
-    """Each command's width, for a native ``generated_commands`` reading it.
-
-    A trace env built for a plain ``add_scene()`` scene has no command manager, so a
-    fused graph takes the width from the command's value-bearing UI inputs (a button
-    carries none).
-    """
-    sizes: dict[str, int] = {}
-    for name, cmd in (commands or {}).items():
-        if cmd.ui is None:
-            continue
-        width = sum(1 for inp in cmd.ui.inputs if not isinstance(inp, ButtonConfig))
-        if width:
-            sizes[name] = width
-    return sizes
-
-
-def _native_size(
-    term_cfg: ObservationTermCfg, command_sizes: dict[str, int]
-) -> int | None:
-    """Declared width for a native term, or ``None`` if it isn't native."""
-    if getattr(term_cfg.func, "__name__", None) == "generated_commands":
-        return command_sizes.get(term_cfg.params["command_name"])
-    return None
-
-
 def _fused_group_entry(
     group: ObservationGroupCfg,
     env: Any,
     out_dir: Path,
     group_name: str,
-    command_sizes: dict[str, int] | None = None,
     *,
     scope: str | None = None,
 ) -> dict[str, Any]:
@@ -224,7 +164,6 @@ def _fused_group_entry(
             params=resolved_params(term_cfg.params, env),
             clip=tuple(term_cfg.clip) if term_cfg.clip else None,
             scale=term_cfg.scale,
-            native_size=_native_size(term_cfg, command_sizes or {}),
         )
         for name, term_cfg in group.terms.items()
     ]
@@ -237,7 +176,6 @@ def _fused_group_entry(
     entry: dict[str, Any] = {
         "fused": ref,
         "input_slots": slots_json(export),
-        "native_inputs": export.native_inputs,
         # Per-term widths in concat order, for the runtime's group layout.
         "layout": [
             {
@@ -264,7 +202,6 @@ def serialize_observation_group(
     env: Any,
     out_dir: Path,
     group_name: str = "policy",
-    command_sizes: dict[str, int] | None = None,
     *,
     scope: str | None = None,
 ) -> list[dict[str, Any]] | dict[str, Any]:
@@ -273,9 +210,7 @@ def serialize_observation_group(
 
     if _group_is_fusable(group):
         try:
-            return _fused_group_entry(
-                group, env, out_dir, group_name, command_sizes, scope=scope
-            )
+            return _fused_group_entry(group, env, out_dir, group_name, scope=scope)
         except ConstantGroup:
             # Only knowable by tracing, so not a `_group_is_fusable` static check.
             pass

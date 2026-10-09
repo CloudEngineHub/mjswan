@@ -9,7 +9,7 @@ input can be narrowed to them. An event or command body reads through
 
 from __future__ import annotations
 
-from typing import Any, Collection, Sequence, cast
+from typing import Any, Callable, Collection, Sequence, cast
 
 import torch
 from torch.utils._pytree import tree_leaves, tree_map
@@ -283,6 +283,25 @@ class _RecordingSensorData:
         return value
 
 
+def _command_or_raise(fetch: Callable[[str], Any], name: str) -> Any:
+    """``fetch(name)``, raising for a command the trace env has no term for, which mjlab
+    answers with ``None`` or a bare ``KeyError``."""
+    try:
+        value = fetch(name)
+    except KeyError as exc:
+        value, cause = None, exc
+    else:
+        cause = None
+    if value is None:
+        raise ValueError(
+            f"Term read command {name!r}, which the trace env has no term for. The build "
+            "stands one in for a command whose width it knows (UI inputs, or a traced "
+            "command); for any other, give the trace env one: "
+            "`build_single_entity_trace_env(commands=...)`."
+        ) from cause
+    return value
+
+
 class _RecordingCommandManager:
     """Wraps the real ``CommandManager``, logging command-state tensor reads."""
 
@@ -297,7 +316,7 @@ class _RecordingCommandManager:
         self._commands = commands
 
     def get_term(self, name: str) -> Any:
-        real = self._real.get_term(name)
+        real = _command_or_raise(self._real.get_term, name)
         # Keep the real term so the replay pass can subclass its class.
         self._commands[name] = real
 
@@ -308,7 +327,7 @@ class _RecordingCommandManager:
         return _command_proxy(real, on_tensor)
 
     def get_command(self, name: str) -> Any:
-        value = self._real.get_command(name)
+        value = _command_or_raise(self._real.get_command, name)
         self._log.append(((_COMMAND_NS, f"{name}.command"), value))
         return value
 

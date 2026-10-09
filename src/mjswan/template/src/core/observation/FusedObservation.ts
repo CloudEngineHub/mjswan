@@ -75,6 +75,9 @@ export class FusedObservation extends ObservationBase<FusedObservationConfig> {
         assertCommandTermBound(runner, `${config.name}.${native.name}`, native.command_name);
       }
     }
+    for (const slot of config.input_slots ?? []) {
+      if (slot.command) assertCommandTermBound(runner, config.name, slot.command);
+    }
     this.deps = deps;
     this.last = new Float32Array(config.size);
   }

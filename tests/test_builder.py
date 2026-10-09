@@ -1431,7 +1431,7 @@ class TestSaveWebPolicyJson:
         out = self._run(builder, tmp_path)
         group = self._policy_json(out, "Policy")["observations"]["policy"]
         # Traced, not native: the graph takes the whole vector the runtime holds.
-        assert group["native_inputs"] == []
+        assert "native_inputs" not in group
         assert {"action": "action", "input": "action__action", "shape": [1, 4]} in (
             group["input_slots"]
         )
