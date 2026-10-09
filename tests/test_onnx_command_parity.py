@@ -43,7 +43,7 @@ pytestmark = [pytest.mark.slow, pytest.mark.mjlab]
 COMMAND_TASKS = [
     # Stateful, with an `entity_write` side effect on the cube (§3b).
     pytest.param("Mjlab-Lift-Cube-Yam", "lift_height", id="lift-cube-yam"),
-    # Heading tracking as a dynamic slot, through the override mjswan itself binds.
+    # mjlab's own body: heading tracking as a dynamic slot, draw-selected envs gated.
     pytest.param("Mjlab-Velocity-Flat-Unitree-G1", "twist", id="velocity-flat-g1"),
     pytest.param("Mjlab-Velocity-Flat-Unitree-Go1", "twist", id="velocity-flat-go1"),
 ]

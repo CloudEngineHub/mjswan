@@ -1,600 +1,483 @@
-"""Startup domain-randomization events that write `mjModel` fields (ADR 0005 §5).
+"""Event terms through the Builder: model-field randomization, write targets, and the
+native and refusal paths.
 
-Layer: L1 (pure Python — `model_field_dr_descriptor` touches neither torch nor
-onnxruntime), plus one L3 integration test behind `importorskip`.
+A model-field event (mjlab's `dr.*`) writes `env.sim.model`, so its writes become graph
+outputs and the fields it reads become slots, each naming its elements. The tests below
+run mjlab's own bodies against a tiny real model, and pin two ways to get it wrong:
 
-These events perturb the *model* rather than `mjData`, so the `entity_write` tracer
-sees nothing and there is no graph to compare against mjlab numerically. What can be
-checked is the description itself, and the two ways it has gone wrong:
-
-* **Scope.** An unresolved `SceneEntityCfg` has `geom_ids=slice(None)`, so reading
-  the raw params described *every* geom in the scene — 56 instead of Lift's 12
-  fingertip geoms. The event still "worked"; it just also roughened the floor.
-* **Defaults.** mjlab's wrappers do not share an `operation` default
-  (`geom_friction` is `abs`, `body_com_offset` `add`, `body_mass` `scale`), so a
-  single hardcoded default would describe an omitted `operation` as *replacing*
-  a body's mass with a number in [0.8, 1.2] rather than scaling by it.
+* **Scope.** An unresolved `SceneEntityCfg` has `geom_ids=slice(None)`, so tracing the
+  raw params would randomize *every* geom (Lift: 56 instead of its 12 fingertip geoms).
+* **Defaults.** mjlab's wrappers do not share an `operation` default (`geom_friction`
+  is `abs`, `body_com_offset` `add`, `body_mass` `scale`), and `abs` would replace a
+  body's mass with the range value rather than scale it.
 """
 
 from __future__ import annotations
 
+import math
 import re
 from pathlib import Path
+from types import SimpleNamespace
 
+import numpy as np
 import pytest
-
-from mjswan.build.mdp import model_field_dr_descriptor
 
 TEMPLATE = Path(__file__).resolve().parents[1] / "src" / "mjswan" / "template"
 
-# A tiny model: the world owns geom 0, the robot owns 1..5 and bodies 1..2.
-GEOM_NAMES = [
-    "world/floor",
-    "robot/torso_collision",
-    "robot/lf_tip_collision",
-    "robot/rf_tip_collision",
-    "robot/lf_pad_collision",
-    "robot/rf_pad_collision",
-]
-BODY_NAMES = ["world", "robot/torso", "robot/hand"]
-#: `mjtGeom`: a plane, a mesh, then spheres — `dr.geom_size` refuses non-primitives.
-GEOM_TYPES = [0, 7, 2, 2, 2, 2]
-ROBOT_GEOM_IDS = [1, 2, 3, 4, 5]
-ROBOT_BODY_IDS = [1, 2]
+# The world owns the floor; `robot` the rest, its names prefixed as mjlab attaches them.
+MJCF = """
+<mujoco>
+  <asset><mesh name="shell" vertex="0 0 0  0.1 0 0  0 0.1 0  0 0 0.1"/></asset>
+  <worldbody>
+    <geom name="floor" type="plane" size="5 5 0.1"/>
+    <body name="robot/torso" pos="0 0 1">
+      <freejoint name="robot/root"/>
+      <geom name="robot/torso_collision" type="box" size="0.1 0.1 0.1" mass="2"/>
+      <geom name="robot/shell_visual" type="mesh" mesh="shell" contype="0"
+            conaffinity="0" mass="0"/>
+      <body name="robot/hand" pos="0 0 -0.3">
+        <joint name="robot/wrist" type="hinge" axis="0 1 0" damping="0.5"
+               armature="0.01"/>
+        <geom name="robot/lf_tip_collision" type="sphere" size="0.05" mass="0.3"/>
+        <geom name="robot/rf_tip_collision" type="sphere" size="0.04" mass="0.2"/>
+        <body name="robot/finger" pos="0 0 -0.1">
+          <joint name="robot/knuckle" type="hinge" axis="1 0 0" damping="0.2"
+                 armature="0.02"/>
+          <geom name="robot/finger_collision" type="capsule" size="0.01 0.03"
+                mass="0.05"/>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+</mujoco>
+"""
+TIPS = ["robot/lf_tip_collision", "robot/rf_tip_collision"]
 
 
-class _Ids(list):
-    """Stands in for the int tensor `EntityIndexing` holds."""
+class _Entity:
+    """What `dr.*` and `SceneEntityCfg.resolve` read off an mjlab `Entity`: its own
+    unprefixed names, and `indexing` into the model, free joint excluded."""
 
-    def tolist(self):
-        return list(self)
+    def __init__(self, mj_model, torch):
+        import mujoco
 
-
-class _Named:
-    def __init__(self, name, type=0):
-        self.name = name
-        self.type = type
-
-
-class _MjModel:
-    """Names and a geom's type, indexed by id or by name as MuJoCo's accessor is."""
-
-    def geom(self, key):
-        index = GEOM_NAMES.index(key) if isinstance(key, str) else key
-        return _Named(GEOM_NAMES[index], GEOM_TYPES[index])
-
-    def body(self, i):
-        return _Named(BODY_NAMES[i])
-
-    def site(self, i):
-        raise AssertionError("no sites in this fixture")
-
-
-class _EntityCfg:
-    """Stands in for mjlab's `SceneEntityCfg`, unresolved until `resolve()`.
-
-    The `slice(None)` default is the point: it means "every element", which is why
-    describing an event from the raw params silently widens its scope.
-    """
-
-    def __init__(self, name, *, geom_names=(), body_names=()):
-        self.name = name
-        self.geom_names = geom_names
-        self.body_names = body_names
-        self.geom_ids = slice(None)
-        self.body_ids = slice(None)
-
-    def resolve(self, scene):
-        asset = scene[self.name]
-        for kind, names in (("geom", self.geom_names), ("body", self.body_names)):
-            if not names:
-                continue
-            owned = [
-                {"geom": GEOM_NAMES, "body": BODY_NAMES}[kind][i]
-                for i in getattr(asset.indexing, f"{kind}_ids").tolist()
+        def owned(obj, count):
+            names = [mujoco.mj_id2name(mj_model, obj, i) or "" for i in range(count)]
+            return [
+                (i, n.removeprefix("robot/")) for i, n in enumerate(names) if "/" in n
             ]
-            setattr(self, f"{kind}_ids", [owned.index(n) for n in names])
+
+        geoms = owned(mujoco.mjtObj.mjOBJ_GEOM, mj_model.ngeom)
+        bodies = owned(mujoco.mjtObj.mjOBJ_BODY, mj_model.nbody)
+        joints = [
+            (j, n)
+            for j, n in owned(mujoco.mjtObj.mjOBJ_JOINT, mj_model.njnt)
+            if mj_model.jnt_type[j] != mujoco.mjtJoint.mjJNT_FREE
+        ]
+        self.geom_names = [n for _, n in geoms]
+        self.body_names = [n for _, n in bodies]
+        self.joint_names = [n for _, n in joints]
+        self.num_geoms, self.num_bodies = len(geoms), len(bodies)
+        self.num_joints = len(joints)
+        self.is_fixed_base = False
+        self.data = SimpleNamespace()
+        ids = lambda values: torch.tensor(list(values), dtype=torch.int)  # noqa: E731
+        self.indexing = SimpleNamespace(
+            geom_ids=ids(i for i, _ in geoms),
+            body_ids=ids(i for i, _ in bodies),
+            joint_ids=ids(j for j, _ in joints),
+            joint_v_adr=ids(mj_model.jnt_dofadr[j] for j, _ in joints),
+            joint_q_adr=ids(mj_model.jnt_qposadr[j] for j, _ in joints),
+        )
+
+    def _find(self, keys, names, preserve_order):
+        from mjlab.utils.lab_api.string import resolve_matching_names
+
+        return resolve_matching_names(keys, names, preserve_order)
+
+    def find_geoms(self, keys, geom_subset=None, preserve_order=False):
+        return self._find(keys, geom_subset or self.geom_names, preserve_order)
+
+    def find_bodies(self, keys, preserve_order=False):
+        return self._find(keys, self.body_names, preserve_order)
+
+    def find_joints(self, keys, joint_subset=None, preserve_order=False):
+        return self._find(keys, joint_subset or self.joint_names, preserve_order)
 
 
-class _Env:
+class _Model:
+    """`env.sim.model` as mujoco_warp holds it: float fields per world, `(1, n, ...)`."""
+
+    def __init__(self, mj_model, torch):
+        self._mj, self._torch = mj_model, torch
+
+    def __getattr__(self, name):
+        value = np.array(getattr(self._mj, name))
+        if name == "geom_aabb":
+            value = value.reshape(-1, 2, 3)
+        tensor = self._torch.as_tensor(value)
+        if tensor.is_floating_point():
+            tensor = tensor.float()[None]
+        setattr(self, name, tensor)
+        return tensor
+
+
+class _TinyEnv:
+    num_envs = 1
+    device = "cpu"
+
     def __init__(self):
-        indexing = type(
-            "_Indexing",
-            (),
-            {"geom_ids": _Ids(ROBOT_GEOM_IDS), "body_ids": _Ids(ROBOT_BODY_IDS)},
-        )()
-        asset = type("_Asset", (), {"indexing": indexing})()
-        self.scene = {"robot": asset}
-        self.sim = type("_Sim", (), {"mj_model": _MjModel()})()
+        import mujoco
+
+        torch = pytest.importorskip("torch")
+        mj_model = mujoco.MjModel.from_xml_string(MJCF)
+        model = _Model(mj_model, torch)
+        self.scene = {"robot": _Entity(mj_model, torch)}
+        self.sim = SimpleNamespace(
+            mj_model=mj_model,
+            model=model,
+            per_world_default_fields=set(),
+            get_default_field=lambda field: torch.as_tensor(
+                np.array(getattr(mj_model, field)), dtype=getattr(model, field).dtype
+            ),
+        )
 
 
-class _TermCfg:
-    """Stands in for `EventTermCfg` (only these fields are read)."""
+def _term(func, params, mode="startup"):
+    from mjswan.managers.event_manager import EventTermCfg
 
-    interval_range_s = None
-    label = None
-
-    def __init__(self, func, params, mode="startup"):
-        self.func = func
-        self.params = params
-        self.mode = mode
+    return EventTermCfg(func=func, mode=mode, params=params)
 
 
-# mjlab's wrappers with their real signatures: the defaults are what is under test, so
-# they must be defaults here too. The bodies write nothing and never run: a model-field
-# event is described from its config before any tracing.
+def _robot(**names):
+    """An unresolved `SceneEntityCfg`, as a task config holds it."""
+    pytest.importorskip("mjlab")
+    from mjlab.managers.scene_entity_config import SceneEntityCfg
 
-
-def geom_friction(  # noqa: PLR0917 — mjlab's own arity; the signature is the fixture
-    env,
-    env_ids,
-    ranges,
-    asset_cfg=None,
-    distribution="uniform",
-    operation="abs",
-    axes=None,
-    shared_random=False,
-):
-    del env, env_ids, ranges, asset_cfg, distribution, operation, axes, shared_random
-
-
-def body_com_offset(  # noqa: PLR0917 — mjlab's own arity; the signature is the fixture
-    env,
-    env_ids,
-    ranges,
-    asset_cfg=None,
-    distribution="uniform",
-    operation="add",
-    axes=None,
-    shared_random=False,
-):
-    del env, env_ids, ranges, asset_cfg, distribution, operation, axes, shared_random
-
-
-def geom_size(  # noqa: PLR0917 — mjlab's own arity; the signature is the fixture
-    env,
-    env_ids,
-    ranges,
-    asset_cfg=None,
-    distribution="uniform",
-    operation="scale",
-    axes=None,
-    shared_random=False,
-):
-    del env, env_ids, ranges, asset_cfg, distribution, operation, axes, shared_random
-
-
-def body_mass(  # noqa: PLR0917 — mjlab's own arity; the signature is the fixture
-    env,
-    env_ids,
-    ranges,
-    asset_cfg=None,
-    distribution="uniform",
-    operation="scale",
-    axes=None,
-    shared_random=False,
-):
-    del env, env_ids, ranges, asset_cfg, distribution, operation, axes, shared_random
-
-
-# `requires_model_fields(..., recompute=RecomputeLevel.set_const)` sets this.
-body_com_offset.recompute = 3
-body_mass.recompute = 3
-geom_friction.recompute = 0
-# The bounds are model fields, not the inertial constants `mj_setConst` rebuilds.
-geom_size.recompute = 0
+    return SceneEntityCfg("robot", **names)
 
 
 def _fingertips():
-    return _EntityCfg(
-        "robot", geom_names=("robot/lf_tip_collision", "robot/rf_tip_collision")
-    )
+    return _robot(geom_names=(".*_tip_collision",))
+
+
+def _serialize(func, params, tmp_path, *, mode="startup", env=None):
+    pytest.importorskip("mjlab")
+    from mjswan.build.mdp import serialize_event
+
+    return serialize_event("dr", _term(func, params, mode), env or _TinyEnv(), tmp_path)
+
+
+def _dr():
+    pytest.importorskip("mjlab")
+    from mjlab.envs.mdp import dr
+
+    return dr
+
+
+def _rows(mj_model, slot):
+    """The model rows a slot or write target names: what the browser resolves."""
+    if slot["element"] in ("dof", "qpos"):
+        adr = mj_model.jnt_dofadr if slot["element"] == "dof" else mj_model.jnt_qposadr
+        return [
+            int(adr[mj_model.joint(name).id]) + offset
+            for name, offset in zip(slot["names"], slot["offsets"])
+        ]
+    return [getattr(mj_model, slot["element"])(name).id for name in slot["names"]]
+
+
+def _run(entry, tmp_path, rand):
+    """Run the event's graph on the compiled model's values; its outputs by name."""
+    ort = pytest.importorskip("onnxruntime")
+    mj_model = _TinyEnv().sim.mj_model
+    feeds = {"rand": np.asarray(rand, dtype=np.float32)}
+    for slot in entry["input_slots"]:
+        field = np.array(getattr(mj_model, slot["model"]), dtype=np.float32)
+        rows = field.reshape(field.shape[0], -1)[_rows(mj_model, slot)]
+        feeds[slot["input"]] = rows.reshape(slot["shape"])
+    session = ort.InferenceSession(str(tmp_path / entry["onnx"]))
+    declared = {i.name for i in session.get_inputs()}
+    names = [o.name for o in session.get_outputs()]
+    outputs = session.run(None, {k: v for k, v in feeds.items() if k in declared})
+    return {name: out.reshape(-1) for name, out in zip(names, outputs)}
+
+
+def _written(entry, tmp_path, rand, field):
+    """``{(element name, offset): value}`` the event writes into *field*."""
+    outputs = _run(entry, tmp_path, rand)
+    out = {}
+    for target in entry["write_targets"]:
+        if target.get("field") != field:
+            continue
+        values = outputs[target["outputs"][0]]
+        for (element, offset), value in zip(target["cells"], values):
+            out[(target["names"][element], offset)] = float(value)
+    return out
 
 
 class TestScope:
-    """The 56-instead-of-12 regression."""
+    """Only the elements the event's cfg names, never the world's."""
 
-    def test_a_scoped_event_describes_only_its_own_elements(self):
-        term = _TermCfg(
-            geom_friction, {"asset_cfg": _fingertips(), "ranges": (0.3, 1.5)}
+    def test_a_scoped_event_reads_and_writes_only_its_own_elements(self, tmp_path):
+        entry = _serialize(
+            _dr().geom_friction,
+            {"asset_cfg": _fingertips(), "ranges": (0.3, 1.5)},
+            tmp_path,
         )
-        descriptor = model_field_dr_descriptor(term, _Env())
-        assert descriptor["entity_names"] == [
-            "robot/lf_tip_collision",
-            "robot/rf_tip_collision",
+        (target,) = entry["write_targets"]
+        assert target["kind"] == "model"
+        assert target["names"] == TIPS
+        assert {tuple(s["names"]) for s in entry["input_slots"]} == {tuple(TIPS)}
+
+    def test_an_unscoped_cfg_means_the_whole_entity_never_the_world(self, tmp_path):
+        entry = _serialize(
+            _dr().geom_friction, {"asset_cfg": _robot(), "ranges": (0.3, 1.5)}, tmp_path
+        )
+        names = entry["write_targets"][0]["names"]
+        assert "floor" not in names
+        assert names == [
+            "robot/torso_collision",
+            "robot/shell_visual",
+            *TIPS,
+            "robot/finger_collision",
         ]
 
-    def test_it_resolves_the_cfg_itself_when_given_raw_params(self):
-        # The descriptor is public, so it cannot assume `serialize_event` resolved first.
-        term = _TermCfg(
-            geom_friction, {"asset_cfg": _fingertips(), "ranges": (0.3, 1.5)}
+    def test_a_dof_is_named_by_its_joint_and_offset(self, tmp_path):
+        # The browser compiles its own model, so ids would not survive the trip.
+        entry = _serialize(
+            _dr().joint_damping,
+            {"asset_cfg": _robot(joint_names=("knuckle",)), "ranges": (0.1, 0.2)},
+            tmp_path,
         )
-        assert len(model_field_dr_descriptor(term, _Env())["entity_names"]) == 2
-
-    def test_an_unscoped_cfg_still_means_the_whole_entity(self):
-        term = _TermCfg(
-            geom_friction, {"asset_cfg": _EntityCfg("robot"), "ranges": (0.3, 1.5)}
+        (target,) = entry["write_targets"]
+        assert (target["element"], target["names"], target["offsets"]) == (
+            "dof",
+            ["robot/knuckle"],
+            [0],
         )
-        descriptor = model_field_dr_descriptor(term, _Env())
-        # The robot's five geoms — but never the world's floor.
-        assert descriptor["entity_names"] == GEOM_NAMES[1:]
 
-    def test_names_not_ids_because_the_browser_compiles_its_own_model(self):
-        term = _TermCfg(
-            body_com_offset,
+
+class TestOperations:
+    """Each mjlab wrapper's own `operation`, as its body runs it."""
+
+    def test_an_omitted_operation_is_the_wrappers_own(self, tmp_path):
+        # `scale`, against the compiled mass: 2 kg x 1.1, never 1.1 kg.
+        entry = _serialize(
+            _dr().body_mass,
+            {"asset_cfg": _robot(body_names=("torso",)), "ranges": (0.8, 1.2)},
+            tmp_path,
+        )
+        assert any(s.get("default") for s in entry["input_slots"])
+        assert _written(entry, tmp_path, [1.1], "body_mass") == {
+            ("robot/torso", 0): pytest.approx(2.2)
+        }
+
+    def test_add_offsets_the_compiled_value(self, tmp_path):
+        entry = _serialize(
+            _dr().body_com_offset,
+            {"asset_cfg": _robot(body_names=("torso",)), "ranges": (-0.1, 0.1)},
+            tmp_path,
+        )
+        ipos = _TinyEnv().sim.mj_model.body("robot/torso").ipos
+        written = _written(entry, tmp_path, [0.01, 0.02, 0.03], "body_ipos")
+        assert written == {
+            ("robot/torso", axis): pytest.approx(ipos[axis] + delta)
+            for axis, delta in enumerate([0.01, 0.02, 0.03])
+        }
+
+    def test_abs_reads_no_default_and_writes_the_draw(self, tmp_path):
+        entry = _serialize(
+            _dr().geom_friction,
+            {"asset_cfg": _fingertips(), "ranges": (0.3, 1.5)},
+            tmp_path,
+        )
+        assert not any(s.get("default") for s in entry["input_slots"])
+        assert _written(entry, tmp_path, [0.4, 0.9], "geom_friction") == {
+            (TIPS[0], 0): pytest.approx(0.4),
+            (TIPS[1], 0): pytest.approx(0.9),
+        }
+
+    def test_only_the_targeted_axes_are_written(self, tmp_path):
+        # Lift's three friction events each own one axis, so they compose.
+        entry = _serialize(
+            _dr().geom_friction,
+            {"asset_cfg": _fingertips(), "ranges": (1e-4, 2e-2), "axes": [1]},
+            tmp_path,
+        )
+        assert [cell[1] for t in entry["write_targets"] for cell in t["cells"]] == [
+            1,
+            1,
+        ]
+
+    def test_string_keyed_ranges_resolve_by_name_pattern(self, tmp_path):
+        entry = _serialize(
+            _dr().geom_friction,
             {
-                "asset_cfg": _EntityCfg("robot", body_names=("robot/torso",)),
-                "ranges": (0.0, 0.1),
+                "asset_cfg": _fingertips(),
+                "ranges": {"lf_.*": (0.4, 0.4), "rf_.*": (0.7, 0.7)},
             },
+            tmp_path,
         )
-        descriptor = model_field_dr_descriptor(term, _Env())
-        assert descriptor["entity_names"] == ["robot/torso"]
-        assert descriptor["entity_type"] == "body"
-
-
-class TestWrapperDefaults:
-    """Each mjlab wrapper carries its own defaults; they are read, not assumed."""
-
-    def test_an_omitted_operation_comes_from_the_wrapper(self):
-        # The severe case: `abs` would replace a body's mass with the range value.
-        mass = model_field_dr_descriptor(
-            _TermCfg(
-                body_mass, {"asset_cfg": _EntityCfg("robot"), "ranges": (0.8, 1.2)}
-            ),
-            _Env(),
-        )
-        assert mass["operation"] == "scale"
-        assert (
-            model_field_dr_descriptor(
-                _TermCfg(
-                    body_com_offset,
-                    {"asset_cfg": _EntityCfg("robot"), "ranges": (0.0, 0.1)},
-                ),
-                _Env(),
-            )["operation"]
-            == "add"
-        )
-        assert (
-            model_field_dr_descriptor(
-                _TermCfg(
-                    geom_friction,
-                    {"asset_cfg": _EntityCfg("robot"), "ranges": (0.3, 1.5)},
-                ),
-                _Env(),
-            )["operation"]
-            == "abs"
-        )
-
-    def test_an_explicit_operation_wins(self):
-        descriptor = model_field_dr_descriptor(
-            _TermCfg(
-                body_mass,
-                {
-                    "asset_cfg": _EntityCfg("robot"),
-                    "ranges": (0.8, 1.2),
-                    "operation": "abs",
-                },
-            ),
-            _Env(),
-        )
-        assert descriptor["operation"] == "abs"
-
-    def test_uses_defaults_tracks_the_operation(self):
-        # `Operation.uses_defaults`: `add`/`scale` use the compiled default, `abs` overwrites.
-        def described(operation):
-            return model_field_dr_descriptor(
-                _TermCfg(
-                    geom_friction,
-                    {
-                        "asset_cfg": _EntityCfg("robot"),
-                        "ranges": (0.3, 1.5),
-                        "operation": operation,
-                    },
-                ),
-                _Env(),
-            )["uses_defaults"]
-
-        assert described("add") is True
-        assert described("scale") is True
-        assert described("abs") is False
-
-    def test_an_operation_instance_is_named_not_stringified(self):
-        # mjlab accepts an `Operation` instance as well as a string.
-        instance = type("Operation", (), {"name": "scale"})()
-        descriptor = model_field_dr_descriptor(
-            _TermCfg(
-                geom_friction,
-                {
-                    "asset_cfg": _EntityCfg("robot"),
-                    "ranges": (1.0, 2.0),
-                    "operation": instance,
-                },
-            ),
-            _Env(),
-        )
-        assert descriptor["operation"] == "scale"
-
-    def test_set_const_comes_from_the_recompute_level(self):
-        # mjlab records whether `mj_setConst` is owed on the function, so it is read.
-        assert (
-            model_field_dr_descriptor(
-                _TermCfg(
-                    body_com_offset,
-                    {"asset_cfg": _EntityCfg("robot"), "ranges": (0.0, 0.1)},
-                ),
-                _Env(),
-            )["set_const"]
-            is True
-        )
-        assert (
-            model_field_dr_descriptor(
-                _TermCfg(
-                    geom_friction,
-                    {"asset_cfg": _EntityCfg("robot"), "ranges": (0.3, 1.5)},
-                ),
-                _Env(),
-            )["set_const"]
-            is False
-        )
-
-
-class TestAxes:
-    """mjlab's `_determine_target_axes` precedence, and per-axis ranges."""
-
-    def _described(self, params, func=geom_friction):
-        params = {"asset_cfg": _EntityCfg("robot"), **params}
-        return model_field_dr_descriptor(_TermCfg(func, params), _Env())
-
-    def test_a_tuple_range_broadcasts_over_the_wrappers_default_axes(self):
-        # `geom_friction` defaults to axis 0 alone (tangential friction).
-        assert self._described({"ranges": (0.3, 1.5)})["axis_ranges"] == {0: [0.3, 1.5]}
-        # `body_com_offset` defaults to all three.
-        assert self._described({"ranges": (-0.02, 0.02)}, body_com_offset)[
-            "axis_ranges"
-        ] == {
-            0: [-0.02, 0.02],
-            1: [-0.02, 0.02],
-            2: [-0.02, 0.02],
+        assert _written(entry, tmp_path, [0.4, 0.7], "geom_friction") == {
+            (TIPS[0], 0): pytest.approx(0.4),
+            (TIPS[1], 0): pytest.approx(0.7),
         }
 
-    def test_explicit_axes_win_over_the_default(self):
-        # Lift's three friction events each name one axis, so they compose.
-        assert self._described({"ranges": (1e-4, 2e-2), "axes": [1]})[
-            "axis_ranges"
-        ] == {1: [1e-4, 2e-2]}
-
-    def test_int_keyed_ranges_target_exactly_those_axes(self):
-        # Velocity's `base_com` form.
-        described = self._described(
-            {"ranges": {0: (-0.025, 0.025), 1: (-0.025, 0.025), 2: (-0.03, 0.03)}},
-            body_com_offset,
+    def test_set_const_follows_mjlabs_recompute_level(self, tmp_path):
+        mass = _serialize(
+            _dr().body_mass,
+            {"asset_cfg": _robot(body_names=("torso",)), "ranges": (0.8, 1.2)},
+            tmp_path / "mass",
         )
-        assert described["axis_ranges"] == {
-            0: [-0.025, 0.025],
-            1: [-0.025, 0.025],
-            2: [-0.03, 0.03],
-        }
-
-    def test_axes_narrow_a_keyed_range_rather_than_widening_it(self):
-        # `_prepare_axis_ranges` drops a range for an axis nobody targets.
-        assert self._described(
-            {"ranges": {0: (0.3, 1.5), 2: (1e-5, 5e-3)}, "axes": [0]}
-        )["axis_ranges"] == {0: [0.3, 1.5]}
-
-    def test_a_target_axis_with_no_range_is_left_undescribed(self):
-        # The browser cannot draw for an unbounded axis, so it stays a native marker.
-        assert self._described({"ranges": {0: (0.3, 1.5)}, "axes": [0, 1]}) is None
-
-
-class TestNotDescribable:
-    """What must stay a native marker rather than be half-described."""
-
-    def test_a_func_that_is_not_a_known_model_field_helper(self):
-        def encoder_bias(env, env_ids, asset_cfg=None, bias_range=(0.0, 0.0)):
-            raise AssertionError("never called")
-
-        # `encoder_bias` is not an `mjModel` field: the runtime applies it from the config.
-        assert (
-            model_field_dr_descriptor(
-                _TermCfg(encoder_bias, {"asset_cfg": _EntityCfg("robot")}), _Env()
-            )
-            is None
+        friction = _serialize(
+            _dr().geom_friction,
+            {"asset_cfg": _fingertips(), "ranges": (0.3, 1.5)},
+            tmp_path / "friction",
         )
+        assert mass["set_const"] is True
+        assert "set_const" not in friction
 
-    def test_string_keyed_ranges(self):
-        # mjlab resolves these per element by name pattern; not reproduced here.
-        assert (
-            model_field_dr_descriptor(
-                _TermCfg(
-                    geom_friction,
-                    {
-                        "asset_cfg": _EntityCfg("robot"),
-                        "ranges": {".*_tip.*": (0.3, 1.5)},
-                    },
-                ),
-                _Env(),
-            )
-            is None
+    def test_the_build_leaves_the_live_model_alone(self, tmp_path):
+        env = _TinyEnv()
+        before = env.sim.model.body_mass.clone()
+        _serialize(
+            _dr().body_mass,
+            {"asset_cfg": _robot(), "ranges": (0.8, 1.2)},
+            tmp_path,
+            env=env,
         )
+        assert env.sim.model.body_mass.equal(before)
 
-    def test_a_missing_range(self):
-        assert (
-            model_field_dr_descriptor(
-                _TermCfg(geom_friction, {"asset_cfg": _EntityCfg("robot")}), _Env()
-            )
-            is None
+
+class TestDistributions:
+    """`rand` carries each sampler as the uniforms behind it; the graph maps them."""
+
+    def test_a_log_uniform_draw_rides_as_its_log(self, tmp_path):
+        entry = _serialize(
+            _dr().joint_damping,
+            {
+                "asset_cfg": _robot(joint_names=("wrist",)),
+                "ranges": (0.5, 2.0),
+                "operation": "scale",
+                "distribution": "log_uniform",
+            },
+            tmp_path,
         )
+        assert entry["rand_ranges"] == [pytest.approx([math.log(0.5), math.log(2.0)])]
+        written = _written(entry, tmp_path, [math.log(1.5)], "dof_damping")
+        assert written == {("robot/wrist", 0): pytest.approx(0.5 * 1.5)}
 
-    def test_an_entity_type_that_cannot_be_enumerated(self):
-        def dof_damping(env, env_ids, ranges, asset_cfg=None):
-            raise AssertionError("never called")
-
-        # `dof`-indexed fields address by joint dof, which is not a name table.
-        dof_damping._mjswan_dr_field = ("dof_damping", "dof", [0])
-        assert (
-            model_field_dr_descriptor(
-                _TermCfg(
-                    dof_damping,
-                    {"asset_cfg": _EntityCfg("robot"), "ranges": (0.1, 0.5)},
-                ),
-                _Env(),
-            )
-            is None
+    def test_a_gaussian_draw_rides_as_two_uniforms(self, tmp_path):
+        entry = _serialize(
+            _dr().joint_armature,
+            {
+                "asset_cfg": _robot(joint_names=("wrist",)),
+                "ranges": (1.0, 0.1),
+                "operation": "scale",
+                "distribution": "gaussian",
+            },
+            tmp_path,
         )
-
-
-def test_an_author_wrapper_opts_in_with_mjswan_dr_field():
-    """A wrapper mjswan has never heard of, declaring its own field."""
-
-    def stiffen_pads(env, env_ids, ranges, asset_cfg=None, operation="scale"):
-        raise AssertionError("never called")
-
-    stiffen_pads._mjswan_dr_field = ("geom_solref", "geom", [0, 1])
-    descriptor = model_field_dr_descriptor(
-        _TermCfg(
-            stiffen_pads, {"asset_cfg": _EntityCfg("robot"), "ranges": (0.9, 1.1)}
-        ),
-        _Env(),
-    )
-    assert descriptor["field"] == "geom_solref"
-    assert descriptor["axis_ranges"] == {0: [0.9, 1.1], 1: [0.9, 1.1]}
-    # No `recompute` attribute, so `set_const` falls back to the field list.
-    assert descriptor["set_const"] is False
-
-
-def test_the_descriptor_carries_exactly_what_the_browser_declares():
-    """Wire parity with `ModelFieldDrConfig` in `core/event/modelFieldDr.ts`.
-
-    A field added on one side only is invisible until a randomization silently does
-    nothing, so the two declarations are compared directly.
-    """
-    source = (TEMPLATE / "src" / "core" / "event" / "modelFieldDr.ts").read_text()
-    block = re.search(
-        r"export interface ModelFieldDrConfig \{(.*?)^\}", source, re.S | re.M
-    )
-    assert block is not None, "ModelFieldDrConfig is not declared where expected"
-    declared = set(re.findall(r"^\s{2}(\w+)[?]?:", block.group(1), re.M))
-
-    descriptor = model_field_dr_descriptor(
-        _TermCfg(geom_friction, {"asset_cfg": _fingertips(), "ranges": (0.3, 1.5)}),
-        _Env(),
-    )
-    # `name` and `mode` are attached by `serialize_event`, not by the descriptor.
-    assert declared == set(descriptor) | {"name"}
-
-
-def test_a_model_field_event_is_described_without_running_its_body(tmp_path):
-    """mjlab's body writes `env.sim.model`: running it would hit the live model."""
-    pytest.importorskip("mjlab")
-    from mjswan.build.mdp import serialize_event
-
-    def geom_friction(env, env_ids, ranges, asset_cfg=None, operation="abs", **_):
-        raise AssertionError("the body must not run at build time")
-
-    geom_friction.recompute = 0
-
-    entry = serialize_event(
-        "friction",
-        _TermCfg(geom_friction, {"asset_cfg": _fingertips(), "ranges": (0.3, 1.5)}),
-        _Env(),
-        tmp_path,
-    )
-    assert entry["kind"] == "model_field"
-    assert entry["field"] == "geom_friction"
-
-
-def test_an_event_reading_an_unserved_env_attribute_fails_and_names_it(tmp_path):
-    """The fake env *has* `sim`: refused by contract, not for being missing."""
-    pytest.importorskip("mjlab")
-    from mjswan.build.mdp import serialize_event
-
-    def scale_model(env, env_ids):
-        env.sim.mj_model.nq  # noqa: B018 — the read is the point
-
-    with pytest.raises(ValueError, match="could not be traced") as excinfo:
-        serialize_event(
-            "scale", _TermCfg(scale_model, {}, mode="reset"), _Env(), tmp_path
-        )
-    assert "env.sim" in str(excinfo.value)
-
-
-def test_serialize_event_emits_the_descriptor_with_its_name_and_mode(tmp_path):
-    """End to end through the path the Builder actually takes."""
-    pytest.importorskip("mjlab")
-    from mjswan.build.mdp import serialize_event
-
-    entry = serialize_event(
-        "fingertip_friction_slide",
-        _TermCfg(
-            geom_friction,
-            {"asset_cfg": _fingertips(), "ranges": (0.3, 1.5), "axes": [0]},
-        ),
-        _Env(),
-        tmp_path,
-    )
-    assert entry["name"] == "fingertip_friction_slide"
-    assert entry["mode"] == "startup"
-    assert entry["kind"] == "model_field"
-    assert entry["entity_names"] == [
-        "robot/lf_tip_collision",
-        "robot/rf_tip_collision",
-    ]
-    # No graph: the browser draws these itself from the seeded stream.
-    assert "onnx" not in entry
-    assert not list(tmp_path.rglob("*.onnx"))
+        assert entry["rand_ranges"] == [[0.0, 1.0], [0.0, 1.0]]
+        u1, u2 = 0.3, 0.6
+        z = math.sqrt(-2.0 * math.log(1.0 - u1)) * math.cos(2.0 * math.pi * u2)
+        written = _written(entry, tmp_path, [u1, u2], "dof_armature")
+        assert written == {("robot/wrist", 0): pytest.approx(0.01 * (1.0 + 0.1 * z))}
 
 
 class TestGeomSize:
-    """`dr.geom_size`: the browser owes the bounds mjlab recomputes in the same call.
+    """`dr.geom_size` recomputes the broadphase bounds in the same call."""
 
-    Geoms whose bounds do not follow from their size are refused at build time.
-    """
-
-    @staticmethod
-    def _ball(**params):
-        return _TermCfg(
-            geom_size,
-            {"asset_cfg": _fingertips(), "ranges": (0.075, 0.125), **params},
+    def test_the_bounds_follow_the_new_size(self, tmp_path):
+        entry = _serialize(
+            _dr().geom_size,
+            {"asset_cfg": _robot(geom_names=("lf_tip_collision",)), "ranges": (2, 2)},
+            tmp_path,
         )
+        assert [t["field"] for t in entry["write_targets"]] == [
+            "geom_size",
+            "geom_size",
+            "geom_size",
+            "geom_rbound",
+            "geom_aabb",
+        ]
+        rand = [2.0, 2.0, 2.0]
+        assert _written(entry, tmp_path, rand, "geom_rbound") == {
+            (TIPS[0], 0): pytest.approx(0.1)
+        }
+        # The half-size row of `(2, 3)`: cells 3..5.
+        assert _written(entry, tmp_path, rand, "geom_aabb") == {
+            (TIPS[0], offset): pytest.approx(0.1) for offset in (3, 4, 5)
+        }
 
-    def test_it_describes_the_field_and_asks_for_the_bounds(self):
-        descriptor = model_field_dr_descriptor(self._ball(), _Env())
-        assert descriptor["field"] == "geom_size"
-        assert descriptor["entity_type"] == "geom"
-        assert descriptor["recompute_bounds"] is True
-        assert descriptor["set_const"] is False
-
-    def test_all_three_axes_by_default_as_mjlab_scales_them(self):
-        descriptor = model_field_dr_descriptor(self._ball(), _Env())
-        assert descriptor["operation"] == "scale"
-        assert set(descriptor["axis_ranges"]) == {0, 1, 2}
-
-    def test_a_sphere_radius_alone_is_axis_zero(self):
-        descriptor = model_field_dr_descriptor(
-            self._ball(operation="abs", axes=[0]), _Env()
-        )
-        assert descriptor["operation"] == "abs"
-        assert descriptor["axis_ranges"] == {0: [0.075, 0.125]}
-
-    def test_a_geom_whose_bounds_do_not_follow_from_its_size_is_refused(self):
-        term = _TermCfg(
-            geom_size,
-            {
-                "asset_cfg": _EntityCfg("robot", geom_names=("robot/torso_collision",)),
-                "ranges": (0.9, 1.1),
-            },
-        )
-        with pytest.raises(ValueError, match="primitive geom types") as excinfo:
-            model_field_dr_descriptor(term, _Env())
-        assert "robot/torso_collision" in str(excinfo.value)
+    def test_a_geom_whose_bounds_do_not_follow_from_its_size_fails_the_build(
+        self, tmp_path
+    ):
+        with pytest.raises(ValueError, match="could not be traced") as excinfo:
+            _serialize(
+                _dr().geom_size,
+                {
+                    "asset_cfg": _robot(geom_names=("shell_visual",)),
+                    "ranges": (0.9, 1.1),
+                },
+                tmp_path,
+            )
         assert "MESH" in str(excinfo.value)
 
-    def test_another_field_does_not_ask_for_the_bounds(self):
-        descriptor = model_field_dr_descriptor(
-            _TermCfg(geom_friction, {"asset_cfg": _fingertips(), "ranges": (0.3, 1.5)}),
-            _Env(),
-        )
-        assert descriptor["recompute_bounds"] is False
+
+def test_an_authors_own_model_write_traces_too(tmp_path):
+    """Any body writing `env.sim.model` traces, mjlab's or not."""
+    pytest.importorskip("mjlab")
+
+    def stiffen_pads(env, env_ids, scale=1.5):
+        solref = env.sim.model.geom_solref
+        solref[0, 3] = solref[0, 3] * scale
+
+    entry = _serialize(stiffen_pads, {}, tmp_path, mode="reset")
+    assert _written(entry, tmp_path, [], "geom_solref") == {
+        (TIPS[0], 0): pytest.approx(0.02 * 1.5),
+        (TIPS[0], 1): pytest.approx(1.0 * 1.5),
+    }
+
+
+def test_an_event_reading_an_unserved_sim_attribute_fails_and_names_it(tmp_path):
+    """`env.sim` serves the model only: the rest would act on the trace env."""
+    pytest.importorskip("mjlab")
+
+    def scale_model(env, env_ids):
+        env.sim.mj_model.nq  # noqa: B018 - the read is the point
+
+    with pytest.raises(ValueError, match="could not be traced") as excinfo:
+        _serialize(scale_model, {}, tmp_path, mode="reset")
+    assert "env.sim.mj_model" in str(excinfo.value)
+
+
+def _declared(source: Path, interface: str) -> set[str]:
+    block = re.search(
+        rf"export interface {interface}(?: extends \w+)? \{{(.*?)^\}}",
+        source.read_text(),
+        re.S | re.M,
+    )
+    assert block is not None, f"{interface} is not declared where expected"
+    return set(re.findall(r"^\s{2}(\w+)[?]?:", block.group(1), re.M))
+
+
+def test_a_model_write_and_slot_carry_what_the_browser_declares(tmp_path):
+    """Wire parity with `modelWrite.ts` and `session.ts`: a key on one side only is a
+    randomization that silently does nothing."""
+    core = TEMPLATE / "src" / "core"
+    elements = _declared(core / "onnx" / "slotReader" / "model.ts", "ModelElements")
+    target_keys = _declared(core / "event" / "modelWrite.ts", "ModelWriteTarget")
+    slot_keys = _declared(core / "onnx" / "session.ts", "OnnxInputSlot") | elements
+
+    entry = _serialize(
+        _dr().joint_damping,
+        {"asset_cfg": _robot(joint_names=("wrist",)), "ranges": (0.5, 2.0)},
+        tmp_path,
+    )
+    assert set(entry["write_targets"][0]) == target_keys | elements
+    for slot in entry["input_slots"]:
+        assert set(slot) <= slot_keys
 
 
 class TestManualEvents:
@@ -698,19 +581,17 @@ class TestManualEvents:
             serialize_event(
                 "throw",
                 EventTermCfg(func=throw, mode="manual", interval_range_s=(1.0, 4.0)),
-                _Env(),
+                None,
                 tmp_path,
             )
         assert "interval" in str(excinfo.value)
 
 
 class TestAnUntraceableEventFailsTheBuild:
-    """What happens when a term traces to nothing and is not a model-field DR.
+    """What happens when a term traces to nothing.
 
-    This used to be emitted as ``{"native": True, "reason": ...}``, which the runtime
-    skips silently — so a reset randomization the task is configured to apply just did
-    not happen, and nothing said so. Only the cases below, where there is provably
-    nothing to write, stay native; anything else fails the build.
+    The runtime skips a native event silently, so only the cases below, where there is
+    provably nothing to write, stay native; anything else fails the build.
     """
 
     @staticmethod
@@ -718,7 +599,7 @@ class TestAnUntraceableEventFailsTheBuild:
         pytest.importorskip("mjlab")
         from mjswan.build.mdp import serialize_event
 
-        return serialize_event("ev", term_cfg, env or _Env(), tmp_path)
+        return serialize_event("ev", term_cfg, env or _TinyEnv(), tmp_path)
 
     def test_an_unexplained_no_write_raises_and_names_both_escape_hatches(
         self, tmp_path
@@ -727,14 +608,14 @@ class TestAnUntraceableEventFailsTheBuild:
             return None
 
         with pytest.raises(ValueError, match="register_event") as excinfo:
-            self._serialize(_TermCfg(push_robot, {}, mode="interval"), tmp_path)
+            self._serialize(_term(push_robot, {}, mode="interval"), tmp_path)
         assert "ts_src" in str(excinfo.value)
 
     def test_randomize_terrain_stays_native_with_its_reason(self, tmp_path):
         def randomize_terrain(env, env_ids):
             return None
 
-        entry = self._serialize(_TermCfg(randomize_terrain, {}, mode="reset"), tmp_path)
+        entry = self._serialize(_term(randomize_terrain, {}, mode="reset"), tmp_path)
         assert entry["native"] is True
         assert "one baked terrain" in entry["reason"]
 
@@ -743,7 +624,7 @@ class TestAnUntraceableEventFailsTheBuild:
             return None
 
         entry = self._serialize(
-            _TermCfg(encoder_bias, {"bias_range": (-0.01, 0.01)}, mode="reset"),
+            _term(encoder_bias, {"bias_range": (-0.01, 0.01)}, mode="reset"),
             tmp_path,
         )
         assert entry["native"] is True
@@ -757,10 +638,10 @@ class TestAnUntraceableEventFailsTheBuild:
         ):
             return None
 
-        env = _Env()
+        env = _TinyEnv()
         env.scene["robot"].is_fixed_base = True
         entry = self._serialize(
-            _TermCfg(
+            _term(
                 reset_root_state_uniform,
                 {"asset_cfg": _fingertips(), "pose_range": {}, "velocity_range": {}},
                 mode="reset",
@@ -781,7 +662,7 @@ class TestAnUntraceableEventFailsTheBuild:
 
         with pytest.raises(ValueError, match="could not be traced"):
             self._serialize(
-                _TermCfg(
+                _term(
                     reset_root_state_uniform,
                     {"asset_cfg": _fingertips(), "pose_range": {}},
                     mode="reset",
@@ -1044,7 +925,7 @@ class TestWriteTargetEntity:
         torch = pytest.importorskip("torch")
 
         def spin(env, env_ids):
-            env.scene["robot"].write_root_link_velocity_b_to_sim(torch.zeros(1, 6))
+            env.scene["robot"].write_root_com_velocity_to_sim(torch.zeros(1, 6))
 
         with pytest.raises(ValueError, match="does not capture"):
             self._trace(spin, {})

@@ -980,7 +980,7 @@ mjswan.register_command(mjlab_name: str, spec: CommandBinding) -> None
 
 Register an adapter from a custom mjlab `*CommandCfg` class to a browser-side command term. `mjlab_name` should typically be the mjlab config class name (e.g. `"LiftingCommandCfg"`).
 
-mjswan binds two of mjlab's command classes itself: `UniformVelocityCommandCfg`, traced through a rewrite of its body and drawn with mjlab's arrows, and `MotionCommandCfg`, native, with its reset jitter traced. A class only one task uses is that task's to register: `examples/demo/main.py` registers `LiftingCommandCfg` with a `trace_override` and a `viz`.
+mjswan binds two of mjlab's command classes itself: `UniformVelocityCommandCfg`, traced from its own body and drawn with mjlab's arrows, and `MotionCommandCfg`, native, with its reset jitter traced. A class only one task uses is that task's to register: `examples/demo/main.py` registers `LiftingCommandCfg` with a `trace_override` and a `viz`.
 
 ---
 
@@ -1005,9 +1005,9 @@ Three event terms are exempt, because there is provably nothing for the browser 
 `randomize_terrain` (one baked terrain, one origin), `encoder_bias` (the runtime applies it
 from the policy config), and a root-state write onto a **fixed-base** entity (which cannot
 move in mjlab either — mjlab's manipulation tasks configure `reset_base` on their arms
-regardless). Startup randomization that perturbs `mjModel` rather than `mjData` — geom
-friction, body COM, geom colors — needs no graph either: the build emits a descriptor and
-the browser applies it once from the seeded PRNG.
+regardless). Randomization that perturbs `mjModel` rather than `mjData` (geom friction,
+body COM, geom colors) traces like any other event: its `env.sim.model` writes become
+graph outputs the browser writes into its own model.
 
 See [How the Build Works](../guides/how-it-works.md#a-term-cannot-be-traced) for the
 decision procedure.

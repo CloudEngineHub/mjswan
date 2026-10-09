@@ -169,12 +169,12 @@ export class OnnxCommand implements CommandTerm {
     this.pendingResample = false;
     // Never interleaved with a step already running: both read and rewrite `state`.
     await this.inFlight?.catch(() => {});
-    await this.run(true);
+    await this.run(true, true);
   }
 
   /** One `step`, tracked so `update` can skip it and `reset` can wait for it. */
-  private run(resample: boolean): Promise<void> {
-    const pending = this.step(resample).finally(() => {
+  private run(resample: boolean, reset = false): Promise<void> {
+    const pending = this.step(resample, reset).finally(() => {
       if (this.inFlight === pending) this.inFlight = null;
     });
     this.inFlight = pending;
@@ -224,13 +224,18 @@ export class OnnxCommand implements CommandTerm {
     return true;
   }
 
-  /** Run one graph evaluation. Exposed for tests//deterministic stepping. */
-  async step(resample: boolean): Promise<void> {
+  /**
+   * Run one graph evaluation. `reset` marks an episode reset, fed as `reset_mask`, which
+   * a graph declares only when its term adds to mjlab's `reset`. Exposed for tests and
+   * deterministic stepping.
+   */
+  async step(resample: boolean, reset = false): Promise<void> {
     const { feeds } = buildFeeds(this.cfg.input_slots, this.deps.readSlot);
     for (const spec of this.cfg.state_fields) {
       feeds[`prev_${spec.name}`] = this.state.get(spec.name)!;
     }
     feeds.resample_mask = { data: new Uint8Array([resample ? 1 : 0]), dims: [1] };
+    feeds.reset_mask = { data: new Uint8Array([reset ? 1 : 0]), dims: [1] };
     feeds.rand = {
       data: this.deps.rng.randVector(this.cfg.rand_dim, this.cfg.rand_ranges),
       dims: [this.cfg.rand_dim],

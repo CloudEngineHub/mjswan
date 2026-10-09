@@ -1,6 +1,7 @@
 /**
- * Startup domain randomization that perturbs `mjModel` rather than `mjData`: no graph
- * needed, just draw, combine with the base, and write back once from the seeded PRNG.
+ * The `kind: "model_field"` descriptor a document before format 5 carries for a startup
+ * model-field randomization; later builds trace the body (`modelWrite.ts`). Draws from
+ * the seeded PRNG, combines with the base, and writes back once.
  *
  * As mjlab's `_randomize_model_field` does, `add`/`scale` combine against the *compiled
  * default* so events on one axis do not accumulate, only targeted axes are written so
@@ -9,6 +10,7 @@
  */
 
 import type { SeededRng } from '../rng';
+import type { ModelFieldDefaults } from './modelWrite';
 
 type MjModel = import('mujoco').MjModel;
 type MjData = import('mujoco').MjData;
@@ -44,48 +46,6 @@ const GEOM_CAPSULE = 3;
 const GEOM_ELLIPSOID = 4;
 const GEOM_CYLINDER = 5;
 const GEOM_BOX = 6;
-
-/**
- * The compiled field values, snapshotted on first touch, so a second `add`/`scale` event
- * on one axis offsets the compiled value rather than the first event's output.
- *
- * One per model, not per pass (ADR 0006 §9): an MDP switch re-runs `mode="startup"`
- * randomization, which must start from the compiled values rather than from what the
- * previous MDP left behind, so `restore()` puts every touched field back first.
- */
-export class ModelFieldDefaults {
-  private readonly snapshots = new Map<string, Float64Array>();
-
-  constructor(private readonly mjModel: MjModel) {}
-
-  /** The field as compiled. Snapshots it if this is the first read. */
-  base(field: string): ArrayLike<number> | undefined {
-    const cached = this.snapshots.get(field);
-    if (cached) return cached;
-    const live = (this.mjModel as unknown as Record<string, ArrayLike<number> | undefined>)[
-      field
-    ];
-    if (!live) return undefined;
-    const copy = Float64Array.from(live as ArrayLike<number>);
-    this.snapshots.set(field, copy);
-    return copy;
-  }
-
-  /**
-   * Write every snapshotted field back to its compiled value; false when there was
-   * nothing to write. A true return leaves the caller owing an `mj_setConst`.
-   */
-  restore(): boolean {
-    if (this.snapshots.size === 0) return false;
-    const model = this.mjModel as unknown as Record<string, { [index: number]: number } | undefined>;
-    for (const [field, compiled] of this.snapshots) {
-      const live = model[field];
-      if (!live) continue;
-      for (let i = 0; i < compiled.length; i++) live[i] = compiled[i];
-    }
-    return true;
-  }
-}
 
 /** Whether an event config is a model-field randomization rather than a graph. */
 export function isModelFieldDrConfig(config: unknown): config is ModelFieldDrConfig {

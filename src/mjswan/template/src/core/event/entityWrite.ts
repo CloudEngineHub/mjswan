@@ -8,7 +8,7 @@
 type MjModel = import('mujoco').MjModel;
 type MjData = import('mujoco').MjData;
 
-export type WriteKind = 'joint_state' | 'root_pose' | 'root_velocity';
+export type WriteKind = 'joint_state' | 'root_pose' | 'root_velocity' | 'root_velocity_b';
 
 export interface WriteTarget {
   kind: WriteKind;
@@ -21,6 +21,8 @@ export interface WriteTarget {
   outputs?: string[];
   /** Resolved joint indices for `joint_state`; `"all"` (or absent) means every joint. */
   joint_ids?: number[] | 'all' | null;
+  /** Graph output gating the write: it lands only when the term wrote to this env. */
+  gate?: string;
 }
 
 /** Graph outputs, keyed as `WriteTarget.outputs` names them. */
@@ -110,6 +112,7 @@ export function applyEntityWrite(
   target: WriteTarget,
   values: WriteValues,
 ): boolean {
+  if (target.gate !== undefined && !((values[target.gate]?.[0] ?? 0) > 0.5)) return false;
   switch (target.kind) {
     case 'joint_state':
       return writeJointState(mjModel, mjData, target, values);
@@ -117,6 +120,13 @@ export function applyEntityWrite(
       return writeRootPose(mjModel, mjData, target, writtenValue(target, values, 'pose'));
     case 'root_velocity':
       return writeRootVelocity(
+        mjModel,
+        mjData,
+        target,
+        writtenValue(target, values, 'velocity'),
+      );
+    case 'root_velocity_b':
+      return writeRootVelocityB(
         mjModel,
         mjData,
         target,
@@ -195,11 +205,21 @@ function rotateByQuatInverse(
   v: ArrayLike<number>,
   vAdr: number,
 ): [number, number, number] {
-  // Conjugate, so the rotation runs world -> body.
+  return rotateByQuat(q, qAdr, v, vAdr, -1);
+}
+
+/** Rotate `v` by the (w, x, y, z) quaternion `q`, or by its conjugate for `sign` -1. */
+function rotateByQuat(
+  q: ArrayLike<number>,
+  qAdr: number,
+  v: ArrayLike<number>,
+  vAdr: number,
+  sign = 1,
+): [number, number, number] {
   const w = q[qAdr];
-  const x = -q[qAdr + 1];
-  const y = -q[qAdr + 2];
-  const z = -q[qAdr + 3];
+  const x = sign * q[qAdr + 1];
+  const y = sign * q[qAdr + 2];
+  const z = sign * q[qAdr + 3];
   const vx = v[vAdr];
   const vy = v[vAdr + 1];
   const vz = v[vAdr + 2];
@@ -231,5 +251,26 @@ function writeRootVelocity(
   const adr = mjModel.jnt_dofadr[j];
   for (let i = 0; i < 3; i++) mjData.qvel[adr + i] = velocity[i];
   for (let i = 0; i < 3; i++) mjData.qvel[adr + 3 + i] = angB[i];
+  return true;
+}
+
+/**
+ * mjlab's `write_root_velocity_b`: both halves in the root's body frame, so the linear
+ * one is rotated into the world by the qpos quaternion and the angular one is what qvel
+ * holds already.
+ */
+function writeRootVelocityB(
+  mjModel: MjModel,
+  mjData: MjData,
+  target: WriteTarget,
+  velocity: WriteValues[string] | undefined,
+): boolean {
+  if (!velocity || velocity.length < 6) return false;
+  const j = findEntityFreeJoint(mjModel, target.entity);
+  if (j < 0) return false;
+  const linW = rotateByQuat(mjData.qpos, mjModel.jnt_qposadr[j] + 3, velocity, 0);
+  const adr = mjModel.jnt_dofadr[j];
+  for (let i = 0; i < 3; i++) mjData.qvel[adr + i] = linW[i];
+  for (let i = 0; i < 3; i++) mjData.qvel[adr + 3 + i] = velocity[3 + i];
   return true;
 }

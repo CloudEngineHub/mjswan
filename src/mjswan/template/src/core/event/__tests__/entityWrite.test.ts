@@ -233,6 +233,32 @@ describe('applyEntityWrite: root pose / velocity', () => {
     expect(Array.from(data.qvel.slice(3, 6))).toEqual([0, -2, 0].map(v => expect.closeTo(v, 6)));
   });
 
+  it('rotates a body-frame write\'s linear half into the world, as mjlab does', () => {
+    // `write_root_velocity_b`: qvel already holds body-frame angular velocity.
+    const model = fakeModel(1);
+    const data = fakeData(model);
+    const h = Math.SQRT1_2;
+    data.qpos.set([0, 0, 0, h, 0, 0, h], 0);
+    applyEntityWrite(model, data, { kind: 'root_velocity_b', fields: ['velocity'] }, {
+      root_velocity_b__velocity: new Float32Array([1, 0, 0, 0, 0, 3]),
+    });
+    // Body +x is world +y under a 90-degree yaw.
+    expect(Array.from(data.qvel.slice(0, 3))).toEqual([0, 1, 0].map(v => expect.closeTo(v, 6)));
+    expect(Array.from(data.qvel.slice(3, 6))).toEqual([0, 0, 3].map(v => expect.closeTo(v, 6)));
+  });
+
+  it('skips a gated write whose gate is not set', () => {
+    // A write to the envs a draw selected: the gate says whether this env was one.
+    const model = fakeModel(1);
+    const data = fakeData(model);
+    const target = { kind: 'root_velocity_b' as const, fields: ['velocity'], gate: 'gate' };
+    const velocity = new Float32Array([1, 0, 0, 0, 0, 0]);
+    expect(applyEntityWrite(model, data, target, { root_velocity_b__velocity: velocity, gate: [0] })).toBe(false);
+    expect(Array.from(data.qvel.slice(0, 6))).toEqual([0, 0, 0, 0, 0, 0]);
+    expect(applyEntityWrite(model, data, target, { root_velocity_b__velocity: velocity, gate: [1] })).toBe(true);
+    expect(data.qvel[0]).toBeCloseTo(1, 6);
+  });
+
   it('reads the orientation a pose written first left behind', () => {
     // `write_root_state_to_sim` splits into pose then velocity, and mjlab reads the
     // quaternion out of qpos — so the new pose is the frame, not the old one.

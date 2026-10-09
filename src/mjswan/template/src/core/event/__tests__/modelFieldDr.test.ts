@@ -10,12 +10,8 @@
  */
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  applyModelFieldDr,
-  isModelFieldDrConfig,
-  ModelFieldDefaults,
-  type ModelFieldDrConfig,
-} from '../modelFieldDr';
+import { applyModelFieldDr, isModelFieldDrConfig, type ModelFieldDrConfig } from '../modelFieldDr';
+import { ModelFieldDefaults } from '../modelWrite';
 import { SeededRng } from '../../rng';
 
 type MainModule = import('mujoco').MainModule;

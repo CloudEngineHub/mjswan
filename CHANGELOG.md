@@ -235,9 +235,8 @@ shortcuts.
 - **`UniformVelocityCommandCfg` binds to a traced command term in mjswan itself**, so a
   task built on mjlab's locomotion commands migrates with no registration of its own;
   `add_scene_mjlab` picks it up from `env_cfg` like any other term. The binding used to
-  live in `examples/mjlab/defaults/commands`, out of reach of other projects. The
-  trace-friendly rewrite lives in `mjswan.envs.mdp.commands`; `velocity_command()` stays
-  for a manual control panel on a scene with no mjlab task.
+  live in `examples/mjlab/defaults/commands`, out of reach of other projects.
+  `velocity_command()` stays for a manual control panel on a scene with no mjlab task.
 - `Builder.add_project_mjlab(task_id, ...)`, the instance-method counterpart to the
   `Builder.from_mjlab` classmethod, for adding an mjlab task to a builder that already
   has other projects. `from_mjlab` now delegates to it.
@@ -282,6 +281,60 @@ shortcuts.
 - The `mjlab-to-mjswan` agent skill ([skills/mjlab-to-mjswan/](skills/mjlab-to-mjswan/)), published from this repo as the `mjswan` Claude Code plugin (`/mjswan:mjlab-to-mjswan`): it ports one mjlab task from any repo into a browser app.
 
 ### Changed
+
+- **mjlab's `last_action` is traced like any other observation**
+  ([#155](https://github.com/ttktjmt/mjswan/issues/155)). Its body reads
+  `env.action_manager.action`, which the tracer serves as an `action` input slot
+  (`{"action": "action"}`) and the browser fills from the policy's last output (after
+  `clip_actions`, zeroed on reset). `last_action(action_name=...)` reads the same slot and
+  slices its term's columns out in the graph. Documents no longer carry the `prev_action`
+  marker, and `run_parity` now checks the term at every step. Any term reading the action
+  vector or a term's `raw_action` traces rather than raising `UnsupportedEnvRead`. A plain
+  scene's trace env has no action terms, so while tracing the build gives it a stand-in of
+  the policy's width (`policy_num_actions`, else `policy_joint_names`). This is
+  **document format 5**, since a format-4 engine cannot serve the slot; the engine still
+  runs an earlier document's marker.
+
+- **mjlab's `generated_commands` is traced like any other observation**
+  ([#156](https://github.com/ttktjmt/mjswan/issues/156)). It reads
+  `env.command_manager.get_command(name)`, a `{"command": name, "field": "command"}`
+  input slot the browser serves from that command's current value, so documents no
+  longer carry the `command` marker and no observation is special-cased by name. A plain
+  scene's trace env has no term for a command only the browser drives, so while tracing
+  the build gives it a zero stand-in of the width it knows (a traced command's state,
+  else its value inputs); a command of unknown width fails the build by name. The engine
+  now refuses to load an observation whose command slot names no command, as it did for
+  the marker, and serves `field: "command"` from any term's `getCommand()`.
+
+- **mjlab's model-field randomization is traced like any other event**
+  ([#157](https://github.com/ttktjmt/mjswan/issues/157)). A `dr.*` body, or an author's
+  own, that writes `env.sim.model` runs against a copy of the model at build time. Each
+  field it reads becomes a `model` input slot naming its elements
+  (`{"model": "geom_friction", "element": "geom", "names": [...]}`, with
+  `"default": true` for `get_default_field`), and each write a `kind: "model"` write
+  target. The graph carries mjlab's own sampling and arithmetic: every `operation`,
+  axis selection, `shared_random`, name-pattern `ranges`, `log_uniform` and `gaussian`
+  draws, and `geom_size`'s bounds recompute. The browser records the compiled values
+  before writing, so an MDP switch still restores them, and runs `mj_setConst` (keeping
+  `qpos`) when the event carries `set_const`. A model write now works in any mode, not
+  only `startup`, and `run_parity` checks it against mjlab draw for draw. Documents no
+  longer carry the `model_field` descriptor; the engine still applies an earlier
+  document's. Document format 5.
+
+- **mjlab's `UniformVelocityCommand` is traced as mjlab wrote it**
+  ([#158](https://github.com/ttktjmt/mjswan/issues/158)); mjswan's rewrite of its body
+  (`bind_velocity_override`) is gone. The tracer now follows in-place draws
+  (`Tensor.uniform_`, `Tensor.normal_`) and env sets a draw selects (`env_ids[mask]`,
+  `mask.nonzero()`), and the build refuses a command whose graph disagrees with the
+  term's own body on draws that take each selection both ways. `init_velocity_prob`
+  works: a term's own addition to `reset` runs in the graph on an episode reset alone (a
+  `reset_mask` input), and its body-frame root velocity write
+  (`kind: "root_velocity_b"`) lands only when the graph's `gate` output says the draw
+  picked the env. Document format 5.
+
+- `mjswan.compile.ReplayRng` takes `rand` by keyword after its functions, as
+  `DrawRecorder` takes `at_lower_bounds`: `ReplayRng(func, rand=rand)`. The 0.11 call
+  `ReplayRng(func, rand)` raises `TypeError`.
 
 - **mjlab's `time_out` is traced like any other termination**
   ([#130](https://github.com/ttktjmt/mjswan/issues/130)). Its body reads
@@ -823,11 +876,10 @@ shortcuts.
   one `sim` slot, and every other `env` attribute is either a forwarded constant
   (`num_envs`, `device`, `physics_dt`, `step_dt`, `cfg`) or raises `UnsupportedEnvRead`
   naming what a term may read instead. Events and commands hold the same contract, so a
-  model-field randomization (`geom_friction`, `body_mass`, …) is described from its
-  config rather than run against the live model at build time. `time_out` is native by
-  function name, as `last_action` and `generated_commands` are; a termination that traces
-  to a constant fails the build, `time_out=True` or not; and a baked observation term is
-  named in a `RuntimeWarning`.
+  model-field randomization (`geom_friction`, `body_mass`, …) runs against a copy of the
+  model rather than the live one at build time. A termination that traces to a constant
+  fails the build, `time_out=True` or not, and a baked observation term is named in a
+  `RuntimeWarning`.
 - **White robots render white.** A `<material>` that declares no `metallic` (every
   material in Menagerie and mjlab, G1's `0.7 0.7 0.7` and Microduck's included) was
   handed MuJoCo's `specular` as its `metalness`. The two are unrelated: `specular` is a
@@ -912,16 +964,12 @@ shortcuts.
   unadapted, carrying mjlab term objects into the serializer, which failed on the first
   mjswan-only field it read (`AttributeError: 'ObservationTermCfg' object has no
   attribute 'history_steps'`). The whole MRO is consulted now.
-- The velocity command's trace-friendly rewrite carries the rest of what mjlab's
-  `UniformVelocityCommand` does: forward-only envs (`rel_forward_envs`, which mjlab's own
-  velocity tasks set to `0.2` and `play=True` does not clear, so one resample in five
-  differed), world-frame envs (`rel_world_envs` and the `vel_command_w` state it reads),
-  and the `heading_command` gate, where the rewrite used to track heading unconditionally.
-  `init_velocity_prob` is refused with a message rather than silently dropped, since it
-  writes the robot's root state during resampling. The parity harness cannot see any of
-  this, as it traces the overridden term and compares against that same term, establishing
-  "graph == override" and never "override == mjlab"; `tests/test_velocity_command.py` now
-  pins the latter directly.
+- The velocity command does all of what mjlab's `UniformVelocityCommand` does:
+  forward-only envs (`rel_forward_envs`, which mjlab's own velocity tasks set to `0.2` and
+  `play=True` does not clear, so one resample in five differed), world-frame envs
+  (`rel_world_envs` and the `vel_command_w` state it reads), the `heading_command` gate,
+  and `init_velocity_prob`, now that the term is traced from mjlab's own body (see
+  Changed).
 - **`history_length` now stacks oldest frame first**, `[x_{t-n+1} … x_t]`, the order
   mjlab's `CircularBuffer` flattens, where it counted back from the newest frame. Every
   mjlab task carrying per-term or group history was handing its policy a correct-*width*

@@ -464,6 +464,15 @@ describe('createSlotReader — command state slots', () => {
     }));
     expect(read({ command: 'velocity', field: 'target_pos' })).toBeNull();
   });
+
+  it('serves `command` from any term’s getCommand, traced state or not', () => {
+    // mjlab's `get_command()`, which `generated_commands` reads.
+    const read = createSlotReader(() => ({
+      ...context(),
+      commandManager: { getTerm: () => ({ getCommand: () => [0.5, 0, 1] }) },
+    }));
+    close(read({ command: 'velocity', field: 'command' }), [0.5, 0, 1]);
+  });
 });
 
 describe('createSlotReader — sim slots', () => {
@@ -512,6 +521,39 @@ describe('createSlotReader: env slots', () => {
     const read = createSlotReader(() => context({ episodeLength: 3 }));
     expect(read({ env: 'common_step_counter' })).toBeNull();
     expect(createSlotReader(() => context())({ env: 'episode_length_buf' })).toBeNull();
+  });
+});
+
+describe('createSlotReader: action slots', () => {
+  it('serves the policy’s last action whole', () => {
+    const read = createSlotReader(() => context({ lastActions: () => new Float32Array([1, 2, 3, 9]) }));
+    close(read({ action: 'action', shape: [1, 4] }), [1, 2, 3, 9]);
+  });
+
+  it('returns null for a buffer the runtime does not keep, or with no policy', () => {
+    const read = createSlotReader(() => context({ lastActions: () => new Float32Array(4) }));
+    expect(read({ action: 'prev_action' })).toBeNull();
+    expect(createSlotReader(() => context({ lastActions: () => null }))({ action: 'action' })).toBeNull();
+    expect(createSlotReader(() => context())({ action: 'action' })).toBeNull();
+  });
+});
+
+describe('createSlotReader: model slots', () => {
+  it('serves the named rows of a model field, live or as compiled', () => {
+    const scene = context();
+    (scene.mjModel as unknown as Mutable).geom_friction = Float64Array.from([
+      1, 0.1, 0.01, 2, 0.2, 0.02, 3, 0.3, 0.03,
+    ]);
+    const compiled = Float64Array.from([9, 9, 9, 8, 8, 8, 7, 7, 7]);
+    const read = createSlotReader(() => ({ ...scene, modelDefaults: { base: () => compiled } }));
+    const slot = {
+      model: 'geom_friction',
+      element: 'geom',
+      names: ['cube/geom', 'robot/pelvis_geom'],
+      shape: [1, 2, 3],
+    };
+    close(read(slot), [3, 0.3, 0.03, 1, 0.1, 0.01]);
+    close(read({ ...slot, default: true }), [7, 7, 7, 9, 9, 9]);
   });
 });
 

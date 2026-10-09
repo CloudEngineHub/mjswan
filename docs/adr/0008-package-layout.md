@@ -104,7 +104,8 @@ the document's naming rules.
   `ActionTermCfg` moves to `managers/action_manager.py`, where mjlab defines its
   counterpart; `command.py` becomes `managers/command_manager.py` (the configs,
   `CommandBinding`, `register_command`) and `envs/mdp/commands.py` (the `ui_command`
-  presets, the trace-friendly rewrites, and the bindings for mjlab's command classes).
+  presets, the bindings for mjlab's command classes, and the motion command's reset
+  jitter).
   `CommandTermConfig` keeps its name: it is not mjlab's `CommandTermCfg`, since it also
   carries the browser-side UI and the pending trace.
 - **Speak** (`mjlab/`): everything that reads mjlab's own objects, one module per
@@ -128,9 +129,9 @@ both move here. `compile/` returns bytes and records (`TermExport`, `EventExport
 `compile/` itself splits by pass and by kind: `slot.py` (what a term may read, and how
 each read is named), `proxy.py` (the stand-ins both passes share), `record.py` (the
 discovery pass), `replay.py` (the replay pass), `export.py` (classification, narrowing,
-constants, the `torch.onnx.export` call), `native.py` (terms that need no graph), and
-`term.py` / `event.py` / `command.py` / `group.py` (one trace each). The package's
-public names are unchanged.
+constants, the `torch.onnx.export` call), `model.py` (an event's `env.sim.model`),
+`gate.py` (env sets a draw selects), and `term.py` / `event.py` / `command.py` /
+`group.py` (one trace each). The package's public names are unchanged.
 
 ### 6. `source/` fetches; `mjlab/runner.py` converts
 

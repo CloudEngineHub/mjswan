@@ -4,7 +4,8 @@
  * function of its constants, `input_slots` and `rand` — no state across frames.
  *
  * The graph owns the math; this draws `rand` from the seeded PRNG and applies the
- * `entity_write` output. *When* it fires is the caller's business (`EventManager`).
+ * outputs to `mjData` (`entityWrite.ts`) or `mjModel` (`modelWrite.ts`). *When* it fires
+ * is the caller's business (`EventManager`).
  *
  * **Async boundary.** Interval/startup dispatch is fire-and-forget with an in-flight
  * guard, so a slow graph cannot queue a backlog of the same disturbance. Reset firings
@@ -16,6 +17,12 @@ import { buildFeeds, declaredFeeds, toFloat32 } from '../onnx/session';
 import type { OnnxInputSlot, OnnxSession, OnnxTensorLike, SlotReader } from '../onnx/session';
 import { applyEntityWrites, type WriteTarget, type WriteValues } from './entityWrite';
 import type { EventContext } from './EventBase';
+import {
+  applyModelWrite,
+  isModelWriteTarget,
+  setConstKeepingQpos,
+  type ModelWriteTarget,
+} from './modelWrite';
 
 export type EventMode = 'startup' | 'reset' | 'interval' | 'manual';
 
@@ -25,8 +32,10 @@ export interface OnnxEventConfig {
   onnx: string;
   rand_dim: number;
   input_slots?: OnnxInputSlot[];
-  write_targets?: WriteTarget[];
+  write_targets?: Array<WriteTarget | ModelWriteTarget>;
   rand_ranges?: Array<[number, number]>;
+  /** The model writes leave MuJoCo's derived constants stale, so `mj_setConst` follows. */
+  set_const?: boolean;
   /** `mode="interval"` only: `[min, max]` seconds between firings. */
   interval_range_s?: [number, number];
   /** `mode="interval"` only: timer survives episode reset when true. */
@@ -72,7 +81,7 @@ export class OnnxEvent {
     return this.inFlight;
   }
 
-  /** Run the graph once and apply any `entity_write` output. */
+  /** Run the graph once and apply its writes. */
   async fire(context: EventContext): Promise<void> {
     if (this.inFlight) return;
     this.inFlight = true;
@@ -97,6 +106,15 @@ export class OnnxEvent {
     if (!mjModel || !mjData) return;
     const values: WriteValues = {};
     for (const [key, tensor] of Object.entries(outputs)) values[key] = toFloat32(tensor.data);
-    applyEntityWrites(mjModel, mjData, targets, values);
+    const entityTargets = targets.filter((t): t is WriteTarget => !isModelWriteTarget(t));
+    applyEntityWrites(mjModel, mjData, entityTargets, values);
+    let wroteModel = false;
+    for (const target of targets) {
+      if (!isModelWriteTarget(target)) continue;
+      wroteModel = applyModelWrite(mjModel, target, values, context.modelDefaults) || wroteModel;
+    }
+    if (!wroteModel || !this.config.set_const) return;
+    if (context.mujoco) setConstKeepingQpos(context.mujoco, mjModel, mjData);
+    else console.warn(`[OnnxEvent] "${this.name}" owes an mj_setConst but has no MuJoCo module.`);
   }
 }

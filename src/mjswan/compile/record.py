@@ -9,22 +9,30 @@ input can be narrowed to them. An event or command body reads through
 
 from __future__ import annotations
 
-from typing import Any, Collection, Sequence, cast
+from typing import Any, Callable, Collection, Sequence, cast
 
 import torch
 from torch.utils._pytree import tree_leaves, tree_map
 
+from .gate import GatedIds
+from .model import ModelRecorder, ModelSim
 from .proxy import (
+    _SHAPE_QUERIES,
+    _action_term_proxy,
     _command_proxy,
     _FieldProxy,
+    _forward_action_attr,
     _is_sensor,
     _plain,
     _sensor_proxy,
     _SimStandIn,
     _traces_through,
     _with_sim_data,
+    action_term_window,
+    entity_static,
 )
 from .slot import (
+    _ACTION_NS,
     _COMMAND_NS,
     _ENV_NS,
     _ENV_SLOT_DTYPES,
@@ -89,11 +97,6 @@ class _RowRecord:
 
     def whole(self) -> None:
         self.rows = None
-
-
-# Attribute reads and shape queries on a raw field say nothing about which of its values
-# a term uses, so they neither narrow nor widen it.
-_SHAPE_QUERIES = frozenset({"__get__", "size", "dim", "ndimension", "numel", "__len__"})
 
 
 class _RecordingField(_FieldProxy):
@@ -279,6 +282,25 @@ class _RecordingSensorData:
         return value
 
 
+def _command_or_raise(fetch: Callable[[str], Any], name: str) -> Any:
+    """``fetch(name)``, raising for a command the trace env has no term for, which mjlab
+    answers with ``None`` or a bare ``KeyError``."""
+    try:
+        value = fetch(name)
+    except KeyError as exc:
+        value, cause = None, exc
+    else:
+        cause = None
+    if value is None:
+        raise ValueError(
+            f"Term read command {name!r}, which the trace env has no term for. The build "
+            "stands one in for a command whose width it knows (UI inputs, or a traced "
+            "command); for any other, give the trace env one: "
+            "`build_single_entity_trace_env(commands=...)`."
+        ) from cause
+    return value
+
+
 class _RecordingCommandManager:
     """Wraps the real ``CommandManager``, logging command-state tensor reads."""
 
@@ -293,7 +315,7 @@ class _RecordingCommandManager:
         self._commands = commands
 
     def get_term(self, name: str) -> Any:
-        real = self._real.get_term(name)
+        real = _command_or_raise(self._real.get_term, name)
         # Keep the real term so the replay pass can subclass its class.
         self._commands[name] = real
 
@@ -304,7 +326,7 @@ class _RecordingCommandManager:
         return _command_proxy(real, on_tensor)
 
     def get_command(self, name: str) -> Any:
-        value = self._real.get_command(name)
+        value = _command_or_raise(self._real.get_command, name)
         self._log.append(((_COMMAND_NS, f"{name}.command"), value))
         return value
 
@@ -312,10 +334,52 @@ class _RecordingCommandManager:
         return getattr(self._real, name)
 
 
+class _RecordingActionManager:
+    """Wraps the real ``ActionManager``, logging reads of the policy's last action.
+
+    A term's ``raw_action`` is its slice of that vector, so it logs the whole vector:
+    one slot the runtime serves, sliced inside the graph.
+    """
+
+    def __init__(self, real: Any, log: list[tuple[SlotKey, Any]]):
+        self._real = real
+        self._log = log
+
+    @property
+    def action(self) -> torch.Tensor:
+        return self._logged_action()
+
+    def get_term(self, name: str) -> Any:
+        action_term_window(self._real, name)
+        real = self._real.get_term(name)
+
+        def raw_action() -> torch.Tensor:
+            self._logged_action()
+            return real.raw_action
+
+        return _action_term_proxy(real, raw_action)
+
+    def _logged_action(self) -> torch.Tensor:
+        value = self._real.action
+        if value.shape[-1] == 0:
+            raise ValueError(
+                "Term read the policy's last action, but the trace env has no action "
+                "terms to give it a width. For a plain scene the build takes it from "
+                "the policy's `policy_num_actions` or `policy_joint_names`; set one. "
+                "Outside the Builder, trace within "
+                "`mjswan.mjlab.env.policy_actions(env, num_actions)`."
+            )
+        self._log.append(((_ACTION_NS, "action"), value))
+        return value
+
+    def __getattr__(self, name: str) -> Any:
+        return _forward_action_attr(self._real, name)
+
+
 class _RecordingEnv:
     """Proxy env recording the reads a term makes (entity data, sim data, sensors,
-    commands, the episode counter). Same contract as :class:`_ReplayEnv`: any other
-    read raises."""
+    commands, the episode counter, the last action). Same contract as
+    :class:`_ReplayEnv`: any other read raises."""
 
     def __init__(self, real: Any, reader_fields: Collection[str] = READER_FIELDS):
         object.__setattr__(self, "_real", real)
@@ -337,6 +401,8 @@ class _RecordingEnv:
             return _RecordingCommandManager(
                 self._real.command_manager, self._log, self._commands
             )
+        if name == "action_manager":
+            return _RecordingActionManager(self._real.action_manager, self._log)
         if name in _ENV_SLOT_DTYPES:
             value = getattr(self._real, name)
             # Logged as the float32 the browser feeds; the term still sees mjlab's dtype.
@@ -345,11 +411,13 @@ class _RecordingEnv:
         return _forward_env_attr(self._real, name, _TERM_ENV_READS)
 
 
-# Each write call and the tensors it writes, in argument order.
+# Each write call and the tensors it writes, in argument order. A write through a
+# draw-selected env set (:mod:`.gate`) adds a trailing ``gate`` output.
 _WRITE_FIELDS: dict[str, tuple[str, ...]] = {
     "joint_state": ("position", "velocity"),
     "root_pose": ("pose",),
     "root_velocity": ("velocity",),
+    "root_velocity_b": ("velocity",),
 }
 
 
@@ -365,6 +433,27 @@ def _write_output_name(key: WriteKey, field_name: str) -> str:
     return f"{entity}__{kind}__{field_name}" if entity else f"{kind}__{field_name}"
 
 
+def _write_fields(key: WriteKey, values: tuple[Any, ...]) -> tuple[str, ...]:
+    """The fields a captured write outputs: its kind's, then ``gate`` if it has one."""
+    fields = _WRITE_FIELDS[key[1]]
+    return (*fields, "gate") if len(values) > len(fields) else fields
+
+
+def entity_write_target(
+    key: WriteKey, values: tuple[Any, ...], entity: str | None
+) -> dict[str, Any]:
+    """The manifest's description of one captured write."""
+    target: dict[str, Any] = {
+        "kind": key[1],
+        "entity": key[0] or entity,
+        "fields": list(_WRITE_FIELDS[key[1]]),
+        "outputs": [_write_output_name(key, f) for f in _WRITE_FIELDS[key[1]]],
+    }
+    if len(values) > len(_WRITE_FIELDS[key[1]]):
+        target["gate"] = _write_output_name(key, "gate")
+    return target
+
+
 class _WriteCaptureMixin:
     """Records ``write_*_to_sim`` calls into ``self._captures``.
 
@@ -376,24 +465,29 @@ class _WriteCaptureMixin:
     _name: str | None
     _captures: WriteCaptures
 
-    def _capture(self, kind: str, values: tuple[Any, ...]) -> None:
+    def _capture(self, kind: str, values: tuple[Any, ...], env_ids: Any) -> None:
+        if isinstance(env_ids, GatedIds):
+            values = (*values, env_ids.gate.to(torch.float32))
         self._captures[(self._name, kind)] = values
 
     def write_joint_state_to_sim(
         self, position, velocity, joint_ids=None, env_ids=None
     ):
-        self._capture("joint_state", (position, velocity))
+        self._capture("joint_state", (position, velocity), env_ids)
 
     def write_root_link_pose_to_sim(self, pose, env_ids=None):
-        self._capture("root_pose", (pose,))
+        self._capture("root_pose", (pose,), env_ids)
 
     def write_root_link_velocity_to_sim(self, velocity, env_ids=None):
-        self._capture("root_velocity", (velocity,))
+        self._capture("root_velocity", (velocity,), env_ids)
+
+    def write_root_link_velocity_b_to_sim(self, velocity_b, env_ids=None):
+        self._capture("root_velocity_b", (velocity_b,), env_ids)
 
     def write_root_state_to_sim(self, root_state, env_ids=None):
         # mjlab's own split of a 13-wide root state into the two writes above.
-        self._capture("root_pose", (root_state[..., :7],))
-        self._capture("root_velocity", (root_state[..., 7:],))
+        self._capture("root_pose", (root_state[..., :7],), env_ids)
+        self._capture("root_velocity", (root_state[..., 7:],), env_ids)
 
 
 def _flatten_captures(
@@ -407,7 +501,7 @@ def _flatten_captures(
     names: list[str] = []
     tensors: list[torch.Tensor] = []
     for key, values in captures.items():
-        for field_name, tensor in zip(_WRITE_FIELDS[key[1]], values):
+        for field_name, tensor in zip(_write_fields(key, values), values):
             names.append(_write_output_name(key, field_name))
             tensors.append(tensor)
     return names, tensors
@@ -449,7 +543,8 @@ class _EvRecEntity(_WriteCaptureMixin):
         # Only tensors and control-flow scalars can be reproduced during replay.
         if isinstance(value, (torch.Tensor, bool, int, float)):
             self._log.append((("attr", self._name, name), value))
-        return value
+            return value
+        return entity_static(name, value)
 
 
 class _EvRecScene:
@@ -490,12 +585,18 @@ class _EventCaptureEnv:
     never mutates the sim. Same contract as :class:`_EventReplayEnv`: any other read
     raises.
 
-    *commands* serves ``env.command_manager``, which only a command body may read.
+    *commands* serves ``env.command_manager``, which only a command body may read, and
+    *model* ``env.sim.model``, which only an event body may: its reads and writes go to
+    :attr:`model`, a :class:`ModelRecorder` made on first use.
     """
 
-    def __init__(self, real, log, captures, *, commands: bool = False):
+    def __init__(
+        self, real, log, captures, *, commands: bool = False, model: bool = False
+    ):
         object.__setattr__(self, "_real", real)
         object.__setattr__(self, "scene", _EvRecScene(real.scene, log, captures))
+        object.__setattr__(self, "_serves_model", model)
+        object.__setattr__(self, "model", None)
         if commands:
             object.__setattr__(
                 self,
@@ -504,4 +605,9 @@ class _EventCaptureEnv:
             )
 
     def __getattr__(self, name: str) -> Any:
+        if name == "sim" and self._serves_model:
+            recorder = ModelRecorder(self._real.sim)
+            object.__setattr__(self, "model", recorder)
+            object.__setattr__(self, "sim", ModelSim(recorder, self._real.sim))
+            return self.sim
         return _forward_env_attr(self._real, name, _EVENT_ENV_READS)

@@ -68,7 +68,7 @@ import { LocomotionPolicy } from '../policy/modules/LocomotionPolicy';
 import { CommandManager, type CommandTermContext, type CommandsConfig } from '../command';
 import { DebugViz } from '../debugViz/DebugViz';
 import { EventManager, type EventControl } from '../event/EventManager';
-import { ModelFieldDefaults } from '../event/modelFieldDr';
+import { ModelFieldDefaults } from '../event/modelWrite';
 import type { EventContext, TerrainData } from '../event/EventBase';
 import { OnnxSessionCache, type SlotReader } from '../onnx/session';
 import { ContactSensorSet, type ContactSensorDescriptor } from '../onnx/contact';
@@ -369,6 +369,8 @@ export class mjswanRuntime {
     this.policyGraphs = new OnnxSessionCache();
     this.modelFieldDefaults = null;
     this.termRng = new SeededRng(termSeed);
+    // Lazy: the context is rebuilt on every slot read, and only an `action` slot needs it.
+    const lastActions = () => this.policyRunner?.getLastActions() ?? null;
     // Re-reads mjModel/mjData per call so a scene rebuild needs no rewiring.
     this.readOnnxSlot = createSlotReader(
       () => ({
@@ -377,6 +379,8 @@ export class mjswanRuntime {
         mjData: this.mjData,
         commandManager: this.commandManager,
         episodeLength: this.episodeLength,
+        lastActions,
+        modelDefaults: this.modelFieldDefaults,
       }),
       {
         jointBias: (name) => this.jointBias.get(name) ?? 0,
@@ -568,6 +572,7 @@ export class mjswanRuntime {
       mujoco: this.mujoco,
       mjModel: this.mjModel,
       mjData: this.mjData,
+      modelDefaults: this.modelFieldDefaults,
       terrainData: this.terrainData,
     };
   }
@@ -1322,7 +1327,7 @@ export class mjswanRuntime {
         );
         // `mode="startup"` fires once per MDP before its first reset, as mjlab fires it
         // at env construction, over the model `restore()` just put back to compiled.
-        await this.eventManager.startup(this.eventContext(), this.modelFieldDefaults ?? undefined);
+        await this.eventManager.startup(this.eventContext());
         this.mujoco.mj_forward(this.mjModel, this.mjData);
       }
       this.jointBias = buildJointBias(config);
@@ -1906,7 +1911,7 @@ export class mjswanRuntime {
         return;
       }
       // Before `setLastActions`, which is what both the action terms and the
-      // `prev_action` observation slot read — mirroring rsl-rl, where the clamp lands
+      // `action` observation slot read, mirroring rsl-rl, where the clamp lands
       // ahead of `env.step` and so ahead of the action manager recording the action.
       clampActions(action, this.clipActions);
       this.policyRunner.setLastActions(action);

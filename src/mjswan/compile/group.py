@@ -6,7 +6,6 @@ node and the fixed per-``ort.run()`` cost then dominates (ADR 0005 §4).
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Collection
 
@@ -22,7 +21,6 @@ from .export import (
     _narrow_slots,
     _register_consts,
 )
-from .native import native_observation_entry
 from .record import _RecordingEnv, _RecordingSimData
 from .replay import _ReplayEnv
 from .slot import (
@@ -37,7 +35,7 @@ from .term import ConstantTerm, UntraceableTerm, warn_constant_observation
 
 
 class ConstantGroup(ValueError):
-    """Every term in a group is native or constant, so the group has no graph.
+    """Every term in a group is constant, so the group has no graph.
 
     Not an error: the caller falls back to the per-term path.
     """
@@ -53,7 +51,6 @@ class GroupTermSpec:
     clip: tuple[float, float] | None = None
     scale: Any = None
     """Per-term scale: a float, or a sequence broadcast over the term's width."""
-    native_size: int | None = None
 
 
 @dataclass
@@ -66,8 +63,6 @@ class GroupExport:
     """Deduplicated union of every term's dynamic slots, in graph input order."""
     input_names: list[str]
     input_shapes: list[list[int]]
-    native_inputs: list[dict[str, Any]]
-    """Per native term: ``{name, native, input, size, ...}``, fed by the runtime."""
     layout: list[dict[str, Any]]
     """``{name, size}`` per term, in concat order, for the runtime's group layout."""
     output_name: str
@@ -80,8 +75,7 @@ class _GroupModule(nn.Module):
     """Runs a whole observation group: every term body, then clip/scale, then cat.
 
     Reproduces mjlab's ``compute_group``, sharing one replay env across the terms so a
-    slot two of them read is marshalled once. Native terms are graph *inputs* rather
-    than bodies, which keeps the output the complete observation vector.
+    slot two of them read is marshalled once.
     """
 
     def __init__(
@@ -92,7 +86,6 @@ class _GroupModule(nn.Module):
         *,
         sensors: dict[str, Any],
         commands: dict[str, Any],
-        native_names: list[str],
         baked: dict[str, torch.Tensor],
         real_env: Any,
         reader_fields: Collection[str] = READER_FIELDS,
@@ -103,7 +96,6 @@ class _GroupModule(nn.Module):
         self._dynamic_keys = dynamic_keys
         self._sensors = sensors
         self._commands = commands
-        self._native_names = native_names
         self._real_env = real_env
         self._reader_fields = reader_fields
         self._sim_rows = sim_rows or {}
@@ -111,12 +103,10 @@ class _GroupModule(nn.Module):
         # A term reading no dynamic state is a value, not a function: bake it.
         self._baked_buffers = _register_consts(self, baked, prefix="_baked")
 
-    def forward(self, *args: torch.Tensor) -> torch.Tensor:
-        split = len(self._dynamic_keys)
-        slots: dict[SlotKey, torch.Tensor] = dict(zip(self._dynamic_keys, args[:split]))
+    def forward(self, *dynamic: torch.Tensor) -> torch.Tensor:
+        slots: dict[SlotKey, torch.Tensor] = dict(zip(self._dynamic_keys, dynamic))
         _narrow_slots(slots, self._sim_rows)
         slots.update(_const_values(self, self._const_buffers))
-        native = dict(zip(self._native_names, args[split:]))
         env = _ReplayEnv(
             slots,
             self._sensors,
@@ -127,9 +117,7 @@ class _GroupModule(nn.Module):
 
         pieces: list[torch.Tensor] = []
         for term in self._terms:
-            if term.name in native:
-                value = native[term.name]
-            elif term.name in self._baked_buffers:
+            if term.name in self._baked_buffers:
                 value = getattr(self, self._baked_buffers[term.name])
             else:
                 value = term.func(env, **term.params)
@@ -140,30 +128,6 @@ class _GroupModule(nn.Module):
                 value = value * _scale_tensor(term.scale, value)
             pieces.append(value.reshape(value.shape[0], -1))
         return torch.cat(pieces, dim=-1)
-
-
-def _native_example(term: GroupTermSpec, env: Any) -> torch.Tensor:
-    """Example value fixing a native term's graph-input width.
-
-    The env is asked first; a bare trace env has no action terms or command manager, so
-    the build hands the width down as ``native_size``.
-    """
-    try:
-        value = term.func(env, **term.params).detach()
-    except Exception:  # noqa: BLE001 (a trace env legitimately has neither)
-        value = None
-    if value is not None and value.reshape(1, -1).shape[-1] > 0:
-        return value
-    if term.native_size:
-        return torch.zeros(1, term.native_size)
-    raise ValueError(
-        f"Observation term {term.name!r} is native, but neither the trace env nor "
-        "the policy config gives its width. Set the policy's "
-        "`policy_joint_names`/`policy_num_actions` (for `last_action`), or declare "
-        "the command's UI inputs (for `generated_commands`). A term-scoped "
-        "`last_action` has no config answer at all: it needs a trace env whose "
-        "action manager holds the term."
-    )
 
 
 def _scale_tensor(scale: Any, like: torch.Tensor) -> torch.Tensor:
@@ -185,32 +149,20 @@ def trace_observation_group(
 ) -> GroupExport:
     """Fuse an observation group's terms into one ONNX graph.
 
-    Inputs are the deduplicated union of the terms' dynamic slots, then one input per
-    native term. The output is the concatenated vector with clip/scale folded in,
-    what the policy consumes, minus history.
+    Inputs are the deduplicated union of the terms' dynamic slots. The output is the
+    concatenated vector with clip/scale folded in, what the policy consumes, minus
+    history.
     """
     dynamic: dict[SlotKey, torch.Tensor] = {}
     constants: dict[SlotKey, torch.Tensor] = {}
     sensors: dict[str, Any] = {}
     commands: dict[str, Any] = {}
-    native_inputs: list[dict[str, Any]] = []
-    native_examples: list[torch.Tensor] = []
     baked: dict[str, torch.Tensor] = {}
     layout: list[dict[str, Any]] = []
     sims: list[_RecordingSimData] = []
     readers = _reader_fields(reader_fields)
 
     for term in terms:
-        entry = native_observation_entry(term.name, term.func, term.params, env)
-        if entry is not None:
-            entry["input"] = "native__" + re.sub(r"\W", "_", term.name)
-            value = _native_example(term, env)
-            entry["size"] = int(value.reshape(1, -1).shape[-1])
-            native_inputs.append(entry)
-            native_examples.append(value)
-            layout.append({"name": term.name, "size": entry["size"]})
-            continue
-
         recorder = _RecordingEnv(env, readers)
         recorded = term.func(recorder, **term.params)
         if not isinstance(recorded, torch.Tensor):
@@ -237,16 +189,14 @@ def trace_observation_group(
     if not dynamic:
         raise ConstantGroup(
             f"Observation group {name!r} reads no time-varying state; every term is "
-            "native or constant, so there is no graph to run."
+            "constant, so there is no graph to run."
         )
 
-    # Slots sorted for determinism, then natives in declaration order.
+    # Sorted for determinism.
     sim_rows = _narrow_inputs(dynamic, sims)
     dynamic_keys = sorted(dynamic)
-    slot_names = [_slot_input_name(k) for k in dynamic_keys]
-    native_names = [entry["name"] for entry in native_inputs]
-    input_names = [*slot_names, *(entry["input"] for entry in native_inputs)]
-    example_inputs = tuple(dynamic[k] for k in dynamic_keys) + tuple(native_examples)
+    input_names = [_slot_input_name(k) for k in dynamic_keys]
+    example_inputs = tuple(dynamic[k] for k in dynamic_keys)
 
     module = _GroupModule(
         terms,
@@ -254,7 +204,6 @@ def trace_observation_group(
         constants,
         sensors=sensors,
         commands=commands,
-        native_names=native_names,
         baked=baked,
         real_env=env,
         reader_fields=readers,
@@ -276,9 +225,8 @@ def trace_observation_group(
         name=name,
         onnx_bytes=onnx_bytes,
         input_slots=dynamic_keys,
-        input_names=slot_names,
+        input_names=input_names,
         input_shapes=[list(dynamic[k].shape) for k in dynamic_keys],
-        native_inputs=native_inputs,
         layout=layout,
         output_name=output_name,
         reference_output=reference,

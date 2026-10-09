@@ -8,11 +8,14 @@ thread dynamic reads, and apply any ``entity_write``. The shape is defined by
 
 from __future__ import annotations
 
+import math
 import warnings
+from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ...managers.command_manager import ButtonConfig
 from . import graph
 from .provenance import graph_meta, resolved_params, term_provenance
 
@@ -212,6 +215,29 @@ def serialize_command(
         meta=graph_meta("command", name, type(term)),
     )
     return {**entry, **term_provenance(type(term))}
+
+
+def command_widths(
+    commands: Mapping[str, CommandTermConfig] | None,
+    entries: Mapping[str, Mapping[str, Any]],
+) -> dict[str, int]:
+    """Each command's ``get_command()`` width, where the build knows it: a traced term's
+    command field, else the value-bearing UI inputs (a button carries none).
+
+    *entries* are the commands as serialized, which carry a traced term's state shapes.
+    """
+    widths: dict[str, int] = {}
+    for name, cmd in (commands or {}).items():
+        entry = entries.get(name, {})
+        fields = {f["name"]: f for f in entry.get("state_fields", ())}
+        field = fields.get(entry.get("command_field"))
+        if field is not None:
+            widths[name] = math.prod(field["shape"][1:])
+        elif cmd.ui is not None:
+            width = sum(1 for i in cmd.ui.inputs if not isinstance(i, ButtonConfig))
+            if width:
+                widths[name] = width
+    return widths
 
 
 def _record_command_gui(term: Any, name: str) -> dict[str, Any] | None:

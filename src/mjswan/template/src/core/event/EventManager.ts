@@ -3,12 +3,8 @@ import type { OnnxSessionCache } from '../onnx/session';
 import type { SlotReader } from '../onnx/session';
 import { EventBase, type EventConfig, type EventContext } from './EventBase';
 import type { EventConstructor } from './EventBase';
-import {
-  applyModelFieldDr,
-  isModelFieldDrConfig,
-  ModelFieldDefaults,
-  type ModelFieldDrConfig,
-} from './modelFieldDr';
+import { applyModelFieldDr, isModelFieldDrConfig, type ModelFieldDrConfig } from './modelFieldDr';
+import { ModelFieldDefaults } from './modelWrite';
 import { OnnxEvent, isOnnxEventConfig } from './OnnxEvent';
 import { IntervalTrigger, ResetTrigger, StartupTrigger } from './triggers';
 
@@ -50,7 +46,7 @@ export class EventManager {
   private intervalTerms: Array<{ term: OnnxEvent; trigger: IntervalTrigger }> = [];
   private manualTerms: OnnxEvent[] = [];
   private startupTerms: Array<{ term: OnnxEvent; trigger: StartupTrigger }> = [];
-  /** Model-field randomizations, applied once by `startup()` (see `modelFieldDr`). */
+  /** Legacy model-field descriptors, applied once by `startup()` (see `modelFieldDr`). */
   private modelFieldTerms: Array<{ config: ModelFieldDrConfig; trigger: StartupTrigger }> = [];
 
   constructor(
@@ -123,21 +119,18 @@ export class EventManager {
   }
 
   /**
-   * Fire every `mode="startup"` term once, in config order and after the model-field
-   * randomizations, so `add`/`scale` see the compiled default.
-   *
-   * `defaults` is the model-lifetime snapshot the runtime restores before an MDP switch.
-   * Omitted, a fresh one is taken, which is right for a single startup pass.
+   * Fire every `mode="startup"` term once, in config order and after the legacy
+   * model-field descriptors.
    */
-  async startup(context: EventContext, defaults?: ModelFieldDefaults): Promise<void> {
-    this.applyModelFieldTerms(context, defaults);
+  async startup(context: EventContext): Promise<void> {
+    this.applyModelFieldTerms(context);
     for (const { term, trigger } of this.startupTerms) {
       if (trigger.take()) await term.fire(context);
     }
   }
 
   /** Once, before the startup terms: `add`/`scale` are relative to the compiled default. */
-  private applyModelFieldTerms(context: EventContext, defaults?: ModelFieldDefaults): void {
+  private applyModelFieldTerms(context: EventContext): void {
     if (this.modelFieldTerms.length === 0) return;
     const { mujoco, mjModel, mjData } = context;
     if (!mujoco || !mjModel || !mjData) {
@@ -149,7 +142,7 @@ export class EventManager {
       return;
     }
     // One `defaults` per model, so events on one field share a base across passes.
-    const base = defaults ?? new ModelFieldDefaults(mjModel);
+    const base = context.modelDefaults ?? new ModelFieldDefaults(mjModel);
     for (const { config, trigger } of this.modelFieldTerms) {
       if (!trigger.take()) continue;
       applyModelFieldDr(mujoco, mjModel, mjData, config, this.deps.rng, base);

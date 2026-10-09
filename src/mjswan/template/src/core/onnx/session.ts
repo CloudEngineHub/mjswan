@@ -7,6 +7,7 @@ import * as ort from 'onnxruntime-web/wasm';
 // Configures ort.env before any session is created; see ortEnv.ts.
 import './ortEnv';
 import { queueOrtRun } from './runQueue';
+import type { ModelElements } from './slotReader/model';
 
 /** Minimal ORT-Web surface a command/event handler needs. */
 export interface OnnxSession {
@@ -25,13 +26,14 @@ export interface OnnxTensorLike {
 /**
  * A dynamic runtime read a term's graph declares as an input, mirroring
  * `mjswan.compile.slot.slot_to_json`. Distinguished by which field is set:
- * `entity`+`field`, `sensor`, `sensor`+`field`, `command`+`field`, `sim`, or `env`.
+ * `entity`+`field`, `sensor`, `sensor`+`field`, `command`+`field`, `sim`, `env`,
+ * `action`, or `model`.
  *
  * `input` is the graph input name, build-supplied because sensor and command names
  * carry dots the build folds to identifiers — not reproducible here. `shape` is the
  * traced shape, batch axis included, since a slot reader hands back a flat array.
  */
-export interface OnnxInputSlot {
+export interface OnnxInputSlot extends ModelElements {
   entity?: string | null;
   field?: string;
   sensor?: string;
@@ -45,6 +47,12 @@ export interface OnnxInputSlot {
   rows?: number[];
   /** An env-level buffer: only `episode_length_buf`, the runtime's step counter. */
   env?: string;
+  /** The policy's last action: only `action`, mjlab's `env.action_manager.action`. */
+  action?: string;
+  /** An `mjModel` field an event reads, for the elements `names` lists, in that order. */
+  model?: string;
+  /** For a `model` slot: the compiled value, mjlab's `get_default_field`, not the live one. */
+  default?: boolean;
   input?: string;
   shape?: number[];
 }

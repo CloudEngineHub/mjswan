@@ -11,7 +11,10 @@ from __future__ import annotations
 import contextlib
 import io
 import re
+from collections.abc import Iterator, Mapping
+from types import SimpleNamespace
 from typing import Any, Callable
+from unittest import mock
 
 
 def _required_capacity(message: str, name: str) -> int | None:
@@ -76,22 +79,130 @@ class TraceCommandManager:
     A traced term may read a command the browser owns and the trace env cannot build (a
     ``UiCommand``, a native ``TrackingCommand``). Only the tensor shapes matter: the
     values bake nothing, becoming graph inputs the runtime serves from the live command.
+    *fallback* (the env's own manager) answers for the rest.
     """
 
-    def __init__(self, terms: dict[str, Any]):
+    def __init__(self, terms: dict[str, Any], fallback: Any = None):
         self._terms = dict(terms)
+        self._fallback = fallback
 
     def get_term(self, name: str) -> Any:
-        if name not in self._terms:
+        if name in self._terms:
+            return self._terms[name]
+        term = _command_term(self._fallback, name)
+        if term is None:
+            known = {*self._terms, *getattr(self._fallback, "active_terms", ())}
             raise KeyError(
-                f"Trace env has no command {name!r}; it knows "
-                f"{sorted(self._terms)}. Pass it to "
-                "`build_single_entity_trace_env(commands=...)`."
+                f"Trace env has no command {name!r}; it knows {sorted(known)}. Pass it "
+                "to `build_single_entity_trace_env(commands=...)`."
             )
-        return self._terms[name]
+        return term
 
     def get_command(self, name: str) -> Any:
         return self.get_term(name).command
+
+
+def _command_term(manager: Any, name: str) -> Any:
+    """*manager*'s term *name*, or ``None``: mjlab's ``NullCommandManager`` answers
+    ``None`` where its ``CommandManager`` raises."""
+    try:
+        return manager.get_term(name)
+    except (AttributeError, KeyError):
+        return None
+
+
+class TraceActionManager:
+    """Stand-in ``ActionManager`` for a trace env with no action terms of its own.
+
+    A traced ``last_action`` reads the policy's output, whose width a plain scene's env
+    cannot know. Only the shape matters: the value becomes a graph input the runtime
+    serves from the policy's last action.
+    """
+
+    def __init__(self, num_actions: int, *, num_envs: int = 1, device: Any = "cpu"):
+        import torch
+
+        self.action = torch.zeros((num_envs, num_actions), device=device)
+        self.total_action_dim = num_actions
+        # No terms, so a term-scoped `last_action` still fails, naming none.
+        self.active_terms: list[str] = []
+        self.action_term_dim: list[int] = []
+
+
+class _MismatchedActions:
+    """*real*, refusing a read of its action vector, which is not the policy's width."""
+
+    def __init__(self, real: Any, num_actions: int):
+        self._real = real
+        self._num_actions = num_actions
+
+    def _refuse(self) -> ValueError:
+        return ValueError(
+            f"The trace env's action terms are {_action_width(self._real)} wide, but the "
+            f"policy outputs {self._num_actions} (`policy_num_actions`, else "
+            "`policy_joint_names`). A traced last-action read would take the env's width "
+            "while the browser holds the policy's."
+        )
+
+    @property
+    def action(self) -> Any:
+        raise self._refuse()
+
+    def get_term(self, name: str) -> Any:
+        raise self._refuse()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._real, name)
+
+
+def _action_width(manager: Any) -> int:
+    """The width of *manager*'s action vector, as a traced read sees it."""
+    action = getattr(manager, "action", None)
+    return int(action.shape[-1]) if action is not None else 0
+
+
+@contextlib.contextmanager
+def policy_actions(env: Any, num_actions: int) -> Iterator[None]:
+    """Give *env* a :class:`TraceActionManager` of the policy's width while tracing,
+    unless it has action terms of its own, as an mjlab task's env does; those must be
+    the policy's width."""
+    real = getattr(env, "action_manager", None)
+    width = _action_width(real)
+    if env is None or not num_actions or width == num_actions:
+        yield
+        return
+    if width:
+        stand_in: Any = _MismatchedActions(real, num_actions)
+    else:
+        stand_in = TraceActionManager(
+            num_actions,
+            num_envs=getattr(env, "num_envs", 1),
+            device=getattr(env, "device", "cpu"),
+        )
+    with mock.patch.object(env, "action_manager", stand_in, create=True):
+        yield
+
+
+@contextlib.contextmanager
+def mdp_commands(env: Any, widths: Mapping[str, int]) -> Iterator[None]:
+    """Give *env* a zero stand-in of each width in *widths* for a command it has no term
+    for, as a plain scene's env has none for a command only the browser holds."""
+    real = getattr(env, "command_manager", None)
+    missing = {n: w for n, w in widths.items() if _command_term(real, n) is None}
+    if env is None or not missing:
+        yield
+        return
+    import torch
+
+    num_envs = getattr(env, "num_envs", 1)
+    device = getattr(env, "device", "cpu")
+    stand_ins = {
+        n: SimpleNamespace(command=torch.zeros((num_envs, w), device=device))
+        for n, w in missing.items()
+    }
+    stand_in = TraceCommandManager(stand_ins, real)
+    with mock.patch.object(env, "command_manager", stand_in, create=True):
+        yield
 
 
 #: mjlab's play configs' episode length for "no time limit".

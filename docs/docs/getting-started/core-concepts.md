@@ -118,7 +118,7 @@ scene.add_policy(..., events={"push": push})  # this policy's own instead
 ```
 
 Switching to a policy with a different MDP first restores the model values the previous
-MDP's startup randomization changed, reseeds the term PRNG, and then runs the new MDP's
+MDP's events changed, reseeds the term PRNG, and then runs the new MDP's
 `mode="startup"` events — so A → B → A reproduces A's first draw, however long the session
 has run.
 

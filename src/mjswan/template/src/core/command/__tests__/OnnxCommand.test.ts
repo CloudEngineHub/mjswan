@@ -247,6 +247,8 @@ describe('OnnxCommand: resample timer (scalar, ADR §5)', () => {
     await cmd.reset();
     expect(session.calls.length).toBe(3);
     expect(session.calls[2].resample_mask.data[0]).toBe(1);
+    // Only an episode reset runs what a term's `reset` adds to the resample.
+    expect(session.calls.map(call => call.reset_mask.data[0])).toEqual([0, 0, 1]);
 
     // A later step's `update()` is `_update_command` alone.
     cmd.update(0.1);
@@ -491,6 +493,45 @@ describe('OnnxCommand: entity_write hand-off (§3b)', () => {
 
     expect(mjData.qpos[0]).toBe(0);
     expect(mjData.qpos[3]).toBe(0);
+  });
+
+  it('applies a gated write only when the graph sets its gate', async () => {
+    // mjlab's `init_velocity_prob`: the reset starts an env moving only if a draw says so.
+    const { mjModel, mjData } = fakeModelData();
+    let gate = 0;
+    const session = new FakeSession(() => ({
+      next_target_pos: { data: new Float32Array([0, 0, 0]), dims: [1, 3] },
+      robot__root_velocity_b__velocity: {
+        data: new Float32Array([0.5, 0, 0, 0, 0, 0]),
+        dims: [1, 6],
+      },
+      robot__root_velocity_b__gate: { data: new Float32Array([gate]), dims: [1] },
+    }));
+    const cmd = new OnnxCommand(
+      'twist',
+      {
+        ...LIFT_CFG,
+        write_targets: [
+          {
+            kind: 'root_velocity_b',
+            entity: 'robot',
+            fields: ['velocity'],
+            outputs: ['robot__root_velocity_b__velocity'],
+            gate: 'robot__root_velocity_b__gate',
+          },
+        ],
+      },
+      { mjModel, mjData } as unknown as import('../types').CommandTermContext,
+      { session, rng: new SeededRng(1) },
+    );
+    mjData.qpos[3] = 1; // identity orientation
+
+    await cmd.step(true, true);
+    expect(mjData.qvel[0]).toBe(0);
+
+    gate = 1;
+    await cmd.step(true, true);
+    expect(mjData.qvel[0]).toBeCloseTo(0.5, 6);
   });
 
   it('does not treat next_<state> outputs as writes', async () => {

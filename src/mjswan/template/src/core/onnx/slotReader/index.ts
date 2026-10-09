@@ -15,6 +15,8 @@
  * An `env` slot is the runtime's step counter, fed as float32 like every slot; the graph
  * casts it back to mjlab's int64, exactly below 2^24 steps.
  *
+ * A `model` slot is the rows of an `mjModel` field for the elements it names (`model.ts`).
+ *
  * Entities resolve as `indexing.ts` describes; an unknown field returns null and the
  * caller holds its previous value.
  */
@@ -24,6 +26,7 @@ import { RaycastSensor, isRaycastField, type RaycastSensorDescriptor } from '../
 import type { OnnxInputSlot, SlotReader } from '../session';
 import { FIELD_READERS } from './fields';
 import { buildEntityIndex, decodeNames, unprefixed, type EntityIndex } from './indexing';
+import { readModelSlot, type ModelDefaultsSource } from './model';
 
 type MjModel = import('mujoco').MjModel;
 type MjData = import('mujoco').MjData;
@@ -45,6 +48,10 @@ export type SlotReaderContext = {
   commandManager?: { getTerm(name: string): unknown } | null;
   /** Control steps since the last reset: mjlab's `episode_length_buf`. */
   episodeLength?: number;
+  /** The policy's last action, zeroed on reset: mjlab's `action_manager.action`. */
+  lastActions?: () => Float32Array | null;
+  /** The model's compiled field values, for a `model` slot that reads the default. */
+  modelDefaults?: ModelDefaultsSource | null;
 };
 
 export type SlotReaderOptions = {
@@ -109,6 +116,14 @@ function isCommandStateSource(value: unknown): value is CommandStateSource {
     typeof value === 'object' &&
     value !== null &&
     typeof (value as CommandStateSource).getStateField === 'function'
+  );
+}
+
+function hasGetCommand(value: unknown): value is { getCommand(): ArrayLike<number> } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { getCommand?: unknown }).getCommand === 'function'
   );
 }
 
@@ -179,8 +194,11 @@ export function createSlotReader(
 
     if (slot.command) {
       const term = context.commandManager?.getTerm(slot.command);
-      if (!isCommandStateSource(term)) return null;
-      return term.getStateField(slot.field ?? '');
+      const state = isCommandStateSource(term) ? term.getStateField(slot.field ?? '') : null;
+      if (state) return state;
+      // mjlab's `get_command()`, which every term answers, traced state or not.
+      if (slot.field === 'command' && hasGetCommand(term)) return Float32Array.from(term.getCommand());
+      return null;
     }
 
     if (slot.env) {
@@ -188,10 +206,17 @@ export function createSlotReader(
       return new Float32Array([context.episodeLength]);
     }
 
+    if (slot.action) {
+      if (slot.action !== 'action') return null;
+      return context.lastActions?.() ?? null;
+    }
+
     const { mjModel, mjData } = context;
     if (!mjModel || !mjData) return null;
 
     if (slot.sim) return readSimField(mjData, slot.sim, slot.rows, slot.shape);
+
+    if (slot.model) return readModelSlot(mjModel, slot, context.modelDefaults);
 
     if (slot.sensor) {
       if (slot.field) {

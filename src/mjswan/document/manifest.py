@@ -20,7 +20,15 @@ MANIFEST_NAME = "manifest.json"
 #: 4: ``input_slots`` may carry the episode step counter (``{"env": ...}``), which
 #: ``time_out`` is traced through. An older engine cannot serve it, so no episode would
 #: ever time out.
-DOCUMENT_FORMAT = 4
+#:
+#: 5: ``input_slots`` may carry the policy's last action (``{"action": ...}``), which
+#: ``last_action`` is traced through, or the rows of an ``mjModel`` field
+#: (``{"model": ...}``), and an event may write one (``kind: "model"``), as model-field
+#: randomization is traced. A command graph may take ``reset_mask`` and gate a write,
+#: and a write may be a body-frame root velocity (``kind: "root_velocity_b"``). An older
+#: engine cannot serve them: the observation group would freeze, the randomization would
+#: not happen, and the command would not run.
+DOCUMENT_FORMAT = 5
 
 #: Input slots the runtime fills itself rather than from an observation group: the
 #: recurrent carry (``is_init``, ``adapt_hx``) and the step counter (``time_step``).

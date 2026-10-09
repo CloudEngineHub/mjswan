@@ -118,7 +118,9 @@ def sweep_report(request):
     cfg.sim.nconmax = 200_000
     env = ManagerBasedRlEnv(cfg, device="cpu")
     try:
-        yield run_parity(env, obs_group="actor", n_steps=8, seed=0)
+        yield run_parity(
+            env, obs_group="actor", n_steps=8, seed=0, event_modes=("startup", "reset")
+        )
     finally:
         env.close()
 
@@ -150,6 +152,22 @@ def test_no_term_is_silently_unchecked(sweep_report):
             f"{sweep_report.n_steps} steps"
         )
         assert term.max_abs_diff <= sweep_report.atol
+
+
+# What the build marks native, each with its reason (`build/mdp/event.py`): there is
+# nothing in them for a graph to write. Lift's `reset_base` moves a fixed-base arm.
+_NATIVE_EVENTS = {"encoder_bias", "randomize_terrain", "reset_base"}
+
+
+@pytest.mark.parametrize("sweep_report", SWEEP_TASKS, indirect=True)
+def test_every_event_with_something_to_write_is_checked(sweep_report):
+    """mjlab's model-field randomizations included: their `env.sim.model` writes are
+    graph outputs, compared against mjlab's own call draw for draw."""
+    for term in sweep_report.terms:
+        if term.kind != "event" or term.name in _NATIVE_EVENTS:
+            continue
+        assert term.representation == "onnx", f"{term.name}: {term.note}"
+        assert term.steps_checked > 0
 
 
 # ---------------------------------------------------------------------------
@@ -201,7 +219,7 @@ def test_every_property_traced_through_matches_mjlab(traced_report):
         entity_fields = [
             label.split(".", 1)[1]
             for label in term.input_slots
-            if not label.startswith(("sensor:", "command:", "sim:"))
+            if not label.startswith(("sensor:", "command:", "sim:", "env:", "action:"))
         ]
         assert not (set(entity_fields) & properties), term.input_slots
 

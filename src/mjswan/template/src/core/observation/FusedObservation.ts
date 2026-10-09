@@ -4,9 +4,10 @@
  * the whole expense, and a shared slot gets marshalled twice.
  *
  * The build folded per-term clip/scale and the concatenation in, so the output *is* the
- * group vector. Native terms (`prev_action`, a generated command) are fed as graph
- * inputs to keep it complete, with a `command` input's name bound at construction —
- * unbound, it would arrive as a zero block inside the policy's input vector.
+ * group vector. Native terms (`prev_action` or a generated command, in a document before
+ * format 5) are fed as graph inputs to keep it complete. A command named by a native input
+ * or a slot must exist at construction: missing, it would arrive as a zero block inside the
+ * policy's input vector.
  *
  * History stays out: a stateless graph cannot hold it, so the build refuses to fuse a
  * group that carries any.
@@ -74,6 +75,9 @@ export class FusedObservation extends ObservationBase<FusedObservationConfig> {
       if (native.native === 'command') {
         assertCommandTermBound(runner, `${config.name}.${native.name}`, native.command_name);
       }
+    }
+    for (const slot of config.input_slots ?? []) {
+      if (slot.command) assertCommandTermBound(runner, config.name, slot.command);
     }
     this.deps = deps;
     this.last = new Float32Array(config.size);

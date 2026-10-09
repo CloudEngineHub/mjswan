@@ -33,7 +33,8 @@ OUT_DIR = ROOT / "src/mjswan/template/src/core/engine/__tests__/fixtures/rollout
 
 # Cartpole is the minimal shape (two entity-data slots, `time_out` as a lone graph);
 # G1-Velocity-Flat the wide one (builtin sensors, `joint_pos_biased`, seven terms in a
-# 99-wide fused group, native inputs, `time_out` fused with `fell_over`).
+# 99-wide fused group, the last-action and command slots, `time_out` fused with
+# `fell_over`).
 #
 # Velocity-Rough's raycast slot and Lift-Cube-Yam's command-state slot are covered by
 # `raycast.test.ts` and the `OnnxCommand` tests; both need a stub this format lacks.
@@ -109,26 +110,22 @@ def _termination_verdicts(env: Any, cfg: Any) -> dict[str, bool]:
     return verdicts
 
 
-def _native_inputs(env: Any, group_entry: dict[str, Any]) -> dict[str, list[float]]:
-    """The values the orchestrator supplies natively, not through a graph.
+def _command_values(env: Any, group_entry: dict[str, Any]) -> dict[str, list[float]]:
+    """mjlab's value of each command the group reads, by name.
 
-    `prev_action` and `command` are computed browser-side (the policy's own last
-    output; a live command term), so feeding mjlab's value here keeps the
-    comparison about the graph and the pipeline. Both are covered separately by
-    the `PolicyRunner` and `OnnxCommand` suites.
+    A command is a live term browser-side, so feeding mjlab's value keeps the comparison
+    about the graph and the pipeline. The `OnnxCommand` suite covers the term itself.
     """
-    natives: dict[str, list[float]] = {}
-    for native in group_entry.get("native_inputs", []):
-        kind = native["native"]
-        if kind == "prev_action":
-            natives[native["input"]] = _flat(env.action_manager.action)
-        elif kind == "command":
-            natives[native["input"]] = _flat(
-                env.command_manager.get_command(native["command_name"])
-            )
-        else:  # pragma: no cover — a new native marker needs a decision here
-            raise ValueError(f"no fixture source for native input {kind!r}")
-    return natives
+    values: dict[str, list[float]] = {}
+    for slot in group_entry["input_slots"]:
+        if "command" not in slot:
+            continue
+        if slot["field"] != "command":  # pragma: no cover: needs a fixture source
+            raise ValueError(f"no fixture source for command field {slot['field']!r}")
+        values[slot["command"]] = _flat(
+            env.command_manager.get_command(slot["command"])
+        )
+    return values
 
 
 # Bracketing an orientation limit from both sides, then back under it.
@@ -226,7 +223,8 @@ def _dump_task(task_id: str, out_dir: Path) -> dict[str, Any]:
                     name: _data_field(env, name, count) for name, count in DATA_ARRAYS
                 },
                 "episode_length": int(env.episode_length_buf[0]),
-                "native": _native_inputs(env, group_entry),
+                "last_action": _flat(env.action_manager.action),
+                "commands": _command_values(env, group_entry),
                 "obs": _flat(env.observation_manager.compute_group("actor")),
                 "terminations": _termination_verdicts(env, cfg),
             }
@@ -286,8 +284,7 @@ def main() -> None:
         print(
             f"{task_id}: {len(payload['steps'])} steps, "
             f"obs width {payload['group']['size']}, "
-            f"{len(payload['group']['input_slots'])} slots + "
-            f"{len(payload['group']['native_inputs'])} native, "
+            f"{len(payload['group']['input_slots'])} slots, "
             f"{terminations} terminations, graphs: {', '.join(graphs)}"
         )
     print(f"wrote {index} ({index.stat().st_size / 1024:.1f} KiB)")

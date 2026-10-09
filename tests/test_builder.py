@@ -857,10 +857,9 @@ def _fake_trace_env():
     class _ActionManager:
         """Two terms, so `last_action(action_name=…)` is a real slice.
 
-        Every buildable mjlab task declares exactly one action term, where a term's
-        slice and the whole vector coincide — so a single-term fake could not tell a
-        correct `action_offset` from a missing one. `arm` takes [0,3) and `gripper`
-        the tail, mirroring `ActionManager.process_action`'s split.
+        With one, as every buildable mjlab task has, a slice and the whole vector
+        coincide. `arm` takes [0,3) and `gripper` the tail, as
+        `ActionManager.process_action` splits it.
         """
 
         def __init__(self):
@@ -892,7 +891,7 @@ def _fake_trace_env():
     return _Env({"robot": _Entity(data)})
 
 
-# Named `last_action` because the tracer classifies natives by `func.__name__`.
+# mjlab's `last_action` body.
 def last_action(env, *, action_name=None, **_):
     if action_name is None:
         return env.action_manager.action
@@ -1400,12 +1399,14 @@ class TestSaveWebPolicyJson:
         with pytest.raises(ValueError, match="share one MdpConfig but disagree"):
             self._run(builder, tmp_path)
 
-    def test_last_action_with_a_term_name_emits_its_slice_offset(
+    def test_last_action_with_a_term_name_reads_its_slice_of_the_action_slot(
         self, tmp_path, minimal_model, minimal_onnx
     ):
         # The two-action-term shape, through the real Builder. No mjlab task has it, so
-        # otherwise the offset is only ever checked against a stub action manager.
+        # otherwise the slice is only ever checked against a stub action manager.
         pytest.importorskip("torch")
+        np = pytest.importorskip("numpy")
+        ort = pytest.importorskip("onnxruntime")
         builder = Builder()
         scene = builder.add_project(name="P").add_scene(
             control_dt=0.02, name="S", model=minimal_model
@@ -1426,25 +1427,68 @@ class TestSaveWebPolicyJson:
             },
         )
 
-        group = self._policy_json(self._run(builder, tmp_path), "Policy")[
-            "observations"
-        ]["policy"]
-        native = next(
-            entry
-            for entry in group["native_inputs"]
-            if entry["name"] == "gripper_action"
+        out = self._run(builder, tmp_path)
+        group = self._policy_json(out, "Policy")["observations"]["policy"]
+        # Traced, not native: the graph takes the whole vector the runtime holds.
+        assert "native_inputs" not in group
+        assert {"action": "action", "input": "action__action", "shape": [1, 4]} in (
+            group["input_slots"]
         )
-        assert native["native"] == "prev_action"
-        assert native["action_name"] == "gripper"
-        # `arm` holds [0,3), so `gripper` starts at 3. Without the offset the runtime feeds
-        # `arm`'s first element at `gripper`'s width: right width, wrong term.
-        assert native["action_offset"] == 3
-        assert native["size"] == 1
-        # And the group still fuses around it: the native term is a graph *input*.
         assert [(r["name"], r["size"]) for r in group["layout"]] == [
             ("joint_pos", 2),
             ("gripper_action", 1),
         ]
+        session = ort.InferenceSession(
+            str(out / "p" / "s" / group["fused"]), providers=["CPUExecutionProvider"]
+        )
+        (obs,) = session.run(
+            None,
+            {
+                "action__action": np.array([[1.0, 2.0, 3.0, 9.0]], np.float32),
+                "robot__joint_pos": np.array([[0.1, 0.2]], np.float32),
+            },
+        )
+        # `arm` holds [0,3), so `gripper` is element 3. Reading the vector's head would
+        # give `arm`'s first element: right width, wrong term.
+        assert obs[0, -1] == 9.0
+
+    def test_a_plain_scene_sizes_the_action_slot_from_the_policy(
+        self, tmp_path, minimal_model, minimal_onnx
+    ):
+        # A plain scene's env has no action terms to give the width, so the policy does:
+        # `policy_num_actions` over the joint names, as an output need not drive a joint.
+        torch = pytest.importorskip("torch")
+        env = _fake_trace_env()
+        env.action_manager = SimpleNamespace(
+            action=torch.zeros(1, 0), total_action_dim=0
+        )
+        builder = Builder()
+        scene = builder.add_project(name="P").add_scene(
+            control_dt=0.02, name="S", model=minimal_model
+        )
+        scene._config.mjlab_env = env
+        scene.add_policy(
+            name="Policy",
+            policy=minimal_onnx,
+            policy_joint_names=["j1", "j2"],
+            policy_num_actions=5,
+            observations={
+                "policy": ObservationGroupCfg(
+                    terms={
+                        "joint_pos": ObservationTermCfg(func=_fake_joint_pos_rel),
+                        "actions": ObservationTermCfg(func=last_action),
+                    }
+                ),
+            },
+        )
+
+        group = self._policy_json(self._run(builder, tmp_path), "Policy")[
+            "observations"
+        ]["policy"]
+        assert {"action": "action", "input": "action__action", "shape": [1, 5]} in (
+            group["input_slots"]
+        )
+        assert env.action_manager.total_action_dim == 0
 
     def test_last_action_naming_no_action_term_fails_the_build(
         self, tmp_path, minimal_model, minimal_onnx

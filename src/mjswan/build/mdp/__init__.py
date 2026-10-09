@@ -13,12 +13,16 @@ Called from :mod:`mjswan.build.manifest` once per MDP.
 from __future__ import annotations
 
 from .action import serialize_actions
-from .command import command_config, serialize_command, write_command_artifact
+from .command import (
+    command_config,
+    command_widths,
+    serialize_command,
+    write_command_artifact,
+)
 from .debug_vis import debug_vis_entry
-from .event import model_field_dr_descriptor, serialize_event, serialize_events
+from .event import serialize_event, serialize_events
 from .graph import onnx_ref, stamp_provenance, write_onnx
 from .observation import (
-    policy_native_sizes,
     serialize_observation_group,
     serialize_observation_term,
 )
@@ -32,11 +36,10 @@ from .termination import (
 __all__ = [
     "FUSED_TERMINATION_KEY",
     "command_config",
+    "command_widths",
     "contact_sensor_descriptor",
     "debug_vis_entry",
-    "model_field_dr_descriptor",
     "onnx_ref",
-    "policy_native_sizes",
     "raycast_sensor_descriptor",
     "serialize_actions",
     "serialize_command",

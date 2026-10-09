@@ -15,6 +15,10 @@ import torch
 
 from .slot import _TERM_ENV_READS, UnsupportedEnvRead
 
+#: Torch calls that read a tensor's shape, never its values: a proxy treats them as
+#: no read at all.
+_SHAPE_QUERIES = frozenset({"__get__", "size", "dim", "ndimension", "numel", "__len__"})
+
 
 def _traces_through(data: Any, name: str, reader_fields: Collection[str]) -> bool:
     """Whether ``data.<name>`` is a property to run against the sim proxy.
@@ -69,6 +73,76 @@ def _command_proxy(real: Any, on_tensor: Callable[[str, Any], Any]) -> Any:
         value = object.__getattribute__(self, attr)
         if isinstance(value, torch.Tensor):
             return on_tensor(attr, value)
+        return value
+
+    return _class_proxy(real, {"__getattribute__": __getattribute__})
+
+
+def action_term_window(manager: Any, name: str) -> tuple[int, int]:
+    """Where action term *name*'s slice of the policy's action vector starts, and its
+    width, as ``ActionManager.process_action`` splits the vector in config order.
+
+    Raises for a name the manager does not hold, as mjlab's ``get_term`` does.
+    """
+    names = list(manager.active_terms)
+    offset = 0
+    for term_name, dim in zip(names, manager.action_term_dim, strict=True):
+        if term_name == name:
+            return offset, int(dim)
+        offset += int(dim)
+    raise ValueError(
+        f"Term read action term {name!r}, which the scene does not define. "
+        f"Available: {', '.join(names) if names else '(none)'}."
+    )
+
+
+def _forward_action_attr(manager: Any, name: str) -> Any:
+    """``manager.<name>`` for a non-tensor (a width, the term names); raise for a tensor
+    the runtime does not hold, which would otherwise bake as a constant."""
+    value = getattr(manager, name)
+    if isinstance(value, torch.Tensor):
+        raise UnsupportedEnvRead(f"action_manager.{name}", _TERM_ENV_READS)
+    return value
+
+
+def _action_term_proxy(real: Any, raw_action: Callable[[], torch.Tensor]) -> Any:
+    """An action-term stand-in serving ``raw_action`` from ``raw_action()``; any other
+    tensor it holds (``processed_actions``, say) raises, as the manager's do."""
+
+    def __getattribute__(self: Any, attr: str) -> Any:  # noqa: N807
+        if attr == "raw_action":
+            return raw_action()
+        value = object.__getattribute__(self, attr)
+        if isinstance(value, torch.Tensor):
+            raise UnsupportedEnvRead(
+                f"action_manager.get_term(...).{attr}", _TERM_ENV_READS
+            )
+        return value
+
+    return _class_proxy(real, {"__getattribute__": __getattribute__})
+
+
+def entity_static(name: str, value: Any) -> Any:
+    """An entity attribute that is neither a tensor nor a scalar, as a term may use it.
+
+    Static structure (``indexing``, name lists, methods) passes through; an actuator
+    refuses a ``set_*`` call, which would change Python-side state the browser does not
+    run, mutating the trace env and capturing nothing.
+    """
+    if name == "actuators":
+        return [_actuator_guard(actuator) for actuator in value]
+    return value
+
+
+def _actuator_guard(real: Any) -> Any:
+    def __getattribute__(self: Any, attr: str) -> Any:  # noqa: N807
+        value = object.__getattribute__(self, attr)
+        if attr.startswith("set_") and callable(value):
+            raise ValueError(
+                f"Event term calls {type(real).__name__}.{attr}(), which sets actuator "
+                "state in Python that the browser does not run, so the change would be "
+                "lost. The browser takes PD gains from the policy's action config."
+            )
         return value
 
     return _class_proxy(real, {"__getattribute__": __getattribute__})

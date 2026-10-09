@@ -49,7 +49,10 @@ interface Step {
   data: Record<string, number[]>;
   /** mjlab's `episode_length_buf` at this state. */
   episode_length: number;
-  native: Record<string, number[]>;
+  /** mjlab's `action_manager.action` at this state. */
+  last_action: number[];
+  /** mjlab's `get_command(name)` at this state, for each command the group reads. */
+  commands: Record<string, number[]>;
   obs: number[];
   terminations: Record<string, boolean>;
 }
@@ -74,33 +77,36 @@ async function sessionFor(taskId: string, ref: string): Promise<OnnxSession> {
 }
 
 /** One step's `mjModel`/`mjData` view — mjlab's arrays, so its vector is the answer. */
-function contextFor(task: TaskFixture, step: Step): SlotReaderContext {
+function contextFor(
+  task: TaskFixture,
+  step: Step,
+  lastActions: () => Float32Array | null,
+): SlotReaderContext {
   const { names, ...rest } = task.model;
   const mjModel = { ...rest, names: Uint8Array.from(names as number[]).buffer };
   const mjData: Record<string, Float64Array> = {};
   for (const [key, values] of Object.entries(step.data)) {
     mjData[key] = Float64Array.from(values);
   }
-  return { mjModel, mjData, episodeLength: step.episode_length } as unknown as SlotReaderContext;
+  return {
+    mjModel,
+    mjData,
+    episodeLength: step.episode_length,
+    lastActions,
+  } as unknown as SlotReaderContext;
 }
 
-/** Reads one native input's fixture value for the current step. */
-function nativeReader(task: TaskFixture, step: () => Step, kind: string): () => Float32Array {
-  const entry = (task.group.native_inputs ?? []).find(native => native.native === kind);
-  return () => Float32Array.from(entry ? (step().native[entry.input] ?? []) : []);
-}
-
-/** A command term serving one fixture value, registered like any plugin term. */
-function fixtureCommandClass(read: () => Float32Array): CommandTermConstructor {
+/** A command term serving its fixture value, registered like any plugin term. */
+function fixtureCommandClass(step: () => Step): CommandTermConstructor {
   return class FixtureCommand implements CommandTerm {
     constructor(
-      _termName: string,
+      private readonly termName: string,
       _config: CommandConfigEntry,
       _context: CommandTermContext,
     ) {}
 
     getCommand(): Float32Array {
-      return read();
+      return Float32Array.from(step().commands[this.termName] ?? []);
     }
   };
 }
@@ -121,16 +127,14 @@ async function harnessFor(
   readSlot: SlotReader,
 ): Promise<PolicyRunner> {
   const commandManager = new CommandManager();
-  // Under the build's own names, through the real registry, so both `getCommand` and
+  // Under the build's own names, through the real registry, so both the slot reader and
   // `FusedObservation`'s name binding run against a real manager.
   const commands: CommandsConfig = {};
-  for (const native of task.group.native_inputs ?? []) {
-    if (native.native === 'command' && native.command_name) {
-      commands[native.command_name] = { name: 'FixtureCommand' };
-    }
+  for (const slot of task.group.input_slots ?? []) {
+    if (slot.command) commands[slot.command] = { name: 'FixtureCommand' };
   }
   commandManager.initialize(commands, {} as unknown as CommandTermContext, {
-    FixtureCommand: fixtureCommandClass(nativeReader(task, step, 'command')),
+    FixtureCommand: fixtureCommandClass(step),
   });
 
   const sessions = new Map<string, OnnxSession>([
@@ -172,18 +176,20 @@ describe.each(Object.keys(TASKS))('rollout parity vs mjlab — %s', taskId => {
   let runner: PolicyRunner;
   let terminations: TerminationManager;
 
+  // The last action and the commands through the real runner, as `runtime.ts` serves them.
   const readSlot: SlotReader = slot =>
-    createSlotReader(() => contextFor(task, current), {
-      jointBias: name => task.encoder_bias[name] ?? 0,
-    })(slot);
+    createSlotReader(
+      () => ({
+        ...contextFor(task, current, () => runner.getLastActions()),
+        commandManager: runner.getContext()?.commandManager,
+      }),
+      { jointBias: name => task.encoder_bias[name] ?? 0 },
+    )(slot);
 
-  /** mjlab's `action_manager.action` for the current step, stored as the runtime does. */
-  const readActions = nativeReader(task, () => current, 'prev_action');
-
-  /** Advance to one fixture step, pushing its action through the real runner. */
+  /** Advance to one fixture step, storing mjlab's action as the runtime does. */
   const seek = (step: Step): void => {
     current = step;
-    runner.setLastActions(readActions());
+    runner.setLastActions(Float32Array.from(step.last_action));
   };
 
   beforeAll(async () => {
@@ -218,22 +224,22 @@ describe.each(Object.keys(TASKS))('rollout parity vs mjlab — %s', taskId => {
     expect(first.some((v, i) => Math.abs(v - last[i]) > 1e-6)).toBe(true);
   }, 120_000);
 
-  it('keeps the native inputs that make the manager wiring observable', () => {
-    // Guards the harness: those two paths are only exercised by a task whose group has native
-    // inputs, so a regenerated fixture that lost them would silently stop testing them.
-    const natives = task.group.native_inputs ?? [];
-    const command = natives.find(native => native.native === 'command');
+  it('keeps the inputs that make the manager wiring observable', () => {
+    // Guards the harness: those two paths are only exercised by a task whose group reads
+    // them, so a regenerated fixture that lost them would silently stop testing them.
+    const command = task.group.input_slots?.find(slot => slot.command);
     if (command) {
-      expect(command.command_name, 'a command input must name its term').toBeTruthy();
-      // Found by name in the real manager, which is what `getCommand` resolves.
-      expect(runner.getContext()?.commandManager?.termNames()).toContain(command.command_name);
+      expect(command.field).toBe('command');
+      // Found by name in the real manager, which is what the slot reader resolves.
+      expect(runner.getContext()?.commandManager?.termNames()).toContain(command.command);
     }
-    if (natives.some(native => native.native === 'prev_action')) {
+    const action = task.group.input_slots?.find(slot => slot.action);
+    if (action) {
+      expect(action.shape).toEqual([1, task.num_actions]);
       expect(runner.getNumActions()).toBe(task.num_actions);
-      expect(readActions().length).toBe(task.num_actions);
     }
     // Cartpole has neither; assert that, so this reads as a property, not a skipped check.
-    if (natives.length === 0) expect(taskId).toBe('Mjlab-Cartpole-Balance');
+    if (!command && !action) expect(taskId).toBe('Mjlab-Cartpole-Balance');
   });
 
   it('reproduces every termination verdict at every step', async () => {
