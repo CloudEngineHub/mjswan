@@ -42,17 +42,14 @@ Make = Callable[[str, Callable[..., Any]], Callable[..., Any]]
 def _rng_namespaces(funcs: tuple[Callable[..., Any], ...]) -> list[dict[str, Any]]:
     """The globals a term's draws are looked up in: its functions' own, and mjlab's DR
     distributions', whose lambdas call the samplers by name."""
-    spaces: list[dict[str, Any]] = []
+    spaces = [getattr(f, "__globals__", {}) for f in funcs]
     try:
         from mjlab.envs.mdp.dr import _types
 
-        candidates = [*(getattr(f, "__globals__", {}) for f in funcs), vars(_types)]
+        spaces.append(vars(_types))
     except ImportError:
-        candidates = [getattr(f, "__globals__", {}) for f in funcs]
-    for space in candidates:
-        if all(space is not seen for seen in spaces):
-            spaces.append(space)
-    return spaces
+        pass
+    return list({id(s): s for s in spaces}.values())
 
 
 def _in_place(make: Make, kind: str, real: Callable[..., Any]) -> Callable[..., Any]:
@@ -257,12 +254,8 @@ class ReplayRng:
     :class:`DrawRecorder` stored it.
     """
 
-    def __init__(
-        self,
-        func: Callable[..., Any] | tuple[Callable[..., Any], ...],
-        rand: torch.Tensor,
-    ):
-        self._patches = _Patches(*(func if isinstance(func, tuple) else (func,)))
+    def __init__(self, *funcs: Callable[..., Any], rand: torch.Tensor):
+        self._patches = _Patches(*funcs)
         self._rand = rand.reshape(-1)
         self._offset = 0
 

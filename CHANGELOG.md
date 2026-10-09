@@ -332,6 +332,10 @@ shortcuts.
   (`kind: "root_velocity_b"`) lands only when the graph's `gate` output says the draw
   picked the env. Document format 5.
 
+- `mjswan.compile.ReplayRng` takes `rand` by keyword after its functions, as
+  `DrawRecorder` takes `at_lower_bounds`: `ReplayRng(func, rand=rand)`. The 0.11 call
+  `ReplayRng(func, rand)` raises `TypeError`.
+
 - **mjlab's `time_out` is traced like any other termination**
   ([#130](https://github.com/ttktjmt/mjswan/issues/130)). Its body reads
   `env.episode_length_buf`, which the tracer serves as an `env` input slot

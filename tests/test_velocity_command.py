@@ -23,7 +23,7 @@ pytest.importorskip("mjlab")
 from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg  # noqa: E402
 
 from mjswan.compile import trace_command_term  # noqa: E402
-from mjswan.compile.command import compare_step  # noqa: E402
+from mjswan.compile.command import compare_step, reference_runner  # noqa: E402
 from mjswan.managers.command_manager import _custom_registry  # noqa: E402
 
 STATE_FIELDS = list(_custom_registry["UniformVelocityCommandCfg"].state_fields or [])
@@ -100,22 +100,6 @@ def _traced(**overrides):
     return term, export
 
 
-def _evaluator(export):
-    import onnx
-    from onnx.reference import ReferenceEvaluator
-
-    evaluator = ReferenceEvaluator(onnx.load_from_string(export.onnx_bytes))
-    declared = set(evaluator.input_names)
-
-    def run(feeds):
-        outs = evaluator.run(
-            export.output_names, {k: v for k, v in feeds.items() if k in declared}
-        )
-        return dict(zip(export.output_names, outs))
-
-    return run
-
-
 def test_the_binding_traces_mjlabs_own_body():
     binding = _custom_registry["UniformVelocityCommandCfg"]
     assert binding.is_onnx_traced
@@ -131,7 +115,7 @@ def test_the_binding_traces_mjlabs_own_body():
 def test_the_graph_matches_mjlab_step_after_step(overrides):
     """Resamples, episode resets and plain updates, chained, at varying headings."""
     term, export = _traced(**overrides)
-    run = _evaluator(export)
+    run = reference_runner(export)
     ranges = torch.tensor(export.rand_ranges).reshape(-1, 2)
     generator = torch.Generator().manual_seed(0)
     seen = {flag: set() for flag in FLAGS}
@@ -163,7 +147,7 @@ def test_init_velocity_prob_starts_an_env_moving_on_a_reset_alone():
     term, export = _traced(init_velocity_prob=0.5)
     (target,) = export.write_targets
     assert (target["kind"], target["entity"]) == ("root_velocity_b", "robot")
-    run = _evaluator(export)
+    run = reference_runner(export)
     ranges = torch.tensor(export.rand_ranges).reshape(-1, 2)
     feeds = {f"prev_{f}": getattr(term, f).numpy() for f in STATE_FIELDS}
     feeds["robot__heading_w"] = np.array([0.0], dtype=np.float32)

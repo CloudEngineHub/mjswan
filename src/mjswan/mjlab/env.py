@@ -14,6 +14,7 @@ import re
 from collections.abc import Iterator, Mapping
 from types import SimpleNamespace
 from typing import Any, Callable
+from unittest import mock
 
 
 def _required_capacity(message: str, name: str) -> int | None:
@@ -110,20 +111,6 @@ def _command_term(manager: Any, name: str) -> Any:
         return None
 
 
-@contextlib.contextmanager
-def _swapped(obj: Any, name: str, value: Any) -> Iterator[None]:
-    had = hasattr(obj, name)
-    old = getattr(obj, name, None)
-    setattr(obj, name, value)
-    try:
-        yield
-    finally:
-        if had:
-            setattr(obj, name, old)
-        else:
-            delattr(obj, name)
-
-
 class TraceActionManager:
     """Stand-in ``ActionManager`` for a trace env with no action terms of its own.
 
@@ -192,7 +179,7 @@ def policy_actions(env: Any, num_actions: int) -> Iterator[None]:
             num_envs=getattr(env, "num_envs", 1),
             device=getattr(env, "device", "cpu"),
         )
-    with _swapped(env, "action_manager", stand_in):
+    with mock.patch.object(env, "action_manager", stand_in, create=True):
         yield
 
 
@@ -213,7 +200,8 @@ def mdp_commands(env: Any, widths: Mapping[str, int]) -> Iterator[None]:
         n: SimpleNamespace(command=torch.zeros((num_envs, w), device=device))
         for n, w in missing.items()
     }
-    with _swapped(env, "command_manager", TraceCommandManager(stand_ins, real)):
+    stand_in = TraceCommandManager(stand_ins, real)
+    with mock.patch.object(env, "command_manager", stand_in, create=True):
         yield
 
 

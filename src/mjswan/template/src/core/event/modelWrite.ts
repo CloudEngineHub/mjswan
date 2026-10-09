@@ -9,7 +9,7 @@ import {
   modelRows,
   type ModelElements,
 } from '../onnx/slotReader/model';
-import type { WriteValues } from './entityWrite';
+import type { WriteTarget, WriteValues } from './entityWrite';
 
 type MjModel = import('mujoco').MjModel;
 type MjData = import('mujoco').MjData;
@@ -26,12 +26,8 @@ export interface ModelWriteTarget extends ModelElements {
   outputs: string[];
 }
 
-export function isModelWriteTarget(target: unknown): target is ModelWriteTarget {
-  return (
-    typeof target === 'object' &&
-    target !== null &&
-    (target as { kind?: unknown }).kind === 'model'
-  );
+export function isModelWriteTarget(t: WriteTarget | ModelWriteTarget): t is ModelWriteTarget {
+  return t.kind === 'model';
 }
 
 /**

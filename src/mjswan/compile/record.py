@@ -17,6 +17,7 @@ from torch.utils._pytree import tree_leaves, tree_map
 from .gate import GatedIds
 from .model import ModelRecorder, ModelSim
 from .proxy import (
+    _SHAPE_QUERIES,
     _action_term_proxy,
     _command_proxy,
     _FieldProxy,
@@ -96,11 +97,6 @@ class _RowRecord:
 
     def whole(self) -> None:
         self.rows = None
-
-
-# Attribute reads and shape queries on a raw field say nothing about which of its values
-# a term uses, so they neither narrow nor widen it.
-_SHAPE_QUERIES = frozenset({"__get__", "size", "dim", "ndimension", "numel", "__len__"})
 
 
 class _RecordingField(_FieldProxy):

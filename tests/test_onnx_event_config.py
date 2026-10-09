@@ -468,7 +468,7 @@ def test_a_model_write_and_slot_carry_what_the_browser_declares(tmp_path):
     core = TEMPLATE / "src" / "core"
     elements = _declared(core / "onnx" / "slotReader" / "model.ts", "ModelElements")
     target_keys = _declared(core / "event" / "modelWrite.ts", "ModelWriteTarget")
-    slot_keys = _declared(core / "onnx" / "session.ts", "OnnxInputSlot")
+    slot_keys = _declared(core / "onnx" / "session.ts", "OnnxInputSlot") | elements
 
     entry = _serialize(
         _dr().joint_damping,

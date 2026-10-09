@@ -77,7 +77,7 @@ class _EventModule(nn.Module):
         captures: WriteCaptures = {}
         model = ModelReplay(self._model_plan, rows) if self._model_plan else None
         env = _EventReplayEnv(served, captures, real_env=self._real_env, model=model)
-        with ReplayRng(self._func, rand):
+        with ReplayRng(self._func, rand=rand):
             self._func(env, self._env_ids, **self._params)
         _, tensors = _flatten_captures(captures)
         return (*tensors, *(model.outputs if model else ()))

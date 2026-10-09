@@ -7,6 +7,7 @@ import * as ort from 'onnxruntime-web/wasm';
 // Configures ort.env before any session is created; see ortEnv.ts.
 import './ortEnv';
 import { queueOrtRun } from './runQueue';
+import type { ModelElements } from './slotReader/model';
 
 /** Minimal ORT-Web surface a command/event handler needs. */
 export interface OnnxSession {
@@ -32,7 +33,7 @@ export interface OnnxTensorLike {
  * carry dots the build folds to identifiers — not reproducible here. `shape` is the
  * traced shape, batch axis included, since a slot reader hands back a flat array.
  */
-export interface OnnxInputSlot {
+export interface OnnxInputSlot extends ModelElements {
   entity?: string | null;
   field?: string;
   sensor?: string;
@@ -50,11 +51,6 @@ export interface OnnxInputSlot {
   action?: string;
   /** An `mjModel` field an event reads, for the elements `names` lists, in that order. */
   model?: string;
-  /** For a `model` slot: the kind of element `names` holds (`geom`, `body`, `dof`, ...). */
-  element?: string;
-  /** A `dof` or `qpos` entry names its joint; `offsets` give the address within it. */
-  names?: string[];
-  offsets?: number[];
   /** For a `model` slot: the compiled value, mjlab's `get_default_field`, not the live one. */
   default?: boolean;
   input?: string;

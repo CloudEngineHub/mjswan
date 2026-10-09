@@ -17,6 +17,8 @@ import torch
 from torch.overrides import TorchFunctionMode
 from torch.utils._pytree import tree_leaves, tree_map
 
+from .proxy import _SHAPE_QUERIES
+
 
 class GatedIds(torch.Tensor):
     """Every env id, and the mask of those the body selected (see :func:`gated`)."""
@@ -90,15 +92,14 @@ def _split(index: Any) -> tuple[Any, torch.Tensor | None]:
 def _where(gate: torch.Tensor, new: Any, old: torch.Tensor) -> torch.Tensor:
     """``new`` where *gate* selects the env, else ``old``; *gate* runs down axis 0."""
     mask = gate.reshape(gate.shape[0], *([1] * (old.dim() - 1)))
-    new = torch.as_tensor(new, dtype=old.dtype, device=old.device).expand_as(old)
+    if not isinstance(new, torch.Tensor) or new.dtype != old.dtype:
+        new = torch.as_tensor(new, dtype=old.dtype, device=old.device)
     if old.dtype == torch.bool:
         # ONNX Runtime's Where has no bool kernel.
         return torch.where(mask, new.long(), old.long()).bool()
     return torch.where(mask, new, old)
 
 
-#: What a body may ask of a gated set besides indexing with it: its size.
-_SHAPE_QUERIES = frozenset({"__len__", "__get__", "size", "dim", "ndimension", "numel"})
 _FLATTENS = frozenset({"flatten", "squeeze", "view", "reshape"})
 
 
@@ -134,8 +135,6 @@ class GatedIndexing(TorchFunctionMode):
             mask = args[0]
             if mask.dtype == torch.bool and mask.dim() == 1:
                 ids = torch.arange(len(mask), device=mask.device)
-                if kwargs.get("as_tuple"):
-                    return (gated(ids, mask),)
                 return gated(ids, mask, column=True)
         elif name in _FLATTENS and isinstance(args[0], GatedIds):
             flat = func(*tree_map(_plain, args), **kwargs)

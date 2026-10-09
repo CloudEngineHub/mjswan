@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Callable
+from unittest import mock
 
 import numpy as np
 import torch
@@ -32,7 +33,7 @@ from .export import (
     _prepare_single_env_export,
     _register_consts,
 )
-from .gate import GatedIndexing
+from .gate import GatedIndexing, _where
 from .record import (
     _WRITE_FIELDS,
     WriteCaptures,
@@ -119,23 +120,11 @@ def _restore_state(term: Any, snap: dict[str, torch.Tensor]) -> None:
         setattr(term, k, v.clone())
 
 
-def _gate(
-    mask: torch.Tensor, resampled: torch.Tensor, prev: torch.Tensor
-) -> torch.Tensor:
-    shape = [mask.shape[0]] + [1] * (resampled.dim() - 1)
-    m = mask.reshape(shape)
-    # ONNX Runtime's Where kernel has no bool-branch implementation; select in
-    # int64 and cast back so bool state fields (is_*_env) round-trip.
-    if resampled.dtype == torch.bool:
-        return torch.where(m, resampled.long(), prev.long()).bool()
-    return torch.where(m, resampled, prev)
-
-
 def _gate_state(
     term: Any, fields: list[str], mask: torch.Tensor, before: dict[str, torch.Tensor]
 ) -> None:
     for f in fields:
-        setattr(term, f, _gate(mask, getattr(term, f), before[f]))
+        setattr(term, f, _where(mask, getattr(term, f), before[f]))
 
 
 def _gate_reset_writes(
@@ -166,12 +155,8 @@ def _reset_extra(term: Any) -> Callable[[torch.Tensor], None] | None:
         return None
 
     def extra(env_ids: torch.Tensor) -> None:
-        base = CommandTerm.reset
-        setattr(CommandTerm, "reset", lambda _self, _env_ids: {})
-        try:
+        with mock.patch.object(CommandTerm, "reset", lambda _self, _env_ids: {}):
             type(term).reset(term, env_ids)
-        finally:
-            setattr(CommandTerm, "reset", base)
 
     return extra
 
@@ -270,7 +255,7 @@ class _CommandModule(nn.Module):
         try:
             for field_name, value in zip(self._state_fields, state_inputs):
                 setattr(self._term, field_name, value)
-            with ReplayRng(_draw_funcs(self._term), rand), GatedIndexing():
+            with ReplayRng(*_draw_funcs(self._term), rand=rand), GatedIndexing():
                 _step(
                     self._term, self._state_fields, captures, masks, self._reset_extra
                 )
@@ -470,7 +455,7 @@ def compare_step(
     env_ids = torch.arange(term.num_envs)
     entity_name = getattr(getattr(term, "cfg", None), "entity_name", None)
     with _RecordCommand(term, _entity_attrs(term), entity_name) as rec:
-        with ReplayRng(_draw_funcs(term), rand):
+        with ReplayRng(*_draw_funcs(term), rand=rand):
             if resample:
                 term._resample_command(env_ids)
                 if reset and reset_extra is not None:
@@ -526,14 +511,8 @@ def _probe_draws(
     ]
 
 
-def _verify(export: CommandExport, term: Any, state_fields: list[str]) -> None:
-    """Refuse a graph that disagrees with the term's own body.
-
-    The trace took each guarded branch; one whose body is not a no-op when its guard
-    fails would ship a command mjlab never issues, so the graph is run (by ONNX's
-    reference evaluator, which needs no runtime) against the body on
-    :func:`_probe_draws`, chaining state from step to step.
-    """
+def reference_runner(export: CommandExport) -> GraphRunner:
+    """*export*'s graph, run by ONNX's reference evaluator, which needs no runtime."""
     import onnx
     from onnx.reference import ReferenceEvaluator
 
@@ -546,6 +525,17 @@ def _verify(export: CommandExport, term: Any, state_fields: list[str]) -> None:
         )
         return {n: np.asarray(o) for n, o in zip(export.output_names, outs)}
 
+    return run
+
+
+def _verify(export: CommandExport, term: Any, state_fields: list[str]) -> None:
+    """Refuse a graph that disagrees with the term's own body.
+
+    The trace took each guarded branch; one whose body is not a no-op when its guard
+    fails would ship a command mjlab never issues, so the graph is run against the
+    body on :func:`_probe_draws`, chaining state from step to step.
+    """
+    run = reference_runner(export)
     snap = _snapshot_state(term)
     try:
         for rand, resample, reset in _probe_draws(

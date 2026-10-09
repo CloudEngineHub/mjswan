@@ -15,6 +15,10 @@ import torch
 
 from .slot import _TERM_ENV_READS, UnsupportedEnvRead
 
+#: Torch calls that read a tensor's shape, never its values: a proxy treats them as
+#: no read at all.
+_SHAPE_QUERIES = frozenset({"__get__", "size", "dim", "ndimension", "numel", "__len__"})
+
 
 def _traces_through(data: Any, name: str, reader_fields: Collection[str]) -> bool:
     """Whether ``data.<name>`` is a property to run against the sim proxy.

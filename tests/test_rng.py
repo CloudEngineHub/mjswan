@@ -31,7 +31,7 @@ def _record(body):
 
 
 def _replay(body, rand):
-    with ReplayRng(body, torch.as_tensor(rand, dtype=torch.float32)):
+    with ReplayRng(body, rand=torch.as_tensor(rand, dtype=torch.float32)):
         return body()
 
 

@@ -229,14 +229,8 @@ def command_widths(
     widths: dict[str, int] = {}
     for name, cmd in (commands or {}).items():
         entry = entries.get(name, {})
-        field = next(
-            (
-                f
-                for f in entry.get("state_fields", ())
-                if f["name"] == entry.get("command_field")
-            ),
-            None,
-        )
+        fields = {f["name"]: f for f in entry.get("state_fields", ())}
+        field = fields.get(entry.get("command_field"))
         if field is not None:
             widths[name] = math.prod(field["shape"][1:])
         elif cmd.ui is not None:

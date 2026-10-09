@@ -10,15 +10,17 @@ from the browser's model.
 
 from __future__ import annotations
 
+import bisect
 import math
 from dataclasses import dataclass, field
 from typing import Any
 
 import mujoco
+import numpy as np
 import torch
 from torch.utils._pytree import tree_leaves, tree_map
 
-from .proxy import _FieldProxy, _plain
+from .proxy import _SHAPE_QUERIES, _FieldProxy, _plain
 from .slot import _EVENT_ENV_READS, _MODEL_NS, SlotKey, UnsupportedEnvRead, _sim_tensor
 
 #: A model field's element kind by name prefix, the ``mjtObj`` naming it, and the
@@ -45,8 +47,6 @@ _QPOS_FIELDS = frozenset({"qpos0", "qpos_spring"})
 #: does not say so through mjlab's ``requires_model_fields(..., recompute=...)``.
 SET_CONST_FIELDS = frozenset({"body_ipos", "body_mass", "body_inertia", "dof_armature"})
 
-_SHAPE_QUERIES = frozenset({"__get__", "size", "dim", "ndimension", "numel", "__len__"})
-
 
 def _element_kind(name: str) -> tuple[str, Any, str]:
     if name in _QPOS_FIELDS:
@@ -61,15 +61,6 @@ def _element_kind(name: str) -> tuple[str, Any, str]:
     )
 
 
-def _qpos_joint(mj_model: Any, adr: int) -> int:
-    """The joint whose ``qpos`` block holds address *adr*."""
-    joint = 0
-    for j in range(mj_model.njnt):
-        if mj_model.jnt_qposadr[j] <= adr:
-            joint = j
-    return joint
-
-
 def element_refs(mj_model: Any, name: str, ids: list[int]) -> dict[str, Any]:
     """``{"element", "names"[, "offsets"]}`` naming elements *ids* of field *name*.
 
@@ -81,7 +72,7 @@ def element_refs(mj_model: Any, name: str, ids: list[int]) -> dict[str, Any]:
             joints = [int(mj_model.dof_jntid[i]) for i in ids]
             starts = mj_model.jnt_dofadr
         else:
-            joints = [_qpos_joint(mj_model, i) for i in ids]
+            joints = [bisect.bisect_right(mj_model.jnt_qposadr, i) - 1 for i in ids]
             starts = mj_model.jnt_qposadr
         names = [
             mujoco.mj_id2name(mj_model, mujoco.mjtObj.mjOBJ_JOINT, j) for j in joints
@@ -167,10 +158,6 @@ def _int64_index(index: Any) -> Any:
     return tree_map(widen, index)
 
 
-def _key_name(name: str, default: bool) -> str:
-    return f"{name}.default" if default else name
-
-
 @dataclass
 class _Field:
     layout: Layout
@@ -211,7 +198,7 @@ class ModelRecorder:
                 _layout(self._sim.mj_model, name, value), value.clone(), value.clone()
             )
             self.fields[key] = state
-        proxy = state.shadow.as_subclass(_RecordingModelField)
+        proxy = state.shadow.as_subclass(_ModelField)
         proxy._model = (self, key)
         return proxy
 
@@ -243,7 +230,7 @@ class ModelRecorder:
             if state.read:
                 ids = sorted(state.read)
                 rows = state.layout.rows(state.original, ids).to(torch.float32)
-                out[(_MODEL_NS, _key_name(name, default))] = (rows, ids)
+                out[(_MODEL_NS, f"{name}.default" if default else name)] = (rows, ids)
         return out
 
     def slot_json(self, key: SlotKey, ids: list[int]) -> dict[str, Any]:
@@ -276,17 +263,13 @@ class ModelRecorder:
             layouts={key: s.layout for key, s in self.fields.items()},
             read={key: sorted(s.read) for key, s in self.fields.items() if s.read},
             writes=[
-                _flat_positions(self.fields[(w.name, False)].layout, w)
+                np.ravel_multi_index(
+                    tuple(w.positions.T.numpy()),
+                    self.fields[(w.name, False)].layout.shape,
+                ).tolist()
                 for w in self.writes
             ],
         )
-
-
-def _flat_positions(layout: Layout, write: ModelWrite) -> list[int]:
-    strides = [math.prod(layout.shape[d + 1 :]) for d in range(len(layout.shape))]
-    return (
-        (write.positions * torch.tensor(strides, dtype=torch.long)).sum(dim=1).tolist()
-    )
 
 
 @dataclass(frozen=True)
@@ -323,7 +306,7 @@ class ModelReplay:
             if ids:
                 value[layout.element_index(ids)] = self._served[key][0].to(layout.dtype)
             self._fields[key] = value
-        proxy = value.as_subclass(_ReplayModelField)
+        proxy = value.as_subclass(_ModelField)
         proxy._model = (self, key)
         return proxy
 
@@ -367,14 +350,6 @@ class _ModelField(_FieldProxy):
                     model, key = leaf._model
                     model.read_whole(key)
         return func(*tree_map(_plain, args), **tree_map(_plain, kwargs))
-
-
-class _RecordingModelField(_ModelField):
-    pass
-
-
-class _ReplayModelField(_ModelField):
-    pass
 
 
 class ModelSim:
