@@ -859,7 +859,7 @@ def _fake_trace_env():
 
         Every buildable mjlab task declares exactly one action term, where a term's
         slice and the whole vector coincide — so a single-term fake could not tell a
-        correct `action_offset` from a missing one. `arm` takes [0,3) and `gripper`
+        correct slice from the vector's head. `arm` takes [0,3) and `gripper`
         the tail, mirroring `ActionManager.process_action`'s split.
         """
 
@@ -1490,6 +1490,39 @@ class TestSaveWebPolicyJson:
             group["input_slots"]
         )
         assert env.action_manager.total_action_dim == 0
+
+    def test_an_env_with_action_terms_of_the_policy_width_keeps_them(
+        self, tmp_path, minimal_model, minimal_onnx
+    ):
+        # The stub has no `total_action_dim`; its 4-wide vector is what decides.
+        pytest.importorskip("torch")
+        builder = Builder()
+        scene = builder.add_project(name="P").add_scene(
+            control_dt=0.02, name="S", model=minimal_model
+        )
+        scene._config.mjlab_env = _fake_trace_env()
+        scene.add_policy(
+            name="Policy",
+            policy=minimal_onnx,
+            policy_joint_names=["j1", "j2", "j3", "j4"],
+            observations={
+                "policy": ObservationGroupCfg(
+                    terms={
+                        "joint_pos": ObservationTermCfg(func=_fake_joint_pos_rel),
+                        "gripper_action": ObservationTermCfg(
+                            func=last_action, params={"action_name": "gripper"}
+                        ),
+                    }
+                ),
+            },
+        )
+
+        group = self._policy_json(self._run(builder, tmp_path), "Policy")[
+            "observations"
+        ]["policy"]
+        assert {"action": "action", "input": "action__action", "shape": [1, 4]} in (
+            group["input_slots"]
+        )
 
     def test_last_action_naming_no_action_term_fails_the_build(
         self, tmp_path, minimal_model, minimal_onnx

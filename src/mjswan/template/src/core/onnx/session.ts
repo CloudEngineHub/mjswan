@@ -25,7 +25,8 @@ export interface OnnxTensorLike {
 /**
  * A dynamic runtime read a term's graph declares as an input, mirroring
  * `mjswan.compile.slot.slot_to_json`. Distinguished by which field is set:
- * `entity`+`field`, `sensor`, `sensor`+`field`, `command`+`field`, `sim`, or `env`.
+ * `entity`+`field`, `sensor`, `sensor`+`field`, `command`+`field`, `sim`, `env`, or
+ * `action`.
  *
  * `input` is the graph input name, build-supplied because sensor and command names
  * carry dots the build folds to identifiers — not reproducible here. `shape` is the

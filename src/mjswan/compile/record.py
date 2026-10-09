@@ -366,7 +366,9 @@ class _RecordingActionManager:
             raise ValueError(
                 "Term read the policy's last action, but the trace env has no action "
                 "terms to give it a width. For a plain scene the build takes it from "
-                "the policy's `policy_num_actions` or `policy_joint_names`; set one."
+                "the policy's `policy_num_actions` or `policy_joint_names`; set one. "
+                "Outside the Builder, trace within "
+                "`mjswan.mjlab.env.policy_actions(env, num_actions)`."
             )
         self._log.append(((_ACTION_NS, "action"), value))
         return value

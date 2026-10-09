@@ -109,8 +109,8 @@ def mdp_entry(
     """Trace one MDP's terms into ``<scene>/mdp/<mdp_id>/`` and return its entry.
 
     ``owners`` are the policies that run against it, in order. The first supplies the
-    per-policy context a trace needs: its joint names fix the native widths, its
-    sidecar's ``actions`` block carries the authored PD gains. The rest must agree
+    per-policy context a trace needs: its action count fixes the width of a last-action
+    read, its sidecar's ``actions`` block carries the authored PD gains. The rest must agree
     with it, a disagreement being a config mistake rather than a second MDP.
     """
     first = owners[0]

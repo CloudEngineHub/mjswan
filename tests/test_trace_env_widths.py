@@ -127,10 +127,22 @@ def test_an_env_with_action_terms_keeps_its_own():
     from mjswan.mjlab.env import policy_actions
 
     env = _trace_env()
-    own = SimpleNamespace(action=torch.zeros(1, 4), total_action_dim=4)
+    own = SimpleNamespace(action=torch.zeros(1, 4), active_terms=["arm"])
     env.action_manager = own
-    with policy_actions(env, 29):
+    with policy_actions(env, 4):
         assert env.action_manager is own
+
+
+def test_action_terms_of_another_width_refuse_the_read():
+    """The browser serves the policy's output, so a graph sized off the env would not fit."""
+    from mjswan.mjlab.env import policy_actions
+
+    env = _trace_env()
+    env.action_manager = SimpleNamespace(action=torch.zeros(1, 4), active_terms=["arm"])
+    with policy_actions(env, 5):
+        assert env.action_manager.active_terms == ["arm"]
+        with pytest.raises(ValueError, match="4 wide.*outputs 5"):
+            _ = env.action_manager.action
 
 
 def test_an_env_with_the_command_keeps_it():

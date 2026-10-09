@@ -142,19 +142,56 @@ class TraceActionManager:
         self.action_term_dim: list[int] = []
 
 
+class _MismatchedActions:
+    """*real*, refusing a read of its action vector, which is not the policy's width."""
+
+    def __init__(self, real: Any, num_actions: int):
+        self._real = real
+        self._num_actions = num_actions
+
+    def _refuse(self) -> ValueError:
+        return ValueError(
+            f"The trace env's action terms are {_action_width(self._real)} wide, but the "
+            f"policy outputs {self._num_actions} (`policy_num_actions`, else "
+            "`policy_joint_names`). A traced last-action read would take the env's width "
+            "while the browser holds the policy's."
+        )
+
+    @property
+    def action(self) -> Any:
+        raise self._refuse()
+
+    def get_term(self, name: str) -> Any:
+        raise self._refuse()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._real, name)
+
+
+def _action_width(manager: Any) -> int:
+    """The width of *manager*'s action vector, as a traced read sees it."""
+    action = getattr(manager, "action", None)
+    return int(action.shape[-1]) if action is not None else 0
+
+
 @contextlib.contextmanager
 def policy_actions(env: Any, num_actions: int) -> Iterator[None]:
     """Give *env* a :class:`TraceActionManager` of the policy's width while tracing,
-    unless it has action terms of its own, as an mjlab task's env does."""
+    unless it has action terms of its own, as an mjlab task's env does; those must be
+    the policy's width."""
     real = getattr(env, "action_manager", None)
-    if env is None or not num_actions or getattr(real, "total_action_dim", 0):
+    width = _action_width(real)
+    if env is None or not num_actions or width == num_actions:
         yield
         return
-    stand_in = TraceActionManager(
-        num_actions,
-        num_envs=getattr(env, "num_envs", 1),
-        device=getattr(env, "device", "cpu"),
-    )
+    if width:
+        stand_in: Any = _MismatchedActions(real, num_actions)
+    else:
+        stand_in = TraceActionManager(
+            num_actions,
+            num_envs=getattr(env, "num_envs", 1),
+            device=getattr(env, "device", "cpu"),
+        )
     with _swapped(env, "action_manager", stand_in):
         yield
 

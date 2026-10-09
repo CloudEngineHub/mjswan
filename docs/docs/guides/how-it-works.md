@@ -139,8 +139,8 @@ Two group shapes deliberately do **not** fuse, and fall back to per-term graphs:
 ### Input slots
 
 A graph needs the simulation state it reads. The build records that as **slots** in the
-manifest's MDP entry, and the browser's slot reader serves each one from `mjModel` /
-`mjData`:
+manifest's MDP entry, and the browser's slot reader serves each one, mostly from
+`mjModel` / `mjData`:
 
 ```json
 "input_slots": [
