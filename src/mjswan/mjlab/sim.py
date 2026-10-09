@@ -30,6 +30,16 @@ def _apply_mujoco_cfg_to_option(mujoco_cfg: Any, option: Any) -> None:
                 )
 
 
+def _apply_mujoco_cfg(mujoco_cfg: Any, spec: mujoco.MjSpec) -> None:
+    """Apply a ``MujocoCfg`` to ``spec.option``: mjlab's own ``apply`` when it has one,
+    since that touches only ``model.opt``, which ``spec.option`` mirrors; else the flags."""
+    apply = getattr(mujoco_cfg, "apply", None)
+    if callable(apply):
+        apply(SimpleNamespace(opt=spec.option))
+    else:
+        _apply_mujoco_cfg_to_option(mujoco_cfg, spec.option)
+
+
 def ensure_mjlab_extensions() -> None:
     """Install mjswan compatibility extensions onto mjlab classes when available."""
     try:
@@ -40,19 +50,11 @@ def ensure_mjlab_extensions() -> None:
     if hasattr(MujocoCfg, "apply_to_spec"):
         return
 
-    def apply_to_spec(self: Any, spec: mujoco.MjSpec) -> None:
-        apply = getattr(self, "apply", None)
-        if callable(apply):
-            # mjlab's own setter touches only `model.opt`, which `spec.option` mirrors.
-            apply(SimpleNamespace(opt=spec.option))
-        else:
-            _apply_mujoco_cfg_to_option(self, spec.option)
-
-    setattr(MujocoCfg, "apply_to_spec", apply_to_spec)
+    setattr(MujocoCfg, "apply_to_spec", _apply_mujoco_cfg)
 
 
 def apply_mjlab_sim_options(spec: mujoco.MjSpec, sim_cfg: Any | None) -> None:
-    """Apply mjlab simulation flags to an exported MuJoCo spec."""
+    """Apply mjlab's simulation options to an exported MuJoCo spec."""
     mujoco_cfg = getattr(sim_cfg, "mujoco", None)
     if mujoco_cfg is None:
         return
@@ -60,9 +62,8 @@ def apply_mjlab_sim_options(spec: mujoco.MjSpec, sim_cfg: Any | None) -> None:
     apply_to_spec = getattr(mujoco_cfg, "apply_to_spec", None)
     if callable(apply_to_spec):
         apply_to_spec(spec)
-        return
-
-    _apply_mujoco_cfg_to_option(mujoco_cfg, spec.option)
+    else:
+        _apply_mujoco_cfg(mujoco_cfg, spec)
 
 
 __all__ = [

@@ -672,6 +672,11 @@ shortcuts.
 
 ### Fixed
 
+- **`apply_mjlab_sim_options` writes the whole `MujocoCfg` for any caller.** It fell
+  back to copying the flags alone unless `add_scene_mjlab` had installed
+  `MujocoCfg.apply_to_spec` first, so a scene built from XML that called it ran at
+  MuJoCo's default timestep and integrator.
+
 - **An episode times out on the step mjlab's does.** The browser summed the control `dt`
   in floating point, so an episode could run a step long; it now counts steps against
   `ceil(episode_length_s / step_dt)` as mjlab does, for a document of any format. A reset

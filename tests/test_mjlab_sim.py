@@ -70,9 +70,16 @@ class TestMjlabCompat:
             minimal_spec.option.disableflags & int(mujoco.mjtDisableBit.mjDSBL_CONTACT)
         ) == int(mujoco.mjtDisableBit.mjDSBL_CONTACT)
 
-    def test_mjlab_mujoco_cfg_sets_the_spec_options(self, minimal_spec):
+    @pytest.mark.parametrize("extended", [True, False])
+    def test_mjlab_mujoco_cfg_sets_the_spec_options(
+        self, minimal_spec, monkeypatch, extended
+    ):
         mjlab_sim = pytest.importorskip("mjlab.sim.sim")
-        ensure_mjlab_extensions()
+        if extended:
+            ensure_mjlab_extensions()
+        else:
+            # A caller of the public helper need not have installed the extension.
+            monkeypatch.delattr(mjlab_sim.MujocoCfg, "apply_to_spec", raising=False)
         cfg = mjlab_sim.MujocoCfg(
             timestep=0.001,
             integrator="implicitfast",
