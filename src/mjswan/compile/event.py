@@ -1,8 +1,9 @@
 """Trace an event term body to ONNX.
 
-An event returns ``None`` and writes via ``entity.write_*_to_sim``, so the tensors it
-would write become the graph outputs, and its randomness is threaded in as an explicit
-``rand`` input replayed by :class:`.rng.ReplayRng`.
+An event returns ``None`` and writes via ``entity.write_*_to_sim`` or into
+``env.sim.model``, so the tensors it would write become the graph outputs, and its
+randomness is threaded in as an explicit ``rand`` input replayed by
+:class:`.rng.ReplayRng`.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from .export import (
     _prepare_single_env_export,
     _register_consts,
 )
+from .model import SET_CONST_FIELDS, ModelPlan, ModelRecorder, ModelReplay
 from .record import (
     _WRITE_FIELDS,
     WriteCaptures,
@@ -29,7 +31,7 @@ from .record import (
 )
 from .replay import _EventReplayEnv
 from .rng import DrawRecorder, ReplayRng
-from .slot import SlotKey, TaggedKey, _slot_input_name
+from .slot import _MODEL_NS, SlotKey, TaggedKey, _slot_input_name
 
 
 class _EventModule(nn.Module):
@@ -50,6 +52,7 @@ class _EventModule(nn.Module):
         *,
         env_ids: torch.Tensor | None,
         real_env: Any,
+        model_plan: ModelPlan | None = None,
     ):
         super().__init__()
         self._func = func
@@ -58,20 +61,27 @@ class _EventModule(nn.Module):
         self._dynamic_keys = dynamic_keys
         self._scalar_consts = scalar_consts
         self._real_env = real_env
+        self._model_plan = model_plan
         self._const_buffers = _register_consts(self, tensor_consts)
 
     def forward(self, *args: torch.Tensor):
         *dynamic, rand = args
         served: dict[TaggedKey, Any] = dict(self._scalar_consts)
         served.update(_const_values(self, self._const_buffers))
-        for (entity, field_name), tensor in zip(self._dynamic_keys, dynamic):
-            served[("data", entity, field_name)] = tensor
+        rows: dict[tuple[str, bool], torch.Tensor] = {}
+        for key, tensor in zip(self._dynamic_keys, dynamic):
+            if key[0] == _MODEL_NS:
+                name, _, source = key[1].partition(".")
+                rows[(name, source == "default")] = tensor
+            else:
+                served[("data", *key)] = tensor
         captures: WriteCaptures = {}
-        env = _EventReplayEnv(served, captures, real_env=self._real_env)
+        model = ModelReplay(self._model_plan, rows) if self._model_plan else None
+        env = _EventReplayEnv(served, captures, real_env=self._real_env, model=model)
         with ReplayRng(self._func, rand):
             self._func(env, self._env_ids, **self._params)
         _, tensors = _flatten_captures(captures)
-        return tuple(tensors)
+        return (*tensors, *(model.outputs if model else ()))
 
 
 @dataclass
@@ -94,6 +104,12 @@ class EventExport:
     constant_slots: list[str] = field(default_factory=list)
     input_shapes: list[list[int]] = field(default_factory=list)
     """Traced shape of each input slot, parallel to ``input_slots``."""
+    input_rows: list[list[int] | None] = field(default_factory=list)
+    """Per input slot, the model element ids it carries, or None."""
+    slot_extras: dict[SlotKey, dict[str, Any]] = field(default_factory=dict)
+    """A model slot's naming of its elements, for the manifest."""
+    set_const: bool = False
+    """Whether the browser owes ``mj_setConst`` after the model writes."""
 
 
 def trace_event_term(
@@ -116,22 +132,27 @@ def trace_event_term(
     env_ids = _env_ids(mode, is_global_time=is_global_time)
     log: list[tuple[TaggedKey, Any]] = []
     captures: WriteCaptures = {}
-    proxy = _EventCaptureEnv(env, log, captures)
+    proxy = _EventCaptureEnv(env, log, captures, model=True)
     with DrawRecorder(func) as rec:
         func(proxy, env_ids, **params)
+    recorder: ModelRecorder | None = proxy.model
+    model_writes = recorder.writes if recorder else []
 
-    if not captures:
+    if not captures and not model_writes:
         raise ValueError(
             f"Event term {name!r} wrote nothing traceable (no write_joint_state / "
-            "write_root_state / write_root_link_pose / write_root_link_velocity call); "
-            "handle it natively or extend _WRITE_FIELDS."
+            "write_root_state / write_root_link_pose / write_root_link_velocity call, "
+            "and no env.sim.model write); handle it natively or extend _WRITE_FIELDS."
         )
-    output_names, ref_tensors = _flatten_captures(captures)
+    output_names, ref_tensors = _event_outputs(captures, recorder)
     ref_rand = rec.rand_vector
     rand_dim = rec.rand_dim
     rand_ranges = rec.rand_ranges
 
     dynamic, tensor_consts, scalar_consts = _classify_tagged(log)
+    model_rows = recorder.slots() if recorder else {}
+    for key, (rows, _ids) in model_rows.items():
+        dynamic[key] = rows
 
     dynamic_keys = sorted(dynamic)
     dyn_input_names = [_slot_input_name(k) for k in dynamic_keys]
@@ -146,6 +167,7 @@ def trace_event_term(
         scalar_consts,
         env_ids=env_ids,
         real_env=env,
+        model_plan=recorder.plan() if recorder else None,
     ).eval()
     _prepare_single_env_export(env.num_envs)
     # `rand` keeps its traced length: it is one flat draw vector, not a batch of rows.
@@ -176,6 +198,12 @@ def trace_event_term(
         if kind == "joint_state" and scoped and joint_ids is not None:
             target["joint_ids"] = joint_ids
         write_targets.append(target)
+    if recorder:
+        model_outputs = output_names[len(output_names) - len(model_writes) :]
+        write_targets += [
+            recorder.write_target(write, output)
+            for write, output in zip(model_writes, model_outputs)
+        ]
 
     return EventExport(
         name=name,
@@ -191,7 +219,31 @@ def trace_event_term(
         reference_rand=ref_rand.detach(),
         constant_slots=[":".join(str(p) for p in k) for k in sorted(tensor_consts)],
         input_shapes=[list(dynamic[k].shape) for k in dynamic_keys],
+        input_rows=[
+            model_rows[k][1] if k in model_rows else None for k in dynamic_keys
+        ],
+        slot_extras={
+            k: recorder.slot_json(k, ids)
+            for k, (_rows, ids) in model_rows.items()
+            if recorder
+        },
+        set_const=bool(model_writes)
+        and (
+            int(getattr(func, "recompute", 0)) > 0
+            or any(w.name in SET_CONST_FIELDS for w in model_writes)
+        ),
     )
+
+
+def _event_outputs(
+    captures: WriteCaptures, model: ModelRecorder | None
+) -> tuple[list[str], list[torch.Tensor]]:
+    """Every output an event writes: entity writes, then model writes in call order."""
+    names, tensors = _flatten_captures(captures)
+    for i, write in enumerate(model.writes if model else ()):
+        names.append(f"model__{write.name}__{i}")
+        tensors.append(write.values)
+    return names, tensors
 
 
 def _env_ids(mode: str, *, is_global_time: bool = False) -> torch.Tensor | None:

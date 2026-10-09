@@ -538,6 +538,25 @@ describe('createSlotReader: action slots', () => {
   });
 });
 
+describe('createSlotReader: model slots', () => {
+  it('serves the named rows of a model field, live or as compiled', () => {
+    const scene = context();
+    (scene.mjModel as unknown as Mutable).geom_friction = Float64Array.from([
+      1, 0.1, 0.01, 2, 0.2, 0.02, 3, 0.3, 0.03,
+    ]);
+    const compiled = Float64Array.from([9, 9, 9, 8, 8, 8, 7, 7, 7]);
+    const read = createSlotReader(() => ({ ...scene, modelDefaults: { base: () => compiled } }));
+    const slot = {
+      model: 'geom_friction',
+      element: 'geom',
+      names: ['cube/geom', 'robot/pelvis_geom'],
+      shape: [1, 2, 3],
+    };
+    close(read(slot), [3, 0.3, 0.03, 1, 0.1, 0.01]);
+    close(read({ ...slot, default: true }), [7, 7, 7, 9, 9, 9]);
+  });
+});
+
 describe('slotDims', () => {
   it('rebuilds the traced rank with batch pinned to 1', () => {
     // site_pos_w is (batch, num_sites, 3) — feeding (1, 6) would be rejected.

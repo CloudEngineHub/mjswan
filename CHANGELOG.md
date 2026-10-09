@@ -307,6 +307,21 @@ shortcuts.
   now refuses to load an observation whose command slot names no command, as it did for
   the marker, and serves `field: "command"` from any term's `getCommand()`.
 
+- **mjlab's model-field randomization is traced like any other event**
+  ([#157](https://github.com/ttktjmt/mjswan/issues/157)). A `dr.*` body, or an author's
+  own, that writes `env.sim.model` runs against a copy of the model at build time. Each
+  field it reads becomes a `model` input slot naming its elements
+  (`{"model": "geom_friction", "element": "geom", "names": [...]}`, with
+  `"default": true` for `get_default_field`), and each write a `kind: "model"` write
+  target. The graph carries mjlab's own sampling and arithmetic: every `operation`,
+  axis selection, `shared_random`, name-pattern `ranges`, `log_uniform` and `gaussian`
+  draws, and `geom_size`'s bounds recompute. The browser records the compiled values
+  before writing, so an MDP switch still restores them, and runs `mj_setConst` (keeping
+  `qpos`) when the event carries `set_const`. A model write now works in any mode, not
+  only `startup`, and `run_parity` checks it against mjlab draw for draw. Documents no
+  longer carry the `model_field` descriptor; the engine still applies an earlier
+  document's. Document format 5.
+
 - **mjlab's `time_out` is traced like any other termination**
   ([#130](https://github.com/ttktjmt/mjswan/issues/130)). Its body reads
   `env.episode_length_buf`, which the tracer serves as an `env` input slot
@@ -842,8 +857,8 @@ shortcuts.
   one `sim` slot, and every other `env` attribute is either a forwarded constant
   (`num_envs`, `device`, `physics_dt`, `step_dt`, `cfg`) or raises `UnsupportedEnvRead`
   naming what a term may read instead. Events and commands hold the same contract, so a
-  model-field randomization (`geom_friction`, `body_mass`, …) is described from its
-  config rather than run against the live model at build time. A termination that traces
+  model-field randomization (`geom_friction`, `body_mass`, …) runs against a copy of the
+  model rather than the live one at build time. A termination that traces
   to a constant fails the build, `time_out=True` or not, and a baked observation term is
   named in a `RuntimeWarning`.
 - **White robots render white.** A `<material>` that declares no `metallic` (every

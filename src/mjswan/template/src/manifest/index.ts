@@ -204,7 +204,8 @@ export function sanitizeName(name: string): string {
  * earlier format still parses. 2 added `sim` input slots and their `rows`; 3 made
  * `camera.azimuth` MuJoCo's, the direction the camera looks; 4 added the `env` input
  * slot that `time_out` is traced through; 5 the `action` input slot that `last_action`
- * is traced through.
+ * is traced through, and the `model` input slot and write target that model-field
+ * randomization is traced through.
  */
 export const MAX_DOCUMENT_FORMAT = 5;
 

@@ -366,8 +366,10 @@ structurally impossible within a scene.
   document's native `time_out` marker. `format: 5` added the `action` input slot
   (`{"action": "action"}`), the policy's last action, which mjlab's `last_action`
   is traced through; a format-4 engine cannot serve it, so the observation group
-  would freeze. An engine still runs an earlier document's native `prev_action`
-  marker.
+  would freeze. The same format added the `model` input slot and the
+  `kind: "model"` write target, which mjlab's model-field randomization (`dr.*`) is
+  traced through. An engine still runs an earlier document's native `prev_action`
+  marker and `model_field` descriptor.
 
 The two are not redundant because they are read by different parties for
 different decisions — one by the host choosing an engine, one by the engine

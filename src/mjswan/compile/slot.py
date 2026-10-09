@@ -47,6 +47,8 @@ def _is_dynamic_field(field_name: str) -> bool:
 #   (_ENV_NS, buffer)                -> env.<buffer> (an env-level counter)
 #   (_ACTION_NS, "action")           -> env.action_manager.action (the policy's last
 #                                       action; a term's `raw_action` slices it)
+#   (_MODEL_NS, field[".default"])   -> env.sim.model.<field> (or its compiled default),
+#                                       the rows of the elements an event read
 SlotKey = tuple[str, str]
 
 
@@ -63,6 +65,7 @@ _COMMAND_NS = "__command__"
 _SIM_NS = "__sim__"
 _ENV_NS = "__env__"
 _ACTION_NS = "__action__"
+_MODEL_NS = "__model__"
 
 
 #: Env-level buffers served as slots, with the dtype mjlab keeps each in. The browser
@@ -97,8 +100,13 @@ _TERM_ENV_READS = (
     "env.action_manager.action",
     "env.action_manager.get_term(...).raw_action",
 )
-#: What an event or command body may read off ``env``.
-_EVENT_ENV_READS = ("env.scene[...]", "env.scene.<attr>")
+#: What an event or command body may read off ``env`` (``env.sim`` an event's only).
+_EVENT_ENV_READS = (
+    "env.scene[...]",
+    "env.scene.<attr>",
+    "env.sim.model.<field>",
+    "env.sim.get_default_field(...)",
+)
 
 
 class UnsupportedEnvRead(AttributeError):
@@ -235,6 +243,8 @@ def _slot_input_name(key: SlotKey) -> str:
         return f"env__{name_part}"
     if namespace == _ACTION_NS:
         return f"action__{name_part}"
+    if namespace == _MODEL_NS:
+        return "model__" + re.sub(r"\W", "_", name_part)
     return f"{namespace}__{name_part}"
 
 
@@ -251,6 +261,8 @@ def slot_label(key: SlotKey) -> str:
         return f"env:{name_part}"
     if namespace == _ACTION_NS:
         return f"action:{name_part}"
+    if namespace == _MODEL_NS:
+        return f"model:{name_part}"
     return f"{namespace}.{name_part}"
 
 
@@ -258,15 +270,17 @@ def slot_to_json(
     key: SlotKey,
     shape: Sequence[int] | None = None,
     rows: Sequence[int] | None = None,
+    extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Serialize one input slot for the manifest's MDP entry.
 
-    Six shapes, told apart by which keys are present: ``{"entity", "field"}``,
+    Seven shapes, told apart by which keys are present: ``{"entity", "field"}``,
     ``{"sensor"}``, ``{"command", "field"}``, ``{"sim"}`` (a raw ``mjData`` field,
     whole, or the ``rows`` of its element axis the graph takes, in order), ``{"env"}``
-    (an env-level counter the runtime keeps), or ``{"action"}`` (the policy's last
-    action). All carry ``input`` (the graph input name) and ``shape``: the runtime feeds
-    a flat array and cannot recover the rank without it.
+    (an env-level counter the runtime keeps), ``{"action"}`` (the policy's last
+    action), or ``{"model", "element", "names"}`` (an ``mjModel`` field's rows for the
+    named elements, given as *extra*). All carry ``input`` (the graph input name) and
+    ``shape``: the runtime feeds a flat array and cannot recover the rank without it.
     """
     namespace, name_part = key
     entry: dict[str, Any]
@@ -292,6 +306,8 @@ def slot_to_json(
         entry = {"env": name_part, "input": _slot_input_name(key)}
     elif namespace == _ACTION_NS:
         entry = {"action": name_part, "input": _slot_input_name(key)}
+    elif namespace == _MODEL_NS:
+        entry = {**(extra or {}), "input": _slot_input_name(key)}
     else:
         entry = {
             "entity": namespace,
@@ -312,11 +328,13 @@ def slots_json(export: Any) -> list[dict[str, Any]]:
     """
     shapes = getattr(export, "input_shapes", None) or []
     rows = getattr(export, "input_rows", None) or []
+    extras = getattr(export, "slot_extras", None) or {}
     entries = [
         slot_to_json(
             key,
             shapes[i] if i < len(shapes) else None,
             rows[i] if i < len(rows) else None,
+            extras.get(key),
         )
         for i, key in enumerate(export.input_slots)
     ]
@@ -362,4 +380,8 @@ def read_slot(
         return getattr(env, name_part)
     if namespace == _ACTION_NS:
         return getattr(env.action_manager, name_part)
+    if namespace == _MODEL_NS:
+        from .model import read_model_slot
+
+        return read_model_slot(env, key, list(rows or ()))
     return getattr(env.scene[namespace].data, name_part)

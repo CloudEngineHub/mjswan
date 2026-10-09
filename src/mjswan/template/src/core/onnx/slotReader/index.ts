@@ -15,6 +15,8 @@
  * An `env` slot is the runtime's step counter, fed as float32 like every slot; the graph
  * casts it back to mjlab's int64, exactly below 2^24 steps.
  *
+ * A `model` slot is the rows of an `mjModel` field for the elements it names (`model.ts`).
+ *
  * Entities resolve as `indexing.ts` describes; an unknown field returns null and the
  * caller holds its previous value.
  */
@@ -24,6 +26,7 @@ import { RaycastSensor, isRaycastField, type RaycastSensorDescriptor } from '../
 import type { OnnxInputSlot, SlotReader } from '../session';
 import { FIELD_READERS } from './fields';
 import { buildEntityIndex, decodeNames, unprefixed, type EntityIndex } from './indexing';
+import { readModelSlot, type ModelDefaultsSource } from './model';
 
 type MjModel = import('mujoco').MjModel;
 type MjData = import('mujoco').MjData;
@@ -47,6 +50,8 @@ export type SlotReaderContext = {
   episodeLength?: number;
   /** The policy's last action, zeroed on reset: mjlab's `action_manager.action`. */
   lastActions?: () => Float32Array | null;
+  /** The model's compiled field values, for a `model` slot that reads the default. */
+  modelDefaults?: ModelDefaultsSource | null;
 };
 
 export type SlotReaderOptions = {
@@ -210,6 +215,8 @@ export function createSlotReader(
     if (!mjModel || !mjData) return null;
 
     if (slot.sim) return readSimField(mjData, slot.sim, slot.rows, slot.shape);
+
+    if (slot.model) return readModelSlot(mjModel, slot, context.modelDefaults);
 
     if (slot.sensor) {
       if (slot.field) {

@@ -14,6 +14,7 @@ from typing import Any, Collection, cast
 import torch
 from torch.utils._pytree import tree_map
 
+from .model import ModelReplay, ModelSim
 from .proxy import (
     _action_term_proxy,
     _command_proxy,
@@ -25,6 +26,7 @@ from .proxy import (
     _traces_through,
     _with_sim_data,
     action_term_window,
+    entity_static,
 )
 from .record import _index_rows, _WriteCaptureMixin
 from .slot import (
@@ -328,19 +330,27 @@ class _EvReplayData:
 
 
 class _EvReplayEntity(_WriteCaptureMixin):
-    def __init__(self, entity, served, captures):
+    def __init__(self, entity, served, captures, real: Any = None):
         object.__setattr__(self, "_name", entity)
         object.__setattr__(self, "_served", served)
         object.__setattr__(self, "data", _EvReplayData(entity, served))
         object.__setattr__(self, "_captures", captures)
+        object.__setattr__(self, "_real", real)
 
     def __getattr__(self, name: str) -> Any:
         try:
             return self._served[("attr", self._name, name)]
         except KeyError:
-            raise AttributeError(
-                f"Event term read undeclared attr ('attr', {self._name!r}, {name!r})."
-            ) from None
+            pass
+        # Static structure (indexing, names) passes through unlogged, as in discovery.
+        value = getattr(self._real, name, None)
+        if value is not None and not isinstance(
+            value, (torch.Tensor, bool, int, float)
+        ):
+            return entity_static(name, value)
+        raise AttributeError(
+            f"Event term read undeclared attr ('attr', {self._name!r}, {name!r})."
+        )
 
 
 class _EvReplayScene:
@@ -350,7 +360,9 @@ class _EvReplayScene:
         self._real_env = real_env
 
     def __getitem__(self, name: str) -> _EvReplayEntity:
-        return _EvReplayEntity(name, self._served, self._captures)
+        return _EvReplayEntity(
+            name, self._served, self._captures, self._real_env.scene[name]
+        )
 
     def __getattr__(self, name: str) -> Any:
         if name == "entities":
@@ -369,9 +381,19 @@ class _EvReplayScene:
 
 
 class _EventReplayEnv:
-    def __init__(self, served, captures, *, real_env: Any, commands: bool = False):
+    def __init__(
+        self,
+        served,
+        captures,
+        *,
+        real_env: Any,
+        commands: bool = False,
+        model: ModelReplay | None = None,
+    ):
         self.scene = _EvReplayScene(served, captures, real_env)
         self._real_env = real_env
+        if model is not None:
+            self.sim = ModelSim(model, real_env.sim)
         if commands:
             # Only the commands the body read: a trace env's manager may not list them.
             read = {k[1].partition(".")[0] for k in served if k[0] == _COMMAND_NS}

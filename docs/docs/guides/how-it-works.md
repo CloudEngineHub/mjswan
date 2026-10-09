@@ -126,8 +126,8 @@ The governing rule is worth stating explicitly, because it is easy to misread:
 > **Fusion changes how many graphs exist, never how often they are called.**
 
 An event that fires once per episode still runs once per episode, fused or not. That is why
-event fusion was measured and declined — across the reference tasks, `startup` has no traced
-terms at all and `reset` has at most two.
+event fusion was measured and declined: across the reference tasks, `startup` has at most
+four traced terms, each run once, and `reset` at most two.
 
 Two group shapes deliberately do **not** fuse, and fall back to per-term graphs:
 
@@ -149,10 +149,11 @@ manifest's MDP entry, and the browser's slot reader serves each one, mostly from
 ]
 ```
 
-Six slot namespaces exist: an entity `data` field (as above), a named MuJoCo sensor's
+Seven slot namespaces exist: an entity `data` field (as above), a named MuJoCo sensor's
 `sensordata` window, a live command's state field, the episode step counter mjlab's
 `time_out` reads (`{"env": "episode_length_buf"}`), the policy's last action mjlab's
-`last_action` reads (`{"action": "action"}`), and a raw `mjData` field:
+`last_action` reads (`{"action": "action"}`), the rows of an `mjModel` field an event
+reads (below), and a raw `mjData` field:
 
 ```json
 { "sim": "cvel", "input": "sim__cvel", "shape": [1, 17, 6], "rows": [1, 4, 7] }
@@ -178,6 +179,21 @@ Anything model-derived and therefore constant — an entity's indices, `default_
 The action slot is the whole vector the policy last output, after `clip_actions`. A
 term-scoped `last_action(action_name=...)` reads the same slot, and the graph slices that
 action term's columns out of it.
+
+An event that randomizes the model, as mjlab's `dr.*` do, reads and writes
+`env.sim.model`. Each field it reads is a `model` slot naming its elements, since the
+browser's model numbers them apart from the trace env's (a dof or `qpos` entry is its
+joint's name and an offset); `"default": true` serves the compiled value mjlab's
+`get_default_field` returns:
+
+```json
+{ "model": "geom_friction", "element": "geom", "names": ["robot/left_foot1_collision"], "input": "model__geom_friction", "shape": [1, 1, 3] }
+```
+
+Each write is a `kind: "model"` write target naming the field, the elements, and the cell
+within its element's row each output value goes to. The browser records the compiled
+values before writing, so an MDP switch restores them, and runs `mj_setConst` when the
+event carries `set_const`.
 
 mjlab's `generated_commands` reads a command slot, `{"command": "velocity", "field":
 "command"}`, served from that command's current value. A plain scene's trace env holds no
@@ -206,8 +222,8 @@ called with `resample_mask = 1`.
     Traced term calls are asynchronous, and the runtime skips a call that is still
     in flight rather than blocking the frame. A skipped frame consumes one fewer draw,
     so later draws shift. Terminations are the exception: the step waits for their
-    graphs, so a reset lands on the step it does in mjlab. Startup randomization is
-    drawn synchronously and *is* fully reproducible; a command's resample schedule is
+    graphs, so a reset lands on the step it does in mjlab. Startup events run before
+    the first frame and *are* fully reproducible; a command's resample schedule is
     drawn before the in-flight check and is timing-independent too. Inference adds
     nothing: every graph runs on the same wasm build on every machine.
 
@@ -244,7 +260,7 @@ An MDP is written once however many policies share it. Two policies handed *diff
 `MdpConfig`s get `mdp_0` and `mdp_1`, so a group or term name only has to be unique within
 one MDP — the two fused groups above would otherwise land on the same file. Events sit in
 the MDP like everything else: a policy switch swaps them, and the engine restores the model
-values the previous MDP's startup randomization changed before running the new one's.
+values the previous MDP's events changed before running the new one's.
 
 `app.save_document()` packs the manifest and the project directories — nothing of the
 engine — into one `.swn` file, a ZIP of this same tree.

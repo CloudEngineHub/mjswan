@@ -14,6 +14,7 @@ from typing import Any, Callable, Collection, Sequence, cast
 import torch
 from torch.utils._pytree import tree_leaves, tree_map
 
+from .model import ModelRecorder, ModelSim
 from .proxy import (
     _action_term_proxy,
     _command_proxy,
@@ -26,6 +27,7 @@ from .proxy import (
     _traces_through,
     _with_sim_data,
     action_term_window,
+    entity_static,
 )
 from .slot import (
     _ACTION_NS,
@@ -516,7 +518,8 @@ class _EvRecEntity(_WriteCaptureMixin):
         # Only tensors and control-flow scalars can be reproduced during replay.
         if isinstance(value, (torch.Tensor, bool, int, float)):
             self._log.append((("attr", self._name, name), value))
-        return value
+            return value
+        return entity_static(name, value)
 
 
 class _EvRecScene:
@@ -557,12 +560,18 @@ class _EventCaptureEnv:
     never mutates the sim. Same contract as :class:`_EventReplayEnv`: any other read
     raises.
 
-    *commands* serves ``env.command_manager``, which only a command body may read.
+    *commands* serves ``env.command_manager``, which only a command body may read, and
+    *model* ``env.sim.model``, which only an event body may: its reads and writes go to
+    :attr:`model`, a :class:`ModelRecorder` made on first use.
     """
 
-    def __init__(self, real, log, captures, *, commands: bool = False):
+    def __init__(
+        self, real, log, captures, *, commands: bool = False, model: bool = False
+    ):
         object.__setattr__(self, "_real", real)
         object.__setattr__(self, "scene", _EvRecScene(real.scene, log, captures))
+        object.__setattr__(self, "_serves_model", model)
+        object.__setattr__(self, "model", None)
         if commands:
             object.__setattr__(
                 self,
@@ -571,4 +580,9 @@ class _EventCaptureEnv:
             )
 
     def __getattr__(self, name: str) -> Any:
+        if name == "sim" and self._serves_model:
+            recorder = ModelRecorder(self._real.sim)
+            object.__setattr__(self, "model", recorder)
+            object.__setattr__(self, "sim", ModelSim(recorder, self._real.sim))
+            return self.sim
         return _forward_env_attr(self._real, name, _EVENT_ENV_READS)

@@ -68,7 +68,7 @@ import { LocomotionPolicy } from '../policy/modules/LocomotionPolicy';
 import { CommandManager, type CommandTermContext, type CommandsConfig } from '../command';
 import { DebugViz } from '../debugViz/DebugViz';
 import { EventManager, type EventControl } from '../event/EventManager';
-import { ModelFieldDefaults } from '../event/modelFieldDr';
+import { ModelFieldDefaults } from '../event/modelWrite';
 import type { EventContext, TerrainData } from '../event/EventBase';
 import { OnnxSessionCache, type SlotReader } from '../onnx/session';
 import { ContactSensorSet, type ContactSensorDescriptor } from '../onnx/contact';
@@ -380,6 +380,7 @@ export class mjswanRuntime {
         commandManager: this.commandManager,
         episodeLength: this.episodeLength,
         lastActions,
+        modelDefaults: this.modelFieldDefaults,
       }),
       {
         jointBias: (name) => this.jointBias.get(name) ?? 0,
@@ -571,6 +572,7 @@ export class mjswanRuntime {
       mujoco: this.mujoco,
       mjModel: this.mjModel,
       mjData: this.mjData,
+      modelDefaults: this.modelFieldDefaults,
       terrainData: this.terrainData,
     };
   }
@@ -1325,7 +1327,7 @@ export class mjswanRuntime {
         );
         // `mode="startup"` fires once per MDP before its first reset, as mjlab fires it
         // at env construction, over the model `restore()` just put back to compiled.
-        await this.eventManager.startup(this.eventContext(), this.modelFieldDefaults ?? undefined);
+        await this.eventManager.startup(this.eventContext());
         this.mujoco.mj_forward(this.mjModel, this.mjData);
       }
       this.jointBias = buildJointBias(config);

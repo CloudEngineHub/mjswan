@@ -1005,9 +1005,9 @@ Three event terms are exempt, because there is provably nothing for the browser 
 `randomize_terrain` (one baked terrain, one origin), `encoder_bias` (the runtime applies it
 from the policy config), and a root-state write onto a **fixed-base** entity (which cannot
 move in mjlab either — mjlab's manipulation tasks configure `reset_base` on their arms
-regardless). Startup randomization that perturbs `mjModel` rather than `mjData` — geom
-friction, body COM, geom colors — needs no graph either: the build emits a descriptor and
-the browser applies it once from the seeded PRNG.
+regardless). Randomization that perturbs `mjModel` rather than `mjData` (geom friction,
+body COM, geom colors) traces like any other event: its `env.sim.model` writes become
+graph outputs the browser writes into its own model.
 
 See [How the Build Works](../guides/how-it-works.md#a-term-cannot-be-traced) for the
 decision procedure.

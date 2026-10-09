@@ -1,4 +1,5 @@
 import type { OnnxInputSlot } from '../onnx/session';
+import type { ModelFieldDefaults } from './modelWrite';
 
 export type EventConfig = {
   name: string;
@@ -25,8 +26,11 @@ export type EventConfig = {
 export type EventContext = {
   mjModel: import('mujoco').MjModel | null;
   mjData: import('mujoco').MjData | null;
-  /** Only a model-field randomization needs it, to call `mj_setConst`. */
+  /** Only a model write needs it, to call `mj_setConst`. */
   mujoco?: import('mujoco').MainModule | null;
+  /** The model-lifetime snapshot a model write records the compiled value in, which the
+   * runtime restores before an MDP switch. */
+  modelDefaults?: ModelFieldDefaults | null;
   terrainData?: TerrainData | null;
 };
 

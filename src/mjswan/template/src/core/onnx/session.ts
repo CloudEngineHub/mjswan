@@ -25,8 +25,8 @@ export interface OnnxTensorLike {
 /**
  * A dynamic runtime read a term's graph declares as an input, mirroring
  * `mjswan.compile.slot.slot_to_json`. Distinguished by which field is set:
- * `entity`+`field`, `sensor`, `sensor`+`field`, `command`+`field`, `sim`, `env`, or
- * `action`.
+ * `entity`+`field`, `sensor`, `sensor`+`field`, `command`+`field`, `sim`, `env`,
+ * `action`, or `model`.
  *
  * `input` is the graph input name, build-supplied because sensor and command names
  * carry dots the build folds to identifiers — not reproducible here. `shape` is the
@@ -48,6 +48,15 @@ export interface OnnxInputSlot {
   env?: string;
   /** The policy's last action: only `action`, mjlab's `env.action_manager.action`. */
   action?: string;
+  /** An `mjModel` field an event reads, for the elements `names` lists, in that order. */
+  model?: string;
+  /** For a `model` slot: the kind of element `names` holds (`geom`, `body`, `dof`, ...). */
+  element?: string;
+  /** A `dof` or `qpos` entry names its joint; `offsets` give the address within it. */
+  names?: string[];
+  offsets?: number[];
+  /** For a `model` slot: the compiled value, mjlab's `get_default_field`, not the live one. */
+  default?: boolean;
   input?: string;
   shape?: number[];
 }

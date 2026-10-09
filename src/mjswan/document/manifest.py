@@ -22,8 +22,10 @@ MANIFEST_NAME = "manifest.json"
 #: ever time out.
 #:
 #: 5: ``input_slots`` may carry the policy's last action (``{"action": ...}``), which
-#: ``last_action`` is traced through. An older engine cannot serve it, and freezes the
-#: observation group at its previous value.
+#: ``last_action`` is traced through, or the rows of an ``mjModel`` field
+#: (``{"model": ...}``), and an event may write one (``kind: "model"``), as model-field
+#: randomization is traced. An older engine cannot serve them: the observation group
+#: would freeze and the randomization would not happen.
 DOCUMENT_FORMAT = 5
 
 #: Input slots the runtime fills itself rather than from an observation group: the

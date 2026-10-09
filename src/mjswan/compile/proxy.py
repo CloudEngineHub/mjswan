@@ -119,6 +119,32 @@ def _action_term_proxy(real: Any, raw_action: Callable[[], torch.Tensor]) -> Any
     return _class_proxy(real, {"__getattribute__": __getattribute__})
 
 
+def entity_static(name: str, value: Any) -> Any:
+    """An entity attribute that is neither a tensor nor a scalar, as a term may use it.
+
+    Static structure (``indexing``, name lists, methods) passes through; an actuator
+    refuses a ``set_*`` call, which would change Python-side state the browser does not
+    run, mutating the trace env and capturing nothing.
+    """
+    if name == "actuators":
+        return [_actuator_guard(actuator) for actuator in value]
+    return value
+
+
+def _actuator_guard(real: Any) -> Any:
+    def __getattribute__(self: Any, attr: str) -> Any:  # noqa: N807
+        value = object.__getattribute__(self, attr)
+        if attr.startswith("set_") and callable(value):
+            raise ValueError(
+                f"Event term calls {type(real).__name__}.{attr}(), which sets actuator "
+                "state in Python that the browser does not run, so the change would be "
+                "lost. The browser takes PD gains from the policy's action config."
+            )
+        return value
+
+    return _class_proxy(real, {"__getattribute__": __getattribute__})
+
+
 def _is_sensor(scene: Any, name: str) -> bool:
     """Whether ``scene[name]`` resolves to a sensor rather than an entity."""
     sensors = getattr(scene, "sensors", None)

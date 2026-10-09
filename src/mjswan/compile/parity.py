@@ -13,7 +13,7 @@ from typing import Any, Callable, Collection
 import numpy as np
 import torch
 
-from .event import _env_ids, trace_event_term
+from .event import _env_ids, _event_outputs, trace_event_term
 from .record import WriteCaptures, _EventCaptureEnv, _flatten_captures
 from .rng import DrawRecorder
 from .slot import _COMMAND_NS, read_slot, slot_label
@@ -254,13 +254,15 @@ def run_parity(
             for _ in range(n_event_draws):
                 # Record a fresh reference invocation (real draws, no sim write).
                 captures: WriteCaptures = {}
-                proxy = _EventCaptureEnv(env, [], captures)
+                proxy = _EventCaptureEnv(env, [], captures, model=True)
                 with DrawRecorder(func) as rec:
                     func(proxy, env_ids, **params)
-                _, ref_tensors = _flatten_captures(captures)
+                _, ref_tensors = _event_outputs(captures, proxy.model)
                 feeds = {"rand": _to_numpy(rec.rand_vector)}
-                for in_name, slot in zip(export.input_names, export.input_slots):
-                    feeds[in_name] = _to_numpy(read_slot(env, slot))
+                for in_name, slot, rows in zip(
+                    export.input_names, export.input_slots, export.input_rows
+                ):
+                    feeds[in_name] = _to_numpy(read_slot(env, slot, rows))
                 # A draw-free event has no `rand` input: the export prunes it.
                 onnx_outs = session.run(
                     export.output_names, _declared_feeds(session, feeds)
@@ -303,7 +305,6 @@ def run_command_parity(
         _snapshot_state,
         trace_command_term,
     )
-    from .record import _flatten_captures
 
     tr = TermReport(name=name, kind="command", representation="onnx")
     export = trace_command_term(

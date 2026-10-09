@@ -397,7 +397,7 @@ scene.add_policy(
 ```
 
 Switching between policies with different MDPs restores the model values the previous
-MDP's `mode="startup"` randomization changed, reseeds the term PRNG, then runs the new
+MDP's events changed, reseeds the term PRNG, then runs the new
 MDP's startup events, so the randomization never compounds and A → B → A reproduces A.
 
 ## Scenes that are not mjlab tasks
