@@ -1911,7 +1911,7 @@ export class mjswanRuntime {
         return;
       }
       // Before `setLastActions`, which is what both the action terms and the
-      // `action` observation slot read — mirroring rsl-rl, where the clamp lands
+      // `action` observation slot read, mirroring rsl-rl, where the clamp lands
       // ahead of `env.step` and so ahead of the action manager recording the action.
       clampActions(action, this.clipActions);
       this.policyRunner.setLastActions(action);

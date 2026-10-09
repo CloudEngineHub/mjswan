@@ -2,10 +2,10 @@
  * Observation terms that are a plain read of state the orchestrator already owns, so
  * tracing them would only wrap an identity graph around a value in hand. The build
  * marks them `native`:
- * - `prev_action` — mjlab's `last_action`, in a document before format 5.
- * - `command` — mjlab's `generated_commands`, the named term's current value, in a
+ * - `prev_action`: mjlab's `last_action`, in a document before format 5.
+ * - `command`: mjlab's `generated_commands`, the named term's current value, in a
  *   document before format 5.
- * - `constant` — reads nothing from the env; its value is baked at build time.
+ * - `constant`: reads nothing from the env; its value is baked at build time.
  *
  * `size` normally comes from the build, but `prev_action`/`command` can resolve it from
  * the runtime, since a browser-only command has no build-time width.

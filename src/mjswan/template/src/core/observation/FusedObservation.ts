@@ -4,9 +4,10 @@
  * the whole expense, and a shared slot gets marshalled twice.
  *
  * The build folded per-term clip/scale and the concatenation in, so the output *is* the
- * group vector. Native terms (a generated command, or `prev_action` before format 5) are
- * fed as graph inputs to keep it complete, with a `command` input's name bound at construction —
- * unbound, it would arrive as a zero block inside the policy's input vector.
+ * group vector. Native terms (`prev_action` or a generated command, in a document before
+ * format 5) are fed as graph inputs to keep it complete. A command named by a native input
+ * or a slot must exist at construction: missing, it would arrive as a zero block inside the
+ * policy's input vector.
  *
  * History stays out: a stateless graph cannot hold it, so the build refuses to fuse a
  * group that carries any.
