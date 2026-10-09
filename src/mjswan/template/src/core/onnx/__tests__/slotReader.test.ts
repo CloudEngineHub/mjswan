@@ -473,6 +473,23 @@ describe('createSlotReader — command state slots', () => {
     }));
     close(read({ command: 'velocity', field: 'command' }), [0.5, 0, 1]);
   });
+
+  it('conforms a browser-only command to the width the slot was traced at', () => {
+    // `ui_command([])` answers [], an input ONNX Runtime rejects.
+    const values = new Map<string, number[]>([
+      ['none', []],
+      ['short', [0.5, 1]],
+      ['long', [0.5, 1, 2, 3]],
+    ]);
+    const read = createSlotReader(() => ({
+      ...context(),
+      commandManager: { getTerm: (name: string) => ({ getCommand: () => values.get(name) ?? [] }) },
+    }));
+    close(read({ command: 'none', field: 'command', shape: [1, 3] }), [0, 0, 0]);
+    close(read({ command: 'short', field: 'command', shape: [1, 3] }), [0.5, 1, 0]);
+    close(read({ command: 'long', field: 'command', shape: [1, 3] }), [0.5, 1, 2]);
+    close(read({ command: 'short', field: 'command' }), [0.5, 1]);
+  });
 });
 
 describe('createSlotReader — sim slots', () => {

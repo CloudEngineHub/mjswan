@@ -119,6 +119,17 @@ function isCommandStateSource(value: unknown): value is CommandStateSource {
   );
 }
 
+/** `values` zero-padded or cut to the traced width: a UI command is sized by its own inputs. */
+function toTracedWidth(values: Float32Array, slot: OnnxInputSlot): Float32Array {
+  const shape = slot.shape;
+  if (!shape || shape.length < 2) return values;
+  const width = shape.slice(1).reduce((a, b) => a * b, 1);
+  if (values.length === width) return values;
+  const out = new Float32Array(width);
+  out.set(values.subarray(0, Math.min(values.length, width)));
+  return out;
+}
+
 function hasGetCommand(value: unknown): value is { getCommand(): ArrayLike<number> } {
   return (
     typeof value === 'object' &&
@@ -197,7 +208,9 @@ export function createSlotReader(
       const state = isCommandStateSource(term) ? term.getStateField(slot.field ?? '') : null;
       if (state) return state;
       // mjlab's `get_command()`, which every term answers, traced state or not.
-      if (slot.field === 'command' && hasGetCommand(term)) return Float32Array.from(term.getCommand());
+      if (slot.field === 'command' && hasGetCommand(term)) {
+        return toTracedWidth(Float32Array.from(term.getCommand()), slot);
+      }
       return null;
     }
 
