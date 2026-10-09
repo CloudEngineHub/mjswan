@@ -590,10 +590,8 @@ class TestManualEvents:
 class TestAnUntraceableEventFailsTheBuild:
     """What happens when a term traces to nothing.
 
-    This used to be emitted as ``{"native": True, "reason": ...}``, which the runtime
-    skips silently — so a reset randomization the task is configured to apply just did
-    not happen, and nothing said so. Only the cases below, where there is provably
-    nothing to write, stay native; anything else fails the build.
+    The runtime skips a native event silently, so only the cases below, where there is
+    provably nothing to write, stay native; anything else fails the build.
     """
 
     @staticmethod

@@ -248,7 +248,7 @@ class _ReplayCommandManager:
 
 
 class _ReplayActionManager:
-    """Serves the recorded last action back; a term's ``raw_action`` slices it in-graph."""
+    """Serves the recorded last action; a term's ``raw_action`` slices it in-graph."""
 
     def __init__(self, slots: dict[SlotKey, torch.Tensor], real: Any):
         self._slots = slots

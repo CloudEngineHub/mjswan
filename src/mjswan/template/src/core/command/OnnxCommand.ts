@@ -225,9 +225,9 @@ export class OnnxCommand implements CommandTerm {
   }
 
   /**
-   * Run one graph evaluation; `reset` marks an episode reset, which a term's `reset`
-   * may add to (a graph without that addition declares no `reset_mask`). Exposed for
-   * tests and deterministic stepping.
+   * Run one graph evaluation. `reset` marks an episode reset, fed as `reset_mask`, which
+   * a graph declares only when its term adds to mjlab's `reset`. Exposed for tests and
+   * deterministic stepping.
    */
   async step(resample: boolean, reset = false): Promise<void> {
     const { feeds } = buildFeeds(this.cfg.input_slots, this.deps.readSlot);

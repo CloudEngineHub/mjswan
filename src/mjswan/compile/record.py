@@ -415,8 +415,8 @@ class _RecordingEnv:
         return _forward_env_attr(self._real, name, _TERM_ENV_READS)
 
 
-# Each write call and the tensors it writes, in argument order. A write to a draw-
-# selected env set (:mod:`.gate`) also carries its gate, as a trailing ``gate`` output.
+# Each write call and the tensors it writes, in argument order. A write through a
+# draw-selected env set (:mod:`.gate`) adds a trailing ``gate`` output.
 _WRITE_FIELDS: dict[str, tuple[str, ...]] = {
     "joint_state": ("position", "velocity"),
     "root_pose": ("pose",),

@@ -237,7 +237,7 @@ class ModelRecorder:
         self.writes.append(ModelWrite(name, positions, values))
 
     def slots(self) -> dict[SlotKey, tuple[torch.Tensor, list[int]]]:
-        """Each field read, as the rows of the elements read: the graph input, and ids."""
+        """Per field read: the read elements' rows, the graph input, and their ids."""
         out = {}
         for (name, default), state in self.fields.items():
             if state.read:
@@ -378,7 +378,7 @@ class _ReplayModelField(_ModelField):
 
 
 class ModelSim:
-    """``env.sim`` for an event body: ``model`` and ``get_default_field``, nothing else."""
+    """``env.sim`` for an event body: ``model`` and ``get_default_field`` only."""
 
     def __init__(self, model: ModelRecorder | ModelReplay, real_sim: Any):
         object.__setattr__(self, "_model", model)

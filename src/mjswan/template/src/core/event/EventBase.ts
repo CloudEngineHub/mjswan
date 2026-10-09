@@ -28,8 +28,7 @@ export type EventContext = {
   mjData: import('mujoco').MjData | null;
   /** Only a model write needs it, to call `mj_setConst`. */
   mujoco?: import('mujoco').MainModule | null;
-  /** The model-lifetime snapshot a model write records the compiled value in, which the
-   * runtime restores before an MDP switch. */
+  /** Compiled values a model write snapshots first, restored before an MDP switch. */
   modelDefaults?: ModelFieldDefaults | null;
   terrainData?: TerrainData | null;
 };

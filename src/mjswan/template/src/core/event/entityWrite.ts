@@ -21,8 +21,7 @@ export interface WriteTarget {
   outputs?: string[];
   /** Resolved joint indices for `joint_state`; `"all"` (or absent) means every joint. */
   joint_ids?: number[] | 'all' | null;
-  /** The graph output saying whether the term selected this env: a write it made to
-   * the envs a draw picked lands only when that output is set. */
+  /** Graph output gating the write: it lands only when the term wrote to this env. */
   gate?: string;
 }
 

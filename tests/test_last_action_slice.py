@@ -9,9 +9,7 @@ holds it, and slices it at the offset `ActionManager.process_action` gives the t
 accumulating `action_term_dim` in config order. `action_term_window` mirrors that walk.
 
 Every reference task declares a single action term, where the slice and the whole
-vector coincide — which is why the runtime reading the vector's head went unnoticed.
-These cases are therefore the coverage for the two-term shape; no buildable task
-exercises it yet.
+vector coincide, so none of them exercises the two-term shape these cases cover.
 """
 
 from __future__ import annotations

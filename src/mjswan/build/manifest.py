@@ -110,8 +110,8 @@ def mdp_entry(
 
     ``owners`` are the policies that run against it, in order. The first supplies the
     per-policy context a trace needs: its action count fixes the width of a last-action
-    read, its sidecar's ``actions`` block carries the authored PD gains. The rest must agree
-    with it, a disagreement being a config mistake rather than a second MDP.
+    read, its sidecar's ``actions`` block carries the authored PD gains. The rest must
+    agree with it, a disagreement being a config mistake rather than a second MDP.
     """
     first = owners[0]
     first_sidecar = sidecars[first.id]
@@ -151,7 +151,6 @@ def mdp_entry(
             name: serialize_command(name, cmd, env, scene_dir, scope=scope)
             for name, cmd in mdp.commands.items()
         }
-    # The sidecar's values only where the policy leaves them unset.
     policy = {
         k: first_sidecar.get(k) if getattr(first, k) is None else getattr(first, k)
         for k in ("policy_joint_names", "policy_num_actions")

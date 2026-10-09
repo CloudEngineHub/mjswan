@@ -293,9 +293,9 @@ def run_command_parity(
 
     Traces ``_resample_command``+``_update_command`` once, then for ``n_draws`` random
     draws runs a resample step through ONNX Runtime and through the live term, chaining
-    state, and compares the next state and any ``entity_write``; every other step is an
-    episode reset where the term's ``reset`` adds to it. A final step without a
-    resample checks that the state only updates.
+    state, and compares the next state and any ``entity_write``. When the term's
+    ``reset`` adds to mjlab's, every other step is also an episode reset. A final step
+    without a resample checks that the state only updates.
     """
     import onnxruntime as ort
 

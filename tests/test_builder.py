@@ -857,10 +857,9 @@ def _fake_trace_env():
     class _ActionManager:
         """Two terms, so `last_action(action_name=…)` is a real slice.
 
-        Every buildable mjlab task declares exactly one action term, where a term's
-        slice and the whole vector coincide — so a single-term fake could not tell a
-        correct slice from the vector's head. `arm` takes [0,3) and `gripper`
-        the tail, mirroring `ActionManager.process_action`'s split.
+        With one, as every buildable mjlab task has, a slice and the whole vector
+        coincide. `arm` takes [0,3) and `gripper` the tail, as
+        `ActionManager.process_action` splits it.
         """
 
         def __init__(self):

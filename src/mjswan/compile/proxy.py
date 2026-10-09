@@ -78,8 +78,7 @@ def action_term_window(manager: Any, name: str) -> tuple[int, int]:
     """Where action term *name*'s slice of the policy's action vector starts, and its
     width, as ``ActionManager.process_action`` splits the vector in config order.
 
-    Raises for a name the manager does not hold, as mjlab's ``get_term`` does, rather
-    than serving the vector's head at the right width.
+    Raises for a name the manager does not hold, as mjlab's ``get_term`` does.
     """
     names = list(manager.active_terms)
     offset = 0

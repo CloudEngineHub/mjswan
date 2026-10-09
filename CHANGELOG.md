@@ -322,16 +322,13 @@ shortcuts.
   document's. Document format 5.
 
 - **mjlab's `UniformVelocityCommand` is traced as mjlab wrote it**
-  ([#158](https://github.com/ttktjmt/mjswan/issues/158)), with no mjswan rewrite of its
-  body (`bind_velocity_override` is gone). The tracer follows mjlab's constructs: in-place
-  draws (`Tensor.uniform_`, `Tensor.normal_`) ride in `rand` like the helpers' draws; an
-  env set a draw selects (`env_ids[mask]`, `mask.nonzero()`) stays whole and carries the
-  mask, so a write through it becomes a `where` and a guard on its emptiness is always
-  taken; and the trace draws at each range's low end, so every guarded branch is in the
-  graph. Before a command ships, the build runs its graph against the term's own body on
-  draws that take each selection both ways, and refuses one that disagrees.
-  `init_velocity_prob` works: what a term's `reset` adds to mjlab's runs in the graph on
-  an episode reset alone (a `reset_mask` input), and its body-frame root velocity write
+  ([#158](https://github.com/ttktjmt/mjswan/issues/158)); mjswan's rewrite of its body
+  (`bind_velocity_override`) is gone. The tracer now follows in-place draws
+  (`Tensor.uniform_`, `Tensor.normal_`) and env sets a draw selects (`env_ids[mask]`,
+  `mask.nonzero()`), and the build refuses a command whose graph disagrees with the
+  term's own body on draws that take each selection both ways. `init_velocity_prob`
+  works: a term's own addition to `reset` runs in the graph on an episode reset alone (a
+  `reset_mask` input), and its body-frame root velocity write
   (`kind: "root_velocity_b"`) lands only when the graph's `gate` output says the draw
   picked the env. Document format 5.
 
@@ -871,9 +868,9 @@ shortcuts.
   (`num_envs`, `device`, `physics_dt`, `step_dt`, `cfg`) or raises `UnsupportedEnvRead`
   naming what a term may read instead. Events and commands hold the same contract, so a
   model-field randomization (`geom_friction`, `body_mass`, …) runs against a copy of the
-  model rather than the live one at build time. A termination that traces
-  to a constant fails the build, `time_out=True` or not, and a baked observation term is
-  named in a `RuntimeWarning`.
+  model rather than the live one at build time. A termination that traces to a constant
+  fails the build, `time_out=True` or not, and a baked observation term is named in a
+  `RuntimeWarning`.
 - **White robots render white.** A `<material>` that declares no `metallic` (every
   material in Menagerie and mjlab, G1's `0.7 0.7 0.7` and Microduck's included) was
   handed MuJoCo's `specular` as its `metalness`. The two are unrelated: `specular` is a

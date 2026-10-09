@@ -200,8 +200,8 @@ mjlab's `generated_commands` reads a command slot, `{"command": "velocity", "fie
 term for a command only the browser drives, so while tracing the build gives it a zero
 stand-in of the width it knows: the command's value inputs, or a traced command's state.
 
-Documents before format 5 carried both values as **native inputs** the orchestrator
-filled in, and the engine still reads them.
+Before format 5, a document carried the last action and a command's value as **native
+inputs** the orchestrator filled in; the engine still reads them.
 
 ### Randomness and state
 

@@ -363,15 +363,13 @@ structurally impossible within a scene.
   input slot (`{"env": "episode_length_buf"}`), the runtime's episode step
   counter, which mjlab's `time_out` is traced through; a format-3 engine cannot
   serve it, so no episode would end on time. An engine still runs an earlier
-  document's native `time_out` marker. `format: 5` added the `action` input slot
-  (`{"action": "action"}`), the policy's last action, which mjlab's `last_action`
-  is traced through; a format-4 engine cannot serve it, so the observation group
-  would freeze. The same format added the `model` input slot and the
-  `kind: "model"` write target, which mjlab's model-field randomization (`dr.*`) is
-  traced through, and a command graph's `reset_mask` input, gated writes and
-  `kind: "root_velocity_b"` write, which mjlab's `UniformVelocityCommand` is traced
-  through. An engine still runs an earlier document's native `prev_action` marker and
-  `model_field` descriptor.
+  document's native `time_out` marker. `format: 5` added what mjlab's `last_action`,
+  model-field randomization (`dr.*`) and `UniformVelocityCommand` are traced through:
+  the `action` input slot (`{"action": "action"}`, the policy's last action), the
+  `model` input slot and `kind: "model"` write target, and a command graph's
+  `reset_mask` input, gated writes and `kind: "root_velocity_b"` write, none of which a
+  format-4 engine can serve. An engine still runs an earlier document's native
+  `prev_action` marker and `model_field` descriptor.
 
 The two are not redundant because they are read by different parties for
 different decisions — one by the host choosing an engine, one by the engine

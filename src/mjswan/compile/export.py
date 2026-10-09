@@ -129,9 +129,8 @@ def _classify_slots(
 
     Sensor, command-state, raw sim-data, env-counter and last-action reads are live
     state by definition; an entity data field is dynamic unless it is a model-derived
-    constant.
-    Returns whether *this* log contributed a dynamic slot, which a group's caller needs
-    per term.
+    constant. Returns whether *this* log contributed a dynamic slot, which a group's
+    caller needs per term.
     """
     saw_dynamic = False
     for key, value in log:
