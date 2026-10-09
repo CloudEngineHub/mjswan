@@ -475,8 +475,7 @@ describe('createSlotReader — command state slots', () => {
   });
 
   it('conforms a browser-only command to the width the slot was traced at', () => {
-    // `ui_command([])` answers an empty vector; 0.11.4's native `command` term read
-    // it as zeros, and an empty input stops ONNX Runtime.
+    // `ui_command([])` answers [], an input ONNX Runtime rejects.
     const values = new Map<string, number[]>([
       ['none', []],
       ['short', [0.5, 1]],
@@ -489,7 +488,6 @@ describe('createSlotReader — command state slots', () => {
     close(read({ command: 'none', field: 'command', shape: [1, 3] }), [0, 0, 0]);
     close(read({ command: 'short', field: 'command', shape: [1, 3] }), [0.5, 1, 0]);
     close(read({ command: 'long', field: 'command', shape: [1, 3] }), [0.5, 1, 2]);
-    // No traced shape: as answered.
     close(read({ command: 'short', field: 'command' }), [0.5, 1]);
   });
 });
