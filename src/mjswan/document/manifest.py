@@ -24,8 +24,10 @@ MANIFEST_NAME = "manifest.json"
 #: 5: ``input_slots`` may carry the policy's last action (``{"action": ...}``), which
 #: ``last_action`` is traced through, or the rows of an ``mjModel`` field
 #: (``{"model": ...}``), and an event may write one (``kind: "model"``), as model-field
-#: randomization is traced. An older engine cannot serve them: the observation group
-#: would freeze and the randomization would not happen.
+#: randomization is traced. A command graph may take ``reset_mask`` and gate a write,
+#: and a write may be a body-frame root velocity (``kind: "root_velocity_b"``). An older
+#: engine cannot serve them: the observation group would freeze, the randomization would
+#: not happen, and the command would not run.
 DOCUMENT_FORMAT = 5
 
 #: Input slots the runtime fills itself rather than from an observation group: the

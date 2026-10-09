@@ -14,6 +14,7 @@ from typing import Any, Callable, Collection, Sequence, cast
 import torch
 from torch.utils._pytree import tree_leaves, tree_map
 
+from .gate import GatedIds
 from .model import ModelRecorder, ModelSim
 from .proxy import (
     _action_term_proxy,
@@ -414,11 +415,13 @@ class _RecordingEnv:
         return _forward_env_attr(self._real, name, _TERM_ENV_READS)
 
 
-# Each write call and the tensors it writes, in argument order.
+# Each write call and the tensors it writes, in argument order. A write to a draw-
+# selected env set (:mod:`.gate`) also carries its gate, as a trailing ``gate`` output.
 _WRITE_FIELDS: dict[str, tuple[str, ...]] = {
     "joint_state": ("position", "velocity"),
     "root_pose": ("pose",),
     "root_velocity": ("velocity",),
+    "root_velocity_b": ("velocity",),
 }
 
 
@@ -434,6 +437,27 @@ def _write_output_name(key: WriteKey, field_name: str) -> str:
     return f"{entity}__{kind}__{field_name}" if entity else f"{kind}__{field_name}"
 
 
+def _write_fields(key: WriteKey, values: tuple[Any, ...]) -> tuple[str, ...]:
+    """The fields a captured write outputs: its kind's, then ``gate`` if it has one."""
+    fields = _WRITE_FIELDS[key[1]]
+    return (*fields, "gate") if len(values) > len(fields) else fields
+
+
+def entity_write_target(
+    key: WriteKey, values: tuple[Any, ...], entity: str | None
+) -> dict[str, Any]:
+    """The manifest's description of one captured write."""
+    target: dict[str, Any] = {
+        "kind": key[1],
+        "entity": key[0] or entity,
+        "fields": list(_WRITE_FIELDS[key[1]]),
+        "outputs": [_write_output_name(key, f) for f in _WRITE_FIELDS[key[1]]],
+    }
+    if len(values) > len(_WRITE_FIELDS[key[1]]):
+        target["gate"] = _write_output_name(key, "gate")
+    return target
+
+
 class _WriteCaptureMixin:
     """Records ``write_*_to_sim`` calls into ``self._captures``.
 
@@ -445,24 +469,29 @@ class _WriteCaptureMixin:
     _name: str | None
     _captures: WriteCaptures
 
-    def _capture(self, kind: str, values: tuple[Any, ...]) -> None:
+    def _capture(self, kind: str, values: tuple[Any, ...], env_ids: Any) -> None:
+        if isinstance(env_ids, GatedIds):
+            values = (*values, env_ids.gate.to(torch.float32))
         self._captures[(self._name, kind)] = values
 
     def write_joint_state_to_sim(
         self, position, velocity, joint_ids=None, env_ids=None
     ):
-        self._capture("joint_state", (position, velocity))
+        self._capture("joint_state", (position, velocity), env_ids)
 
     def write_root_link_pose_to_sim(self, pose, env_ids=None):
-        self._capture("root_pose", (pose,))
+        self._capture("root_pose", (pose,), env_ids)
 
     def write_root_link_velocity_to_sim(self, velocity, env_ids=None):
-        self._capture("root_velocity", (velocity,))
+        self._capture("root_velocity", (velocity,), env_ids)
+
+    def write_root_link_velocity_b_to_sim(self, velocity_b, env_ids=None):
+        self._capture("root_velocity_b", (velocity_b,), env_ids)
 
     def write_root_state_to_sim(self, root_state, env_ids=None):
         # mjlab's own split of a 13-wide root state into the two writes above.
-        self._capture("root_pose", (root_state[..., :7],))
-        self._capture("root_velocity", (root_state[..., 7:],))
+        self._capture("root_pose", (root_state[..., :7],), env_ids)
+        self._capture("root_velocity", (root_state[..., 7:],), env_ids)
 
 
 def _flatten_captures(
@@ -476,7 +505,7 @@ def _flatten_captures(
     names: list[str] = []
     tensors: list[torch.Tensor] = []
     for key, values in captures.items():
-        for field_name, tensor in zip(_WRITE_FIELDS[key[1]], values):
+        for field_name, tensor in zip(_write_fields(key, values), values):
             names.append(_write_output_name(key, field_name))
             tensors.append(tensor)
     return names, tensors

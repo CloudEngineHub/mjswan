@@ -216,7 +216,14 @@ policy starts from does not depend on how long the previous one ran.
 Stateful terms — a velocity command holding a heading target, say — are exported the way
 an RNN cell is: hidden state promoted to explicit input and output, with the orchestrator
 holding it across frames. A reset is not a separate code path; it is the same graph
-called with `resample_mask = 1`.
+called with `resample_mask = 1`, and with `reset_mask = 1` for what a term's `reset` adds
+(mjlab's `init_velocity_prob` start).
+
+mjlab's command bodies narrow to the envs a draw selected (`env_ids[mask]`,
+`mask.nonzero()`) and skip an empty set. The tracer keeps such a set whole and carries the
+mask, so a write through it becomes a `where`, an entity write a gated one, and the
+emptiness guard is always taken. A trace draws at each range's low end, which every
+`draw <= p` selection passes, so each guarded branch makes it into the graph.
 
 !!! note "Replay is approximate, not bit-for-bit"
     Traced term calls are asynchronous, and the runtime skips a call that is still
@@ -285,7 +292,9 @@ A command is a class, so its way out is
 [`register_command`](../api/core.md#register_command): a `CommandBinding` whose
 `trace_override` rebinds the built term's methods before it is traced.
 `examples/demo/main.py` does this for mjlab's `LiftingCommandCfg`, whose
-`_update_command` calls `env.sim.forward()`, which the tracer refuses.
+`_update_command` calls `env.sim.forward()`, which the tracer refuses. Before a traced
+command ships, the build runs its graph against the term's own body on draws that take
+each selection both ways; a graph that disagrees fails the build the same way.
 
 In practice tracing failures are rare, because mjlab must run thousands of parallel
 environments on a GPU. That forces term bodies to avoid per-environment Python

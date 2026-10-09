@@ -14,9 +14,9 @@ import numpy as np
 import torch
 
 from .event import _env_ids, _event_outputs, trace_event_term
-from .record import WriteCaptures, _EventCaptureEnv, _flatten_captures
+from .record import WriteCaptures, _EventCaptureEnv
 from .rng import DrawRecorder
-from .slot import _COMMAND_NS, read_slot, slot_label
+from .slot import read_slot, slot_label
 from .term import TermExport, trace_term
 
 
@@ -291,18 +291,19 @@ def run_command_parity(
 ) -> TermReport:
     """Trace a stateful CommandTerm and check live-vs-ONNX parity (brief §3).
 
-    Traces ``_resample_command``+``_update_command`` once, then for ``n_draws``
-    replays fresh recorded RNG through the graph with ``resample_mask=True`` and
-    compares the next state, command, and any ``entity_write`` against the live
-    term. Also checks that ``resample_mask=False`` leaves the state unchanged.
+    Traces ``_resample_command``+``_update_command`` once, then for ``n_draws`` random
+    draws runs a resample step through ONNX Runtime and through the live term, chaining
+    state, and compares the next state and any ``entity_write``; every other step is an
+    episode reset where the term's ``reset`` adds to it. A final step without a
+    resample checks that the state only updates.
     """
     import onnxruntime as ort
 
     from .command import (
-        _entity_attrs,
-        _RecordCommand,
+        _reset_extra,
         _restore_state,
         _snapshot_state,
+        compare_step,
         trace_command_term,
     )
 
@@ -316,71 +317,37 @@ def run_command_parity(
     session = ort.InferenceSession(
         export.onnx_bytes, providers=["CPUExecutionProvider"]
     )
-    entity_attr_names = _entity_attrs(term)
-    entity_name = getattr(getattr(term, "cfg", None), "entity_name", None)
-    env_ids = torch.arange(term.num_envs)
 
-    def _dyn_feeds() -> dict[str, np.ndarray]:
-        # Feed each dynamic slot its live value: entity data or another command's state.
-        entity = getattr(term, entity_attr_names[0]) if entity_attr_names else None
-        out = {}
-        for in_name, (namespace, fld) in zip(export.input_names, export.input_slots):
-            if namespace == _COMMAND_NS:
-                command, _, attr = fld.partition(".")
-                manager = term._env.command_manager
-                value = (
-                    manager.get_command(command)
-                    if attr == "command"
-                    else getattr(manager.get_term(command), attr)
-                ).float()
-            else:
-                value = getattr(entity.data, fld)
-            out[in_name] = _to_numpy(value)
-        return out
-
-    for _ in range(n_draws):
-        snap = _snapshot_state(term)
-        prev = {f: getattr(term, f).detach().clone() for f in state_fields}
-        dyn_feeds = _dyn_feeds()  # read before the reference run mutates nothing
-        with _RecordCommand(term, entity_attr_names, entity_name) as rec_env:
-            with DrawRecorder(term._resample_command) as rec:
-                term._resample_command(env_ids)
-                term._update_command(None)
-            ref_writes = _flatten_captures(dict(rec_env.captures))[1]
-        ref_next = {f: getattr(term, f).detach().clone() for f in state_fields}
-        _restore_state(term, snap)
-
-        feeds = {f"prev_{f}": _feed_numpy(prev[f]) for f in state_fields}
-        feeds.update(dyn_feeds)
-        feeds["resample_mask"] = np.ones((term.num_envs,), dtype=bool)
-        feeds["rand"] = _to_numpy(rec.rand_vector)
+    def run(feeds: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
         outs = session.run(export.output_names, _declared_feeds(session, feeds))
-        refs = [ref_next[f] for f in state_fields] + list(ref_writes)
-        for out, ref in zip(outs, refs):
-            ref_np = _to_numpy(ref)
-            tr.max_abs_diff = max(tr.max_abs_diff, float(np.max(np.abs(out - ref_np))))
-            if not np.allclose(out, ref_np, atol=atol, rtol=rtol):
-                tr.passed = False
-        tr.steps_checked += 1
+        return {n: np.asarray(o) for n, o in zip(export.output_names, outs)}
 
-    # resample_mask=False: no resample, but _update_command still runs on prev state.
+    ranges = torch.tensor(export.rand_ranges, dtype=torch.float32).reshape(-1, 2)
+    resets = _reset_extra(term) is not None
     snap = _snapshot_state(term)
-    prev = {f: getattr(term, f).detach().clone() for f in state_fields}
-    dyn_feeds = _dyn_feeds()
-    with _RecordCommand(term, entity_attr_names, entity_name):
-        term._update_command(None)
-    ref_false = {f: getattr(term, f).detach().clone() for f in state_fields}
-    _restore_state(term, snap)
-
-    feeds = {f"prev_{f}": _feed_numpy(prev[f]) for f in state_fields}
-    feeds.update(dyn_feeds)
-    feeds["resample_mask"] = np.zeros((term.num_envs,), dtype=bool)
-    feeds["rand"] = _to_numpy(export.reference_rand)
-    outs = session.run(export.output_names, _declared_feeds(session, feeds))
-    # State fields only: the mask does not gate the write outputs, so there is no
-    # reference to compare them against (`OnnxCommand`'s tests cover that half).
-    for f, out in zip(state_fields, outs[: len(state_fields)]):
-        if not np.allclose(out, _to_numpy(ref_false[f]), atol=atol, rtol=rtol):
-            tr.passed = False
-            tr.note += f" [mask=False mismatch on {f}]"
+    try:
+        steps = [(True, resets and i % 2 == 0) for i in range(n_draws)]
+        for i, (resample, reset) in enumerate([*steps, (False, False)]):
+            rand = ranges[:, 0] + (ranges[:, 1] - ranges[:, 0]) * torch.rand(
+                len(ranges)
+            )
+            diff, note = compare_step(
+                term,
+                export,
+                state_fields,
+                run,
+                rand,
+                resample=resample,
+                reset=reset,
+                atol=atol,
+                rtol=rtol,
+            )
+            tr.max_abs_diff = max(tr.max_abs_diff, diff)
+            if note is not None:
+                tr.passed = False
+                tr.note += f" [step {i}: {note}]"
+            if resample:
+                tr.steps_checked += 1
+    finally:
+        _restore_state(term, snap)
     return tr

@@ -112,3 +112,46 @@ def test_draws_concatenate_in_call_order():
     replayed = _replay(body, rec.rand_vector)
     assert replayed[0].equal(first)
     assert replayed[1].equal(second)
+
+
+def test_an_in_place_draw_lands_in_the_tensor():
+    """mjlab's velocity command reuses one buffer, `r.uniform_(lo, hi)` per field."""
+
+    def body():
+        r = torch.empty(2)
+        first = r.uniform_(-1.0, 2.0).clone()
+        second = r.normal_(0.5, 0.1).clone()
+        return first, second, r
+
+    (first, second, buffer), rec = _record(body)
+    assert rec.rand_dim == 2 + 4
+    assert rec.rand_ranges[:2] == [[-1.0, 2.0]] * 2
+    replayed = _replay(body, rec.rand_vector)
+    assert torch.allclose(replayed[0], first)
+    assert torch.allclose(replayed[1], second, atol=1e-5)
+    assert torch.allclose(replayed[2], buffer, atol=1e-5)
+
+
+def test_lower_bound_draws_sit_at_each_range_low_end():
+    """What a trace takes its example from: every `draw <= p` selection passes."""
+
+    def body():
+        r = torch.empty(1)
+        return (
+            sample_uniform(-1.0, 1.0, (2,), "cpu"),
+            sample_log_uniform(0.5, 2.0, (1,), "cpu"),
+            sample_gaussian(1.5, 0.1, (1,), "cpu"),
+            torch.randint(3, 7, (1,)),
+            r.uniform_(0.0, 1.0) <= 0.0,
+        )
+
+    with DrawRecorder(body, at_lower_bounds=True) as rec:
+        uniform, log_uniform, gaussian, integer, selected = body()
+    assert uniform.tolist() == [-1.0, -1.0]
+    assert log_uniform.tolist() == pytest.approx([0.5])
+    assert gaussian.tolist() == pytest.approx([1.5])
+    assert integer.tolist() == [3]
+    assert selected.tolist() == [True]
+    assert rec.rand_vector.tolist() == pytest.approx(
+        [-1.0, -1.0, math.log(0.5), 0.0, 0.0, 3.0, 0.0]
+    )

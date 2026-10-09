@@ -235,9 +235,8 @@ shortcuts.
 - **`UniformVelocityCommandCfg` binds to a traced command term in mjswan itself**, so a
   task built on mjlab's locomotion commands migrates with no registration of its own;
   `add_scene_mjlab` picks it up from `env_cfg` like any other term. The binding used to
-  live in `examples/mjlab/defaults/commands`, out of reach of other projects. The
-  trace-friendly rewrite lives in `mjswan.envs.mdp.commands`; `velocity_command()` stays
-  for a manual control panel on a scene with no mjlab task.
+  live in `examples/mjlab/defaults/commands`, out of reach of other projects.
+  `velocity_command()` stays for a manual control panel on a scene with no mjlab task.
 - `Builder.add_project_mjlab(task_id, ...)`, the instance-method counterpart to the
   `Builder.from_mjlab` classmethod, for adding an mjlab task to a builder that already
   has other projects. `from_mjlab` now delegates to it.
@@ -321,6 +320,20 @@ shortcuts.
   only `startup`, and `run_parity` checks it against mjlab draw for draw. Documents no
   longer carry the `model_field` descriptor; the engine still applies an earlier
   document's. Document format 5.
+
+- **mjlab's `UniformVelocityCommand` is traced as mjlab wrote it**
+  ([#158](https://github.com/ttktjmt/mjswan/issues/158)), with no mjswan rewrite of its
+  body (`bind_velocity_override` is gone). The tracer follows mjlab's constructs: in-place
+  draws (`Tensor.uniform_`, `Tensor.normal_`) ride in `rand` like the helpers' draws; an
+  env set a draw selects (`env_ids[mask]`, `mask.nonzero()`) stays whole and carries the
+  mask, so a write through it becomes a `where` and a guard on its emptiness is always
+  taken; and the trace draws at each range's low end, so every guarded branch is in the
+  graph. Before a command ships, the build runs its graph against the term's own body on
+  draws that take each selection both ways, and refuses one that disagrees.
+  `init_velocity_prob` works: what a term's `reset` adds to mjlab's runs in the graph on
+  an episode reset alone (a `reset_mask` input), and its body-frame root velocity write
+  (`kind: "root_velocity_b"`) lands only when the graph's `gate` output says the draw
+  picked the env. Document format 5.
 
 - **mjlab's `time_out` is traced like any other termination**
   ([#130](https://github.com/ttktjmt/mjswan/issues/130)). Its body reads
@@ -945,16 +958,12 @@ shortcuts.
   unadapted, carrying mjlab term objects into the serializer, which failed on the first
   mjswan-only field it read (`AttributeError: 'ObservationTermCfg' object has no
   attribute 'history_steps'`). The whole MRO is consulted now.
-- The velocity command's trace-friendly rewrite carries the rest of what mjlab's
-  `UniformVelocityCommand` does: forward-only envs (`rel_forward_envs`, which mjlab's own
-  velocity tasks set to `0.2` and `play=True` does not clear, so one resample in five
-  differed), world-frame envs (`rel_world_envs` and the `vel_command_w` state it reads),
-  and the `heading_command` gate, where the rewrite used to track heading unconditionally.
-  `init_velocity_prob` is refused with a message rather than silently dropped, since it
-  writes the robot's root state during resampling. The parity harness cannot see any of
-  this, as it traces the overridden term and compares against that same term, establishing
-  "graph == override" and never "override == mjlab"; `tests/test_velocity_command.py` now
-  pins the latter directly.
+- The velocity command does all of what mjlab's `UniformVelocityCommand` does:
+  forward-only envs (`rel_forward_envs`, which mjlab's own velocity tasks set to `0.2` and
+  `play=True` does not clear, so one resample in five differed), world-frame envs
+  (`rel_world_envs` and the `vel_command_w` state it reads), the `heading_command` gate,
+  and `init_velocity_prob`, now that the term is traced from mjlab's own body (see
+  Changed).
 - **`history_length` now stacks oldest frame first**, `[x_{t-n+1} … x_t]`, the order
   mjlab's `CircularBuffer` flattens, where it counted back from the newest frame. Every
   mjlab task carrying per-term or group history was handing its policy a correct-*width*

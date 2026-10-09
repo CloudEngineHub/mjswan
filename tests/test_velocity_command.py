@@ -1,19 +1,20 @@
-"""`UniformVelocityCommandCfg`'s trace-friendly rewrite, against the real mjlab term.
+"""mjlab's own `UniformVelocityCommand`, traced, against the same term run eagerly.
 
-Layer: L1 (no env build, no trace — the term is constructed against a stand-in env).
+Layer: L1 (no env build: the term is constructed against a stand-in env, and the graph
+is run by ONNX's reference evaluator).
 
-The rewrite in `mjswan.envs.mdp.commands` is a second copy of mjlab's math, and the
-parity harness cannot check it: `run_command_parity` traces the *overridden* term and
-compares the graph against that same term, so it only establishes "graph == override".
-"override == mjlab" is what this file pins. Getting it wrong is silent — a well-formed
-command of the right width that mjlab would not have issued.
+The graph has to agree with mjlab's body on every branch a draw sends it down: heading,
+world-frame, standing and forward-only envs, any mix of them, and on an episode reset
+the `init_velocity_prob` start. Getting one wrong is silent: a well-formed command of
+the right width that mjlab would not have issued.
 """
 
 from __future__ import annotations
 
-import itertools
 import math
+from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 torch = pytest.importorskip("torch")
@@ -21,24 +22,35 @@ pytest.importorskip("mjlab")
 
 from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg  # noqa: E402
 
-from mjswan.envs.mdp.commands import bind_velocity_override  # noqa: E402
+from mjswan.compile import trace_command_term  # noqa: E402
+from mjswan.compile.command import compare_step  # noqa: E402
 from mjswan.managers.command_manager import _custom_registry  # noqa: E402
 
-HEADING_W = 0.7
-"""The stand-in robot's yaw. Non-zero so a world-frame rotation is not the identity."""
+STATE_FIELDS = list(_custom_registry["UniformVelocityCommandCfg"].state_fields or [])
+FLAGS = ["is_heading_env", "is_standing_env", "is_world_env", "is_forward_env"]
+
+
+class _Robot:
+    """`data.heading_w`, and the write methods that mark an attribute as an entity."""
+
+    def __init__(self):
+        self.data = SimpleNamespace(heading_w=torch.tensor([0.7]))
+
+    def write_root_link_velocity_to_sim(self, *args, **kwargs):
+        raise AssertionError("the tracer captures writes")
+
+    write_root_link_velocity_b_to_sim = write_root_link_velocity_to_sim
 
 
 class _FakeEnv:
-    """Enough env for `CommandTerm.__init__`: `num_envs`, `device`, and the entity. No
-    scene is compiled, so these tests stay out of the `slow` tier."""
+    """Enough env for `CommandTerm.__init__` and the tracer. No scene is compiled, so
+    these tests stay out of the `slow` tier."""
 
-    def __init__(self, heading: float = HEADING_W):
-        robot = type(
-            "_Robot",
-            (),
-            {"data": type("_Data", (), {"heading_w": torch.tensor([heading])})()},
-        )()
-        self.scene = {"robot": robot}
+    def __init__(self):
+        self.scene = {"robot": _Robot()}
+        self.command_manager = SimpleNamespace(
+            get_command=lambda name: None, get_term=lambda name: None
+        )
         self.num_envs = 1
         self.device = "cpu"
 
@@ -64,134 +76,160 @@ def _cfg(**overrides) -> UniformVelocityCommandCfg:
     return UniformVelocityCommandCfg(**params)
 
 
-#: A command mid-episode. `ang_vel_z` is deliberately *not* what heading tracking would
-#: produce, or the heading cases pass whether the rewrite tracks heading or not.
-_SEED = {
-    "vel_command_b": [[0.4, -0.3, -0.45]],
-    "vel_command_w": [[0.9, 0.2, -0.1]],
-    "heading_target": [1.2],
-}
+#: Every selection a coin flip, so a few dozen steps take each branch both ways.
+_MIXED = dict(
+    rel_standing_envs=0.5,
+    rel_heading_envs=0.5,
+    rel_world_envs=0.5,
+    rel_forward_envs=0.5,
+    init_velocity_prob=0.5,
+)
+_NO_HEADING = dict(
+    heading_command=False,
+    ranges=UniformVelocityCommandCfg.Ranges(
+        lin_vel_x=(-1.0, 1.0), lin_vel_y=(-1.0, 1.0), ang_vel_z=(-0.5, 0.5)
+    ),
+)
 
 
-def _seed(term, *, heading: bool, world: bool, standing: bool) -> None:
-    for name, value in _SEED.items():
-        setattr(term, name, torch.tensor(value))
-    term.is_heading_env = torch.tensor([heading])
-    term.is_world_env = torch.tensor([world])
-    term.is_standing_env = torch.tensor([standing])
-    term.is_forward_env = torch.tensor([False])
+def _traced(**overrides):
+    term = _cfg(**overrides).build(_FakeEnv())
+    export = trace_command_term(
+        term, STATE_FIELDS, name="twist", command_field="vel_command_b"
+    )
+    return term, export
 
 
-def _pair(cfg):
-    """A live mjlab term and an identically-configured overridden one."""
-    live = cfg.build(_FakeEnv())
-    rewritten = cfg.build(_FakeEnv())
-    bind_velocity_override(rewritten)
-    return live, rewritten
+def _evaluator(export):
+    import onnx
+    from onnx.reference import ReferenceEvaluator
+
+    evaluator = ReferenceEvaluator(onnx.load_from_string(export.onnx_bytes))
+    declared = set(evaluator.input_names)
+
+    def run(feeds):
+        outs = evaluator.run(
+            export.output_names, {k: v for k, v in feeds.items() if k in declared}
+        )
+        return dict(zip(export.output_names, outs))
+
+    return run
 
 
-def test_the_binding_ships_with_mjswan():
-    """It used to live in `examples/`, out of reach of any project outside this repo."""
+def test_the_binding_traces_mjlabs_own_body():
     binding = _custom_registry["UniformVelocityCommandCfg"]
     assert binding.is_onnx_traced
+    assert binding.trace_override is None
     assert binding.command_field == "vel_command_b"
 
 
 @pytest.mark.parametrize(
-    "heading, world, standing", list(itertools.product([False, True], repeat=3))
+    "overrides",
+    [{}, _MIXED, {**_MIXED, **_NO_HEADING}],
+    ids=["task", "every-branch", "no-heading"],
 )
-def test_update_command_matches_mjlab(heading, world, standing):
-    """Every combination of the three per-env modes, from the same state."""
-    live, rewritten = _pair(_cfg())
-    _seed(live, heading=heading, world=world, standing=standing)
-    _seed(rewritten, heading=heading, world=world, standing=standing)
-
-    live._update_command()
-    rewritten._update_command()
-
-    assert torch.allclose(live.vel_command_b, rewritten.vel_command_b, atol=1e-6)
-    assert torch.allclose(live.vel_command_w, rewritten.vel_command_w, atol=1e-6)
-
-
-def test_heading_tracking_actually_moves_the_yaw():
-    """Guards the test above: a rewrite ignoring `is_heading_env` would still pass it."""
-    live, _ = _pair(_cfg())
-    _seed(live, heading=True, world=False, standing=False)
-    live._update_command()
-    assert not math.isclose(
-        live.vel_command_b[0, 2].item(), _SEED["vel_command_b"][0][2]
-    )
-
-
-def test_heading_command_off_is_respected():
-    """With the cfg default `False`, mjlab never touches yaw, even with `is_heading_env`."""
-    cfg = _cfg(
-        heading_command=False,
-        ranges=UniformVelocityCommandCfg.Ranges(
-            lin_vel_x=(-1.0, 1.0), lin_vel_y=(-1.0, 1.0), ang_vel_z=(-0.5, 0.5)
-        ),
-    )
-    live, rewritten = _pair(cfg)
-    _seed(live, heading=True, world=False, standing=False)
-    _seed(rewritten, heading=True, world=False, standing=False)
-
-    live._update_command()
-    rewritten._update_command()
-
-    assert torch.allclose(live.vel_command_b, rewritten.vel_command_b, atol=1e-6)
-    assert rewritten.vel_command_b[0, 2].item() == pytest.approx(-0.45)
+def test_the_graph_matches_mjlab_step_after_step(overrides):
+    """Resamples, episode resets and plain updates, chained, at varying headings."""
+    term, export = _traced(**overrides)
+    run = _evaluator(export)
+    ranges = torch.tensor(export.rand_ranges).reshape(-1, 2)
+    generator = torch.Generator().manual_seed(0)
+    seen = {flag: set() for flag in FLAGS}
+    for step in range(48):
+        term.robot.data.heading_w = torch.rand(1, generator=generator) * 6 - 3
+        resample = step % 4 != 3
+        draw = torch.rand(len(ranges), generator=generator)
+        rand = ranges[:, 0] + (ranges[:, 1] - ranges[:, 0]) * draw
+        _, note = compare_step(
+            term,
+            export,
+            STATE_FIELDS,
+            run,
+            rand,
+            resample=resample,
+            reset=resample and step % 2 == 0,
+        )
+        assert note is None, f"step {step}: {note}"
+        for flag in FLAGS:
+            seen[flag].add(bool(getattr(term, flag)))
+    if overrides is _MIXED:
+        # Otherwise a branch could have matched by never running.
+        assert all(values == {False, True} for values in seen.values()), seen
 
 
-def test_a_forward_only_env_gets_mjlabs_clamp():
-    """mjlab's velocity tasks set `rel_forward_envs=0.2` and `play=True` keeps it, so
-    without this the rewrite differs one resample in five."""
-    _, rewritten = _pair(_cfg(rel_forward_envs=1.0))
-    torch.manual_seed(0)
-    rewritten._resample_command(torch.arange(1))
+def test_init_velocity_prob_starts_an_env_moving_on_a_reset_alone():
+    """mjlab writes the commanded planar velocity, in the body frame, before the update
+    that would zero a standing env's command."""
+    term, export = _traced(init_velocity_prob=0.5)
+    (target,) = export.write_targets
+    assert (target["kind"], target["entity"]) == ("root_velocity_b", "robot")
+    run = _evaluator(export)
+    ranges = torch.tensor(export.rand_ranges).reshape(-1, 2)
+    feeds = {f"prev_{f}": getattr(term, f).numpy() for f in STATE_FIELDS}
+    feeds["robot__heading_w"] = np.array([0.0], dtype=np.float32)
+    feeds["resample_mask"] = np.array([True])
+    # Every draw at its low end: the init draw selects, and so does standing.
+    feeds["rand"] = ranges[:, 0].numpy()
 
-    assert rewritten.is_forward_env.tolist() == [True]
-    assert rewritten.vel_command_b[0, 0].item() >= 0.3
-    assert rewritten.vel_command_b[0, 1].item() == 0.0
-    assert rewritten.vel_command_b[0, 2].item() == 0.0
+    on_reset = run({**feeds, "reset_mask": np.array([True])})
+    on_timer = run({**feeds, "reset_mask": np.array([False])})
+
+    assert on_reset[target["gate"]].tolist() == [1.0]
+    assert on_timer[target["gate"]].tolist() == [0.0]
+    velocity = on_reset[target["outputs"][0]].reshape(-1)
+    # Forward-only takes |x| = 1 and zeroes the rest; standing has not run yet.
+    assert velocity.tolist() == pytest.approx([1.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+    assert on_reset["next_vel_command_b"].reshape(-1).tolist() == [0.0, 0.0, 0.0]
 
 
-def test_the_world_frame_reference_keeps_the_unclamped_sample():
-    """mjlab copies `vel_command_w` *before* the forward clamp, so a world+forward env
-    rotates the raw sample rather than the clamped one."""
-    _, rewritten = _pair(_cfg(rel_forward_envs=1.0))
-    torch.manual_seed(0)
-    rewritten._resample_command(torch.arange(1))
+def test_a_body_the_trace_cannot_follow_fails_the_build():
+    """A guarded branch that is not a no-op when its guard fails would ship a command
+    mjlab never issues; the build runs the graph against the body and refuses it."""
 
-    assert rewritten.vel_command_w[0, 1].item() != 0.0
-    assert rewritten.vel_command_w[0, 2].item() != 0.0
+    class _Counter:
+        num_envs = 1
+        cfg = SimpleNamespace(entity_name=None)
+
+        def __init__(self):
+            self._env = _FakeEnv()
+            self.flag = torch.zeros(1, dtype=torch.bool)
+            self.count = torch.zeros(1)
+
+        def _resample_command(self, env_ids):
+            r = torch.empty(len(env_ids))
+            self.flag[env_ids] = r.uniform_(0.0, 1.0) <= 0.5
+
+        def _update_command(self, env_ids=None):
+            if self.flag.any():
+                self.count = self.count + 1.0
+
+    with pytest.raises(ValueError, match="disagrees with its own body"):
+        trace_command_term(
+            _Counter(), ["flag", "count"], name="counter", command_field="count"
+        )
 
 
-def test_the_bodies_write_nothing_the_binding_does_not_carry():
-    """A tensor the rewrite assigns but `state_fields` omits is dropped between browser
-    steps — the term would silently restart from its build-time value each frame."""
-    _, rewritten = _pair(_cfg())
+#: Assigned by every `_update_command` before anything reads it.
+_DERIVED = {"heading_error"}
+
+
+def test_the_body_keeps_no_state_the_binding_does_not_carry():
+    """A tensor the body carries across frames that `state_fields` omits would restart
+    from its build-time value every browser step."""
+    term = _cfg(**_MIXED).build(_FakeEnv())
     before = {
         name: value.clone()
-        for name, value in vars(rewritten).items()
+        for name, value in vars(term).items()
         if isinstance(value, torch.Tensor)
     }
     torch.manual_seed(0)
-    rewritten._resample_command(torch.arange(1))
-    rewritten._update_command()
+    term._resample_command(torch.arange(1))
+    term._update_command(None)
 
     changed = {
         name
-        for name, value in vars(rewritten).items()
+        for name, value in vars(term).items()
         if isinstance(value, torch.Tensor)
         and (name not in before or not torch.equal(value, before[name]))
     }
-    declared = set(_custom_registry["UniformVelocityCommandCfg"].state_fields or [])
-    assert changed <= declared, f"undeclared state: {sorted(changed - declared)}"
-
-
-def test_an_unmodelled_cfg_field_is_refused():
-    """`init_velocity_prob` writes the robot's root state during resampling, gated on
-    that same draw. Tracing it as if absent would be a silent difference."""
-    term = _cfg(init_velocity_prob=0.5).build(_FakeEnv())
-    with pytest.raises(ValueError, match="init_velocity_prob"):
-        bind_velocity_override(term)
+    assert changed - _DERIVED <= set(STATE_FIELDS), sorted(changed - set(STATE_FIELDS))

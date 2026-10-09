@@ -11,7 +11,9 @@ value itself, floored in the graph, for an integer one.
 
 The spy patches the module globals a draw is looked up in (the term function's own,
 and mjlab's DR distributions'), since mjlab binds the name at import time and patching
-the source module would not reach it. ``torch.randint`` is patched on ``torch``.
+the source module would not reach it. ``torch.randint`` and the in-place samplers
+(``Tensor.uniform_``, ``Tensor.normal_``) are torch functions, caught by a
+:class:`~torch.overrides.TorchFunctionMode` instead.
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ import math
 from typing import Any, Callable
 
 import torch
+from torch.overrides import TorchFunctionMode
 
 #: mjlab RNG helpers a term may import, by how ``rand`` carries their draws.
 _SAMPLERS = {
@@ -27,46 +30,95 @@ _SAMPLERS = {
     "sample_log_uniform": "log_uniform",
     "sample_gaussian": "gaussian",
 }
+#: ``torch.Tensor`` methods that draw in place, likewise.
+_IN_PLACE_SAMPLERS = {
+    torch.Tensor.uniform_: "uniform",
+    torch.Tensor.normal_: "gaussian",
+}
+
+Make = Callable[[str, Callable[..., Any]], Callable[..., Any]]
 
 
-def _rng_namespaces(func: Callable[..., Any]) -> list[dict[str, Any]]:
-    """The globals a term's draws are looked up in: its own, and mjlab's DR
+def _rng_namespaces(funcs: tuple[Callable[..., Any], ...]) -> list[dict[str, Any]]:
+    """The globals a term's draws are looked up in: its functions' own, and mjlab's DR
     distributions', whose lambdas call the samplers by name."""
-    spaces = [getattr(func, "__globals__", {})]
+    spaces: list[dict[str, Any]] = []
     try:
         from mjlab.envs.mdp.dr import _types
+
+        candidates = [*(getattr(f, "__globals__", {}) for f in funcs), vars(_types)]
     except ImportError:
-        return spaces
-    if vars(_types) is not spaces[0]:
-        spaces.append(vars(_types))
+        candidates = [getattr(f, "__globals__", {}) for f in funcs]
+    for space in candidates:
+        if all(space is not seen for seen in spaces):
+            spaces.append(space)
     return spaces
+
+
+def _in_place(make: Make, kind: str, real: Callable[..., Any]) -> Callable[..., Any]:
+    """``Tensor.<sampler>_`` as the stand-in *make* builds for a free function: called
+    as ``(lower, upper, size)``, its draw lands in the tensor."""
+
+    def method(tensor: torch.Tensor, *args: Any, **kwargs: Any) -> torch.Tensor:
+        lower = float(kwargs.pop("from", kwargs.pop("mean", args[0] if args else 0.0)))
+        upper = float(
+            kwargs.pop("to", kwargs.pop("std", args[1] if len(args) > 1 else 1))
+        )
+        draw = make(kind, lambda *_: real(tensor, lower, upper, **kwargs))
+        out = draw(lower, upper, tuple(tensor.shape))
+        return out if out is tensor else tensor.copy_(out)
+
+    return method
+
+
+class _TorchDraws(TorchFunctionMode):
+    """Hands ``torch.randint`` and the in-place samplers to *make*'s stand-ins."""
+
+    def __init__(self, make: Make):
+        super().__init__()
+        self._make = make
+
+    def __torch_function__(
+        self,
+        func: Any,
+        types: Any,
+        args: tuple[Any, ...] = (),
+        kwargs: dict[str, Any] | None = None,
+    ) -> Any:
+        kwargs = kwargs or {}
+        if func is torch.randint:
+            return self._make("randint", func)(*args, **kwargs)
+        kind = _IN_PLACE_SAMPLERS.get(func)
+        if kind is not None:
+            return _in_place(self._make, kind, func)(*args, **kwargs)
+        return func(*args, **kwargs)
 
 
 class _Patches:
     """Swaps the samplers for stand-ins until :meth:`remove`."""
 
-    def __init__(self, func: Callable[..., Any]):
-        self._spaces = _rng_namespaces(func)
+    def __init__(self, *funcs: Callable[..., Any]):
+        self._spaces = _rng_namespaces(funcs)
         self._saved: list[tuple[dict[str, Any], str, Any]] = []
-        self._randint: Any = None
+        self._mode: _TorchDraws | None = None
 
-    def install(self, make: Callable[[str, Callable[..., Any]], Callable[..., Any]]):
+    def install(self, make: Make) -> None:
         for space in self._spaces:
             for name, kind in _SAMPLERS.items():
                 real = space.get(name)
                 if real is not None:
                     self._saved.append((space, name, real))
                     space[name] = make(kind, real)
-        self._randint = torch.randint
-        setattr(torch, "randint", make("randint", self._randint))
+        self._mode = _TorchDraws(make)
+        self._mode.__enter__()
 
     def remove(self) -> None:
         for space, name, real in reversed(self._saved):
             space[name] = real
         self._saved.clear()
-        if self._randint is not None:
-            setattr(torch, "randint", self._randint)
-            self._randint = None
+        if self._mode is not None:
+            self._mode.__exit__(None, None, None)
+            self._mode = None
 
 
 def _randint_args(*args: Any, **kwargs: Any) -> tuple[int, int, Any]:
@@ -105,15 +157,30 @@ def _element_bounds(shape: torch.Size, *args: Any, **kwargs: Any) -> torch.Tenso
     return torch.stack([c.reshape(-1) for c in columns], dim=1)
 
 
+def _at_lower_bound(
+    kind: str, out: torch.Tensor, args: Any, kwargs: Any
+) -> torch.Tensor:
+    """*out* as the draw every ``rand`` element at its lower bound gives: the low end
+    of a uniform, log-uniform or integer range, a Gaussian's mean."""
+    if kind == "randint":
+        low, high, _size = _randint_args(*args, **kwargs)
+        bounds = _element_bounds(out.shape, low, high)
+    else:
+        bounds = _element_bounds(out.shape, *args, **kwargs)
+    return bounds[:, 0].reshape(out.shape).to(out.dtype)
+
+
 class DrawRecorder:
     """Records the values a term's RNG calls return, in call order.
 
     Wraps a single term invocation on the live env: the helpers still return mjlab's
-    real draw, so the reference rollout is unaffected.
+    real draw, so the reference rollout is unaffected. With *at_lower_bounds* every draw
+    is its range's low end instead, which a ``draw <= p`` selection always passes.
     """
 
-    def __init__(self, func: Callable[..., Any]):
-        self._patches = _Patches(func)
+    def __init__(self, *funcs: Callable[..., Any], at_lower_bounds: bool = False):
+        self._patches = _Patches(*funcs)
+        self._at_lower_bounds = at_lower_bounds
         self._draws: list[torch.Tensor] = []
         self._bounds: list[torch.Tensor] = []
 
@@ -128,6 +195,8 @@ class DrawRecorder:
         def spy(*args: Any, **kwargs: Any) -> Any:
             out = real(*args, **kwargs)
             if isinstance(out, torch.Tensor):
+                if self._at_lower_bounds:
+                    out = _at_lower_bound(kind, out, args, kwargs)
                 self._record(kind, out, args, kwargs)
             return out
 
@@ -188,8 +257,12 @@ class ReplayRng:
     :class:`DrawRecorder` stored it.
     """
 
-    def __init__(self, func: Callable[..., Any], rand: torch.Tensor):
-        self._patches = _Patches(func)
+    def __init__(
+        self,
+        func: Callable[..., Any] | tuple[Callable[..., Any], ...],
+        rand: torch.Tensor,
+    ):
+        self._patches = _Patches(*(func if isinstance(func, tuple) else (func,)))
         self._rand = rand.reshape(-1)
         self._offset = 0
 

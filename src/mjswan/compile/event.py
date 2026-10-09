@@ -23,11 +23,10 @@ from .export import (
 )
 from .model import SET_CONST_FIELDS, ModelPlan, ModelRecorder, ModelReplay
 from .record import (
-    _WRITE_FIELDS,
     WriteCaptures,
     _EventCaptureEnv,
     _flatten_captures,
-    _write_output_name,
+    entity_write_target,
 )
 from .replay import _EventReplayEnv
 from .rng import DrawRecorder, ReplayRng
@@ -184,14 +183,9 @@ def trace_event_term(
     asset_cfg = params.get("asset_cfg")
     asset_name = getattr(asset_cfg, "name", None)
     write_targets = []
-    for key in captures:
+    for key, values in captures.items():
         entity, kind = key
-        target: dict[str, Any] = {
-            "kind": kind,
-            "entity": entity or asset_name,
-            "fields": list(_WRITE_FIELDS[kind]),
-            "outputs": [_write_output_name(key, f) for f in _WRITE_FIELDS[kind]],
-        }
+        target = entity_write_target(key, values, asset_name)
         # `asset_cfg`'s ids scope its own entity; any other one gets all of its joints.
         joint_ids = _static_ids(getattr(asset_cfg, "joint_ids", None))
         scoped = entity is None or entity == asset_name

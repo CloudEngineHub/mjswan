@@ -11,8 +11,9 @@ none of mjlab's term functions. Pass mjlab's own straight to
 ``ObservationTermCfg(func=obs_fns.base_lin_vel)`` and the build traces them. These
 submodules carry only the ``*Binding`` escape hatch and its ``register_*`` registry.
 
-``commands`` is the exception: a command is a class, and some of mjlab's use constructs
-the tracer cannot follow, so it carries trace-friendly rewrites of those bodies.
+``commands`` is the exception: it carries the operator-driven command presets, binds
+mjlab's command classes by cfg name, and rewrites the reset jitter of the one it keeps
+native (``MotionCommand``).
 """
 
 from . import actions, commands, observations, terminations

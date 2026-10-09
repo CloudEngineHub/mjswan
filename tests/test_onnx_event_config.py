@@ -927,7 +927,7 @@ class TestWriteTargetEntity:
         torch = pytest.importorskip("torch")
 
         def spin(env, env_ids):
-            env.scene["robot"].write_root_link_velocity_b_to_sim(torch.zeros(1, 6))
+            env.scene["robot"].write_root_com_velocity_to_sim(torch.zeros(1, 6))
 
         with pytest.raises(ValueError, match="does not capture"):
             self._trace(spin, {})
