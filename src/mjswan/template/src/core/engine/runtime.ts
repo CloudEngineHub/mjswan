@@ -1854,10 +1854,9 @@ export class mjswanRuntime {
   }
 
   /**
-   * Hand each action term that reads a command this step's value of it: a
-   * reference-residual term its reference pose, a command term the command itself.
-   * Refreshed here so `applyAction` stays a pure function of what it is handed: the
-   * rollout-parity harness drives it in Node with no command manager.
+   * Give each command-reading action term this step's value: a reference-residual term its
+   * reference pose, a command term the command's value. Done here so `applyAction` stays a
+   * pure function, which the rollout-parity harness drives in Node with no command manager.
    */
   private refreshActionCommands(): void {
     for (const [term, commandName] of this.actionCommands) {

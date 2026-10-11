@@ -154,15 +154,14 @@ class ReferenceJointPositionActionCfg(BaseActionCfg):
 class CommandJointPositionActionCfg(BaseActionCfg):
     """Joint position targets read from a command instead of the policy's output.
 
-    ``q_cmd = scale * c + offset``, where ``c`` is the value of command ``command_name``:
-    one column per matched joint, in the model's joint order. The term takes no column of
-    the policy's output, so its joints need not be the policy's. Another controller (a
-    manipulation policy, a scripted motion, the panel's sliders) drives them while the
-    policy drives the rest, as an mjlab ``ActionTerm`` with ``action_dim == 0`` does.
+    ``q_cmd = scale * c + offset``, where ``c`` is the value of command ``command_name``,
+    one column per matched joint in the model's joint order. Taking no column of the
+    policy's output, like an mjlab ``ActionTerm`` with ``action_dim == 0``, it can drive
+    joints the policy does not.
     """
 
     command_name: str
-    """Command term whose value the targets are."""
+    """Command term supplying the targets."""
 
     stiffness: float | list[float] | dict[str, float] | None = None
     """Position gain (kp). mjswan-specific; see :class:`JointPositionActionCfg`."""

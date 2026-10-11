@@ -123,11 +123,9 @@ export class PolicyStateBuilder {
   }
 
   /**
-   * `getControlMappingFor` over every joint of the model rather than the policy's, for a
-   * term that takes no column of the policy's output. `actionIndices` count the matched
-   * joints, in model joint order, and `jointNames` names them.
-   *
-   * Returns `null` if no joint matches or a matched joint has no actuator.
+   * `getControlMappingFor` over all of the model's joints, for a term outside the policy's
+   * output. `actionIndices` number the matched joints in model joint order, `jointNames`
+   * names them. `null` if none matches or one has no actuator.
    */
   getModelControlMappingFor(patterns: string[]): {
     ctrlAdr: number[];

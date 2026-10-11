@@ -23,8 +23,8 @@ def serialize_actions(
     authored for the same term, where a motor robot's PD gains live, so a scene can
     tweak the offset without restating them.
 
-    Raises ``ValueError`` for a term reading a command not in ``commands``, the MDP's:
-    in the browser its joints would go limp.
+    Raises ``ValueError`` for a term reading a command missing from ``commands``, which
+    would leave its joints limp in the browser.
     """
     for name, cfg in actions.items():
         if (

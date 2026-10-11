@@ -32,10 +32,7 @@ export interface ResolvedActionTerm {
   ctrlAdr: number[];
   qposAdr: number[];
   qvelAdr: number[];
-  /**
-   * Indices into the flat policy action vector for this term's joints; into
-   * `commandValue` for a `joint_position_command` term.
-   */
+  /** Indices into the policy's action vector, or into `commandValue` for a command term. */
   actionIndices: number[];
   actionScale: Float32Array;
   actionOffset: Float32Array;
@@ -47,8 +44,8 @@ export interface ResolvedActionTerm {
    */
   referenceJointPos?: Float32Array | null;
   /**
-   * `joint_position_command` only: this step's value of the term's command, its raw
-   * action in place of the policy's, refreshed by the runtime. `null` writes nothing.
+   * `joint_position_command` only: its command's value this step, the raw action in place
+   * of the policy's, refreshed by the runtime. `null` writes nothing.
    */
   commandValue?: Float32Array | null;
   encoderBias: Float32Array;

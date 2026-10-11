@@ -63,6 +63,5 @@ def test_reaches_the_mdp_entry(tmp_path, minimal_model, minimal_onnx):
 
 
 def test_a_missing_command_fails_the_build(tmp_path, minimal_model, minimal_onnx):
-    # The browser would leave the joints limp, so the build refuses instead.
     with pytest.raises(ValueError, match="reads command 'arm'"):
         _build(tmp_path, minimal_model, minimal_onnx, {})

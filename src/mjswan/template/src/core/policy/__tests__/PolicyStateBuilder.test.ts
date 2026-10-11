@@ -142,7 +142,6 @@ describe('getModelControlMappingFor', () => {
       { joint: 'shoulder', actuator: 'shoulder_act' },
       { joint: 'elbow', actuator: 'elbow_act' },
     ]);
-    // The policy drives the leg; the arm's joints are found in the model.
     const builder = new PolicyStateBuilder(mujoco, mjModel, mjData, ['hip']);
 
     expect(builder.getModelControlMappingFor(['elbow', 'shoulder'])).toEqual({
