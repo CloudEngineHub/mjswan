@@ -264,6 +264,7 @@ actions = {
 | `JointVelocityActionCfg` | Supported. The target is a velocity actuator's `ctrl`; for a motor the browser applies `damping * (target - qvel)`. |
 | `JointEffortActionCfg` | Supported. |
 | `MuscleActivationActionCfg` | Supported — drives MuJoCo muscle actuators. See [below](#muscle-actuators). |
+| `CommandJointPositionActionCfg` | mjswan's own. Joint targets from a command rather than the policy. See [below](#joints-a-command-drives). |
 | `TendonLengthActionCfg`, `TendonVelocityActionCfg`, `TendonEffortActionCfg`, `SiteEffortActionCfg` | Exported so mjlab configs import cleanly, but raise `NotImplementedError` at build time. |
 
 `actuator_names` are regular expressions, each matched whole (`^(?:...)$`) against
@@ -278,6 +279,42 @@ becomes `robot/(?:a|b)`. mjswan's own classes are used as written.
 the browser runtime computes PD externally for motor actuators with `biastype=none`, so
 they have to be in the policy config. Both accept a scalar, a per-joint list (aligned with
 `policy_joint_names`), or a dict keyed by joint name.
+
+### Joints a command drives
+
+`CommandJointPositionActionCfg` writes `scale * c + offset` as the position target of its
+joints, where `c` is the value of the command `command_name` names. It takes no column of
+the policy's output, so its joints need not be the policy's: a locomotion policy keeps the
+legs while something else moves the arms, as an mjlab `ActionTerm` with `action_dim == 0`
+does. Its `actuator_names` are matched against every joint of the model, and the command
+has one column per matched joint, in the model's joint order. A list-valued `scale`,
+`offset`, `stiffness` or `damping` follows that order too.
+
+```python
+from mjswan import SliderConfig, ui_command
+from mjswan.envs.mdp.actions import CommandJointPositionActionCfg
+
+arms = ["left_shoulder_pitch_joint", "left_elbow_joint"]  # in model joint order
+scene.add_policy(
+    ...,
+    commands={
+        **env_cfg.commands,
+        "arms": ui_command(
+            [SliderConfig(name=j, label=j, range=(-2.0, 2.0)) for j in arms]
+        ),
+    },
+    actions={
+        **env_cfg.actions,
+        "arms": CommandJointPositionActionCfg(
+            command_name="arms", actuator_names=tuple(f"robot/{j}" for j in arms)
+        ),
+    },
+)
+```
+
+Any command works: a `ui_command` puts the joints on the panel's sliders, a traced command
+moves them on its own, and a command's UI override reaches the joints as it reaches any
+other reader. The build fails if the MDP has no command of that name.
 
 ### Muscle actuators
 

@@ -123,6 +123,36 @@ export class PolicyStateBuilder {
   }
 
   /**
+   * `getControlMappingFor` over every joint of the model rather than the policy's, for a
+   * term that takes no column of the policy's output. `actionIndices` count the matched
+   * joints, in model joint order, and `jointNames` names them.
+   *
+   * Returns `null` if no joint matches or a matched joint has no actuator.
+   */
+  getModelControlMappingFor(patterns: string[]): {
+    ctrlAdr: number[];
+    qposAdr: number[];
+    qvelAdr: number[];
+    actionIndices: number[];
+    jointNames: string[];
+  } | null {
+    const regexps = patterns.map((p) => new RegExp(`^(?:${p})$`));
+    const jointNames = this.getJointNames(this.mjModel).filter((name) =>
+      regexps.some((re) => re.test(name))
+    );
+    if (jointNames.length === 0) {
+      return null;
+    }
+    const mapping = new PolicyStateBuilder(
+      this.mujoco,
+      this.mjModel,
+      this.mjData,
+      jointNames
+    ).getControlMapping();
+    return mapping && { ...mapping, actionIndices: jointNames.map((_, i) => i), jointNames };
+  }
+
+  /**
    * Returns control mapping for actuators selected by name (not via joint
    * transmission). Used for muscle/tendon actuators whose transmission type
    * isn't `mjTRN_JOINT` and which therefore can't be located via the

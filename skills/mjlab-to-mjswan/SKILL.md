@@ -65,6 +65,8 @@ PY
 
 An action term with a non-`None` `unsupported_reason`, or one `adapt_actions` warns it is **skipping**, makes the task unportable as configured. The action layer is permanently native in mjswan, so there is no author-side escape hatch. Report the reason verbatim, then go to step 8, which decides whether mjswan should learn it. Never hardcode which action classes those are; the `unsupported_reason` field is the source of truth.
 
+One shape ports as it stands: a skipped term that takes no column of the policy's output (`action_dim == 0`) and writes joint targets of its own, such as an arm-motion generator beside a locomotion policy. Drop it, and the terms that read it, from the env config, then give its joints a `CommandJointPositionActionCfg` reading a command: a `ui_command` of sliders, or a traced command that reproduces its motion.
+
 ## 4. Get the policy into ONNX
 
 - **W&B run path** → nothing to do here. `add_policy_wandb(run_path)` converts every `model_*.pt` itself and passes the metadata below on its own. Needs the `wandb` and `mjlab` extras.

@@ -134,3 +134,32 @@ describe('getControlMappingFor', () => {
     expect(builder.getControlMappingFor(['hip_'], ['hip_pitch'])).toBeNull();
   });
 });
+
+describe('getModelControlMappingFor', () => {
+  it('reaches joints the policy does not drive, in model joint order', () => {
+    const { mujoco, mjModel, mjData } = makeModel([
+      { joint: 'hip', actuator: 'hip_act' },
+      { joint: 'shoulder', actuator: 'shoulder_act' },
+      { joint: 'elbow', actuator: 'elbow_act' },
+    ]);
+    // The policy drives the leg; the arm's joints are found in the model.
+    const builder = new PolicyStateBuilder(mujoco, mjModel, mjData, ['hip']);
+
+    expect(builder.getModelControlMappingFor(['elbow', 'shoulder'])).toEqual({
+      ctrlAdr: [1, 2],
+      qposAdr: [1, 2],
+      qvelAdr: [1, 2],
+      actionIndices: [0, 1],
+      jointNames: ['shoulder', 'elbow'],
+    });
+  });
+
+  it('is null when nothing matches', () => {
+    const { mujoco, mjModel, mjData } = makeModel([
+      { joint: 'hip', actuator: 'hip_act' },
+    ]);
+    const builder = new PolicyStateBuilder(mujoco, mjModel, mjData, ['hip']);
+
+    expect(builder.getModelControlMappingFor(['elbow'])).toBeNull();
+  });
+});

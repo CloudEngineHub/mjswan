@@ -151,6 +151,45 @@ class ReferenceJointPositionActionCfg(BaseActionCfg):
 
 
 @dataclass(kw_only=True)
+class CommandJointPositionActionCfg(BaseActionCfg):
+    """Joint position targets read from a command instead of the policy's output.
+
+    ``q_cmd = scale * c + offset``, where ``c`` is the value of command ``command_name``:
+    one column per matched joint, in the model's joint order. The term takes no column of
+    the policy's output, so its joints need not be the policy's. Another controller (a
+    manipulation policy, a scripted motion, the panel's sliders) drives them while the
+    policy drives the rest, as an mjlab ``ActionTerm`` with ``action_dim == 0`` does.
+    """
+
+    command_name: str
+    """Command term whose value the targets are."""
+
+    stiffness: float | list[float] | dict[str, float] | None = None
+    """Position gain (kp). mjswan-specific; see :class:`JointPositionActionCfg`."""
+
+    damping: float | list[float] | dict[str, float] | None = None
+    """Velocity gain (kd). mjswan-specific; see :class:`JointPositionActionCfg`."""
+
+    def to_dict(self) -> dict[str, Any]:
+        if self.unsupported_reason is not None:
+            raise NotImplementedError(self.unsupported_reason)
+
+        entry: dict[str, Any] = {"type": "joint_position_command"}
+        if self.scale != 1.0:
+            entry["scale"] = self.scale
+        if self.offset != 0.0:
+            entry["offset"] = self.offset
+        entry["actuator_names"] = list(self.actuator_names)
+        entry["command_name"] = self.command_name
+        if self.stiffness is not None:
+            entry["stiffness"] = self.stiffness
+        if self.damping is not None:
+            entry["damping"] = self.damping
+        self._add_clip(entry)
+        return entry
+
+
+@dataclass(kw_only=True)
 class JointVelocityActionCfg(BaseActionCfg):
     """Configuration for joint velocity control.
 
@@ -401,6 +440,7 @@ class SiteEffortActionCfg(BaseActionCfg):
 __all__ = [
     "ActionTermCfg",
     "BaseActionCfg",
+    "CommandJointPositionActionCfg",
     "JointPositionActionCfg",
     "JointVelocityActionCfg",
     "JointEffortActionCfg",

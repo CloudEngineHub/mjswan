@@ -108,6 +108,40 @@ describe('applyAction — joint_position', () => {
     expect(data.ctrl[1]).toBeCloseTo(-0.3, 6);
   });
 
+  it('drives a command term from its command, beside the policy, taking none of its output', () => {
+    const data = fakeData(2);
+    applyAction(
+      data,
+      [
+        term({ ctrlAdr: [0], qposAdr: [0], qvelAdr: [0], actionIndices: [0] }),
+        term({
+          controlType: 'joint_position_command',
+          ctrlAdr: [1],
+          qposAdr: [1],
+          qvelAdr: [1],
+          // Into the command, not the policy's output.
+          actionIndices: [0],
+          commandValue: Float32Array.from([0.3]),
+          actionScale: Float32Array.from([2]),
+          actionOffset: Float32Array.from([0.1]),
+        }),
+      ],
+      Float32Array.from([0.5]),
+    );
+    expect(data.ctrl[0]).toBeCloseTo(0.5, 6);
+    expect(data.ctrl[1]).toBeCloseTo(0.1 + 2 * 0.3, 6);
+  });
+
+  it('writes nothing for a command term whose command has no value', () => {
+    const data = fakeData(2);
+    applyAction(
+      data,
+      [term({ controlType: 'joint_position_command', commandValue: null })],
+      Float32Array.from([0.5, 0.5]),
+    );
+    expect(Array.from(data.ctrl)).toEqual([0, 0]);
+  });
+
   it('runs the PD itself for a motor actuator', () => {
     // `biastype=none`: `ctrl` is a torque, so the browser owes the PD itself.
     const data = fakeData(1, [0.2], [0.5]);
