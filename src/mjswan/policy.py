@@ -155,13 +155,15 @@ def actuated_joints_in_joint_order(model: mujoco.MjModel | None) -> list[str] | 
 
 
 def drives_joints(actions: Mapping[str, Any] | None) -> bool:
-    """Whether any action term reaches its actuator through a joint.
+    """Whether any action term reaches its actuator through a policy joint.
 
-    A muscle term names actuators directly and needs no ``policy_joint_names``; every
-    other kind the browser looks up by joint name, so it needs them or it drives nothing.
+    A muscle term names actuators directly and a command term finds its joints in the
+    model, so neither needs ``policy_joint_names``; every other kind the browser looks
+    up by policy joint name, so it needs them or it drives nothing.
     """
     return any(
-        type(term).__name__ != "MuscleActivationActionCfg"
+        type(term).__name__
+        not in ("MuscleActivationActionCfg", "CommandJointPositionActionCfg")
         for term in (actions or {}).values()
     )
 
@@ -177,13 +179,16 @@ def action_term_joint_names(
     are matched against the actuated joints in joint order, term by term.
 
     ``None`` unless every term answers: a muscle term names actuators rather than joints,
-    a pattern may match nothing, and two terms may claim one joint.
+    a pattern may match nothing, and two terms may claim one joint. A command term takes
+    no column of the policy's output, so it is skipped.
     """
     joints = actuated_joints_in_joint_order(model)
     if not actions or joints is None:
         return None
     names: list[str] = []
     for term in actions.values():
+        if type(term).__name__ == "CommandJointPositionActionCfg":
+            continue
         if type(term).__name__ == "MuscleActivationActionCfg":
             return None
         patterns = getattr(term, "actuator_names", None)
@@ -197,7 +202,7 @@ def action_term_joint_names(
         if not matched:
             return None
         names.extend(matched)
-    return names if len(set(names)) == len(names) else None
+    return names if names and len(set(names)) == len(names) else None
 
 
 @dataclass

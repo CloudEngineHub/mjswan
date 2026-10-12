@@ -323,7 +323,6 @@ export class mjswanRuntime {
   private cameraTracking = true;
   private commandManager: CommandManager;
   private readonly debugVizSet: DebugViz;
-  private readonly actionCommands = new Map<ResolvedActionTerm, string>();
   private scenePlugins: EnginePlugins;
   private policyPlugins: EnginePlugins;
   /** Every traced graph of the current MDP: observations, terminations, commands, events. */
@@ -1475,7 +1474,6 @@ export class mjswanRuntime {
   ): ResolvedActionTerm[] | null {
     const jointNames = runner.getPolicyJointNames();
     const affineBiasValue = this.mujoco.mjtBias?.mjBIAS_AFFINE?.value ?? 1;
-    this.actionCommands.clear();
 
     const buildEntry = (
       termKey: string,
@@ -1493,7 +1491,7 @@ export class mjswanRuntime {
       configDamping: number[] | number | Record<string, number> | undefined,
       useDefaultOffset: boolean,
       configClip?: Record<string, readonly number[]>
-    ) => {
+    ): ResolvedActionTerm => {
       const n = mapping.qposAdr.length;
       const subsetJointNames = mapping.jointNames ?? mapping.actionIndices.map((i) => jointNames[i]);
 
@@ -1723,7 +1721,7 @@ export class mjswanRuntime {
         actionTerm.clip as Record<string, readonly number[]> | undefined
       );
       if (controlType === 'joint_position_reference' || controlType === 'joint_position_command') {
-        this.actionCommands.set(entry, String(actionTerm.command_name ?? 'motion'));
+        entry.commandName = String(actionTerm.command_name ?? 'motion');
       }
       results.push(entry);
     }
@@ -1853,8 +1851,9 @@ export class mjswanRuntime {
 
   /** Hands each command-reading term this step's value, so `applyAction` needs no command manager. */
   private refreshActionCommands(): void {
-    for (const [term, commandName] of this.actionCommands) {
-      const command = this.commandManager.getTerm(commandName);
+    for (const term of this.policyControl ?? []) {
+      if (term.commandName === undefined) continue;
+      const command = this.commandManager.getTerm(term.commandName);
       if (term.controlType === 'joint_position_command') {
         term.commandValue = command?.getCommand() ?? null;
       } else {

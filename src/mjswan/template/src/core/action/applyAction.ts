@@ -45,6 +45,8 @@ export interface ResolvedActionTerm {
   referenceJointPos?: Float32Array | null;
   /** Command term's raw input for this step; `null` skips the term. */
   commandValue?: Float32Array | null;
+  /** The command a reference or command term reads, refreshed into the field above. */
+  commandName?: string;
   encoderBias: Float32Array;
   /**
    * Per-actuator: true = `biastype=affine` (position or velocity), so `ctrl` is a target

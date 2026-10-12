@@ -18,10 +18,14 @@ shortcuts.
 
 - **`CommandJointPositionActionCfg` drives joints from a command** (`joint_position_command`).
   The target is `scale * c + offset`, where `c` is the value of command `command_name`, one
-  column per matched joint in the model's joint order. The term takes no column of the
-  policy's output, so its joints need not be the policy's: a locomotion policy keeps the
-  legs while the panel's sliders, a scripted motion or another controller moves the arms,
-  as DUET's decoupled upper body does. The build fails if the MDP has no such command.
+  column per matched actuated joint in the model's joint order. The term takes no column
+  of the policy's output, so its joints need not be the policy's: a locomotion policy
+  keeps the legs while the panel's sliders, a scripted motion or another controller moves
+  the arms, as DUET's decoupled upper body does. `add_policy` resolves its joints, and
+  its pattern-keyed `scale`, `offset` and PD gains, against the model rather than the
+  policy's joints, and fails if nothing matches; the build fails if the command is missing
+  or its width is not the joint count. `add_policy_hf` no longer counts the term's joints
+  as policy outputs.
 
 - **A traced command can read another command.** `env.command_manager.get_command()` and
   `get_term(...).<field>` inside `_resample_command` / `_update_command` become

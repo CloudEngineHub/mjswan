@@ -21,6 +21,7 @@ import mujoco
 import numpy as np
 
 from .document.ids import assign_id, assign_name, name2id, unique_id
+from .envs.mdp.actions import CommandJointPositionActionCfg
 from .license import Attribution, resolve_license, resolve_notice
 from .mdp import MdpConfig
 from .mjlab import (
@@ -67,6 +68,42 @@ def _get_scene_model(scene_config: SceneConfig) -> mujoco.MjModel | None:
         return scene_config.spec.compile()
     except Exception:
         return None
+
+
+def _resolve_command_joints(
+    model: mujoco.MjModel | None, name: str, term: CommandJointPositionActionCfg
+) -> list[str]:
+    """The joints *term* drives, resolved as mjlab resolves an action term's.
+
+    Only joints a joint actuator drives, in model joint order, each matched whole by a
+    pattern. They are written back as exact ``actuator_names``, one per command column,
+    so the build can check the command's width and the browser finds the same joints.
+    """
+    if model is None:
+        raise ValueError(
+            f"Action term {name!r} needs the scene's compiled model to find its joints."
+        )
+    driven = sorted(
+        {
+            int(model.actuator_trnid[index, 0])
+            for index in range(model.nu)
+            if model.actuator_trntype[index] == mujoco.mjtTrn.mjTRN_JOINT
+        }
+    )
+    regexes = [re.compile(f"(?:{pattern})") for pattern in term.actuator_names]
+    joints = [
+        joint
+        for index in driven
+        if (joint := mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, index))
+        and any(regex.fullmatch(joint) for regex in regexes)
+    ]
+    if not joints:
+        raise ValueError(
+            f"Action term {name!r} matches no actuated joint with "
+            f"{list(term.actuator_names)}."
+        )
+    term.actuator_names = tuple(re.escape(joint) for joint in joints)
+    return joints
 
 
 def _get_default_qpos(model: mujoco.MjModel) -> list[float]:
@@ -559,11 +596,24 @@ class SceneHandle:
         mdp.terminations = adapt_terminations(terminations)
         mdp.events = adapt_events(events)
         _enrich_joint_observations(self._config, mdp.observations)
-        if mdp.actions and policy_joint_names:
-            resolve_action_scales(mdp.actions, policy_joint_names)
+        has_command_terms = any(
+            isinstance(term, CommandJointPositionActionCfg)
+            for term in (mdp.actions or {}).values()
+        )
+        if has_command_terms or (mdp.actions and policy_joint_names):
             resolved_env_cfg = self._resolve_env_cfg(env_cfg)
-            resolve_pd_gains(mdp.actions, policy_joint_names, resolved_env_cfg)
-            resolve_default_joint_vel(mdp.actions, policy_joint_names, resolved_env_cfg)
+            model = _get_scene_model(self._config) if has_command_terms else None
+            for name, term in (mdp.actions or {}).items():
+                # A command term's joints are its own, found in the model.
+                if isinstance(term, CommandJointPositionActionCfg):
+                    joints = _resolve_command_joints(model, name, term)
+                else:
+                    joints = policy_joint_names
+                if joints:
+                    one = {name: term}
+                    resolve_action_scales(one, joints)
+                    resolve_pd_gains(one, joints, resolved_env_cfg)
+                    resolve_default_joint_vel(one, joints, resolved_env_cfg)
         mdp._adapted = True
 
     def add_policy(

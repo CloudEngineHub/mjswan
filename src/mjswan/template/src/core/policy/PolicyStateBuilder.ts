@@ -123,8 +123,9 @@ export class PolicyStateBuilder {
   }
 
   /**
-   * `getControlMappingFor` over all model joints: `actionIndices` count the matches in model
-   * joint order. `null` if none match or any match lacks an actuator.
+   * `getControlMappingFor` over the model's actuated joints, as mjlab's
+   * `find_joints_by_actuator_names` resolves an action term: `actionIndices` count the
+   * matches in model joint order. `null` if none match.
    */
   getModelControlMappingFor(patterns: string[]): {
     ctrlAdr: number[];
@@ -134,8 +135,15 @@ export class PolicyStateBuilder {
     jointNames: string[];
   } | null {
     const regexps = patterns.map((p) => new RegExp(`^(?:${p})$`));
-    const jointNames = this.getJointNames(this.mjModel).filter((name) =>
-      regexps.some((re) => re.test(name))
+    const jointTransmission = this.mujoco.mjtTrn?.mjTRN_JOINT?.value;
+    const actuated = new Set<number>();
+    for (let i = 0; i < this.mjModel.nu; i++) {
+      if (jointTransmission === undefined || this.mjModel.actuator_trntype[i] === jointTransmission) {
+        actuated.add(this.mjModel.actuator_trnid[2 * i]);
+      }
+    }
+    const jointNames = this.getJointNames(this.mjModel).filter(
+      (name, joint) => actuated.has(joint) && regexps.some((re) => re.test(name))
     );
     if (jointNames.length === 0) {
       return null;

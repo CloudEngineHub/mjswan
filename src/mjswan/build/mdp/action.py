@@ -16,6 +16,7 @@ def serialize_actions(
     authored: Mapping[str, Mapping[str, Any]] | None = None,
     *,
     commands: Collection[str] = (),
+    widths: Mapping[str, int] | None = None,
 ) -> dict[str, Any]:
     """The MDP entry's ``actions`` block, keyed by term name.
 
@@ -23,17 +24,23 @@ def serialize_actions(
     authored for the same term, where a motor robot's PD gains live, so a scene can
     tweak the offset without restating them.
 
-    Raises ``ValueError`` if a command term's ``command_name`` is not in ``commands``.
+    Raises ``ValueError`` if a command term's ``command_name`` is not in ``commands``,
+    or if that command's width in ``widths`` is not the term's joint count.
     """
     for name, cfg in actions.items():
-        if (
-            isinstance(cfg, CommandJointPositionActionCfg)
-            and cfg.command_name not in commands
-        ):
+        if not isinstance(cfg, CommandJointPositionActionCfg):
+            continue
+        if cfg.command_name not in commands:
             raise ValueError(
                 f"Action term {name!r} reads command {cfg.command_name!r}, which the "
                 f"MDP does not have (its commands: {sorted(commands)}). Add it to the "
                 "policy's `commands`."
+            )
+        width = (widths or {}).get(cfg.command_name)
+        if width is not None and width != len(cfg.actuator_names):
+            raise ValueError(
+                f"Action term {name!r} drives {len(cfg.actuator_names)} joint(s), but "
+                f"command {cfg.command_name!r} is {width} wide: one column per joint."
             )
     authored = authored or {}
     return {

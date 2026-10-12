@@ -17,6 +17,7 @@ from typing import Any
 
 from ..envs.mdp import actions as _actions_module
 from ..envs.mdp.actions.actions import (
+    CommandJointPositionActionCfg,
     JointPositionActionCfg,
     JointVelocityActionCfg,
     ReferenceJointPositionActionCfg,
@@ -174,7 +175,12 @@ def resolve_pd_gains(
     for term in actions.values():
         velocity = isinstance(term, JointVelocityActionCfg)
         if not velocity and not isinstance(
-            term, (JointPositionActionCfg, ReferenceJointPositionActionCfg)
+            term,
+            (
+                JointPositionActionCfg,
+                ReferenceJointPositionActionCfg,
+                CommandJointPositionActionCfg,
+            ),
         ):
             continue
         if getattr(term, "stiffness", None) is not None or term.damping is not None:

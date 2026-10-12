@@ -178,6 +178,7 @@ def mdp_entry(
                 mdp.actions,
                 first_sidecar.get("actions"),
                 commands=entry.get("commands", {}),
+                widths=widths,
             )
         elif first_sidecar.get("actions"):
             entry["actions"] = first_sidecar["actions"]
