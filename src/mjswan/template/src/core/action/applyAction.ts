@@ -45,7 +45,7 @@ export interface ResolvedActionTerm {
   referenceJointPos?: Float32Array | null;
   /** Command term's raw input for this step; `null` skips the term. */
   commandValue?: Float32Array | null;
-  /** The command a reference or command term reads, refreshed into the field above. */
+  /** The command a reference or command term reads each step. */
   commandName?: string;
   encoderBias: Float32Array;
   /**
