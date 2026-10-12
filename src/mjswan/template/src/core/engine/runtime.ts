@@ -323,7 +323,6 @@ export class mjswanRuntime {
   private cameraTracking = true;
   private commandManager: CommandManager;
   private readonly debugVizSet: DebugViz;
-  /** Action terms that read a command each step → that command's name. */
   private readonly actionCommands = new Map<ResolvedActionTerm, string>();
   private scenePlugins: EnginePlugins;
   private policyPlugins: EnginePlugins;
@@ -1486,7 +1485,6 @@ export class mjswanRuntime {
         qposAdr: number[];
         qvelAdr: number[];
         actionIndices: number[];
-        /** The joints, when they are the term's own rather than the policy's. */
         jointNames?: string[];
       },
       configScale: number[] | number | Record<string, number> | undefined,
@@ -1502,7 +1500,7 @@ export class mjswanRuntime {
       const actionScale = this.normalizeControlArray(configScale, n, 1.0, subsetJointNames);
       const actionOffset = this.normalizeControlArray(configOffset, n, 0.0, subsetJointNames);
 
-      // Both are per policy joint, so the term's own joints keep zeros.
+      // Default pose and encoder bias are indexed by policy joint, not command joint.
       const defaultJointPos = new Float32Array(n);
       const encoderBias = new Float32Array(n);
       if (!mapping.jointNames) {
@@ -1853,11 +1851,7 @@ export class mjswanRuntime {
     );
   }
 
-  /**
-   * Give each command-reading action term this step's value: a reference-residual term its
-   * reference pose, a command term the command's value. Done here so `applyAction` stays a
-   * pure function, which the rollout-parity harness drives in Node with no command manager.
-   */
+  /** Hands each command-reading term this step's value, so `applyAction` needs no command manager. */
   private refreshActionCommands(): void {
     for (const [term, commandName] of this.actionCommands) {
       const command = this.commandManager.getTerm(commandName);

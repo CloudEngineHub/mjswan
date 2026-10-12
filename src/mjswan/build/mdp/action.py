@@ -23,8 +23,7 @@ def serialize_actions(
     authored for the same term, where a motor robot's PD gains live, so a scene can
     tweak the offset without restating them.
 
-    Raises ``ValueError`` for a term reading a command missing from ``commands``, which
-    would leave its joints limp in the browser.
+    Raises ``ValueError`` if a command term's ``command_name`` is not in ``commands``.
     """
     for name, cfg in actions.items():
         if (

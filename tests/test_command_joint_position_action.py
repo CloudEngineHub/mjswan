@@ -1,5 +1,3 @@
-"""``CommandJointPositionActionCfg``: serialization, and the command it must find."""
-
 from __future__ import annotations
 
 import json

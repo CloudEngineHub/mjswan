@@ -43,10 +43,7 @@ export interface ResolvedActionTerm {
    * stands in — a still robot rather than one folded into zeros.
    */
   referenceJointPos?: Float32Array | null;
-  /**
-   * `joint_position_command` only: its command's value this step, the raw action in place
-   * of the policy's, refreshed by the runtime. `null` writes nothing.
-   */
+  /** Command term's raw input for this step; `null` skips the term. */
   commandValue?: Float32Array | null;
   encoderBias: Float32Array;
   /**

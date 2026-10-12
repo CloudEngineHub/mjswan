@@ -119,7 +119,6 @@ describe('applyAction — joint_position', () => {
           ctrlAdr: [1],
           qposAdr: [1],
           qvelAdr: [1],
-          // Into the command, not the policy's output.
           actionIndices: [0],
           commandValue: Float32Array.from([0.3]),
           actionScale: Float32Array.from([2]),

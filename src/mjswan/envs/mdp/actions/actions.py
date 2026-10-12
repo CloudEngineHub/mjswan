@@ -152,22 +152,18 @@ class ReferenceJointPositionActionCfg(BaseActionCfg):
 
 @dataclass(kw_only=True)
 class CommandJointPositionActionCfg(BaseActionCfg):
-    """Joint position targets read from a command instead of the policy's output.
+    """Joint targets: ``scale * c + offset``, with ``c`` from ``command_name``.
 
-    ``q_cmd = scale * c + offset``, where ``c`` is the value of command ``command_name``,
-    one column per matched joint in the model's joint order. Taking no column of the
-    policy's output, like an mjlab ``ActionTerm`` with ``action_dim == 0``, it can drive
-    joints the policy does not.
+    One command value per matched joint in model order; consumes no policy output.
     """
 
     command_name: str
-    """Command term supplying the targets."""
 
     stiffness: float | list[float] | dict[str, float] | None = None
-    """Position gain (kp). mjswan-specific; see :class:`JointPositionActionCfg`."""
+    """Motor PD gain (kp): a scalar, a list in column order, or a dict by joint name."""
 
     damping: float | list[float] | dict[str, float] | None = None
-    """Velocity gain (kd). mjswan-specific; see :class:`JointPositionActionCfg`."""
+    """Motor PD gain (kd): a scalar, a list in column order, or a dict by joint name."""
 
     def to_dict(self) -> dict[str, Any]:
         if self.unsupported_reason is not None:
