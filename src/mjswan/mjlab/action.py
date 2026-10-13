@@ -2,7 +2,7 @@
 
 Actions stay a fixed, native, non-traced set (ADR 0005 §7), matched by class name. The
 regex scale/offset patterns, and the PD gains mjlab keeps on the actuator config, are
-resolved to exact joint names, the policy's or a command term's own, since the browser
+resolved against the policy's joint names, or a command term's own, since the browser
 looks joints up by exact name.
 """
 
