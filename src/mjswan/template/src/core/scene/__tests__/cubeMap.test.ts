@@ -1,7 +1,6 @@
 /**
- * A box's cube texture, face by face, as MuJoCo draws it: `fileright` to `fileback` fill
- * the faces +X, -X, +Y, -Y, +Z, -Z, sampled with OpenGL's cube-map lookup, while three
- * builds the box in its own frame, where MuJoCo's (x, y, z) is (x, -z, y).
+ * A box's cube texture as MuJoCo draws it, on a box three builds in its own frame, where
+ * MuJoCo's (x, y, z) is (x, -z, y).
  */
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
