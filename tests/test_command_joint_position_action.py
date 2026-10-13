@@ -101,13 +101,18 @@ def test_reaches_the_mdp_entry_with_its_joints_resolved(
 
 def test_matches_only_actuated_joints(robot, minimal_onnx):
     arm = CommandJointPositionActionCfg(command_name="arm", actuator_names=(".*",))
-    _add(robot, minimal_onnx, commands={"arm": _sliders("a", "b", "c")}, arm=arm)
+    with pytest.warns(
+        RuntimeWarning, match=r"also drives the policy's joints \['hip'\]"
+    ):
+        _add(robot, minimal_onnx, commands={"arm": _sliders("a", "b", "c")}, arm=arm)
     assert arm.actuator_names == ("hip", "left_elbow", "right_elbow")
 
 
 def test_a_pattern_matching_no_actuated_joint_fails(robot, minimal_onnx):
-    arm = CommandJointPositionActionCfg(command_name="arm", actuator_names=("root",))
-    with pytest.raises(ValueError, match="matches no actuated joint"):
+    arm = CommandJointPositionActionCfg(
+        command_name="arm", actuator_names=("left_elbow", "root")
+    )
+    with pytest.raises(ValueError, match=r"matches no actuated joint with \['root'\]"):
         _add(robot, minimal_onnx, commands={"arm": _sliders("root")}, arm=arm)
 
 

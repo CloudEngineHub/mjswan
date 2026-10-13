@@ -316,8 +316,10 @@ scene.add_policy(
 
 Any command works: a `ui_command` puts the joints on the panel's sliders, a traced command
 moves them on its own, and a command's UI override reaches the joints as it reaches any
-other reader. `add_policy` fails if the patterns match no actuated joint, and the build
-fails if the MDP has no command of that name or its width is not the number of joints.
+other reader. `add_policy` fails if a pattern matches no actuated joint, and warns if a
+joint is also the policy's, since whichever term comes later in `actions` sets its `ctrl`.
+The build fails if the MDP has no command of that name or its width is not the number of
+joints.
 
 ### Muscle actuators
 

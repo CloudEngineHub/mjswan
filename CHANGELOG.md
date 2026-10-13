@@ -23,9 +23,9 @@ shortcuts.
   keeps the legs while the panel's sliders, a scripted motion or another controller moves
   the arms, as DUET's decoupled upper body does. `add_policy` resolves its joints, and
   its pattern-keyed `scale`, `offset` and PD gains, against the model rather than the
-  policy's joints, and fails if nothing matches; the build fails if the command is missing
-  or its width is not the joint count. `add_policy_hf` no longer counts the term's joints
-  as policy outputs.
+  policy's joints. It fails if a pattern matches no actuated joint and warns if a joint is
+  also the policy's; the build fails if the command is missing or its width is not the
+  joint count. `add_policy_hf` no longer counts the term's joints as policy outputs.
 
 - **A traced command can read another command.** `env.command_manager.get_command()` and
   `get_term(...).<field>` inside `_resample_command` / `_update_command` become

@@ -2,8 +2,8 @@
 
 Actions stay a fixed, native, non-traced set (ADR 0005 §7), matched by class name. The
 regex scale/offset patterns, and the PD gains mjlab keeps on the actuator config, are
-resolved against the policy's joint names, since the browser looks joints up by exact
-name.
+resolved to exact joint names, the policy's or a command term's own, since the browser
+looks joints up by exact name.
 """
 
 from __future__ import annotations
@@ -115,8 +115,8 @@ def resolve_action_scales(
 
     mjlab keys per-joint values by regex (``{".*_hip_joint": 0.37}``) and the browser
     looks them up by exact name, so patterns are expanded against *joint_names*, the
-    policy's joints prefixed with the entity name (``"robot/left_hip_joint"``).
-    Mutates each term in place.
+    policy's joints or a command term's own, prefixed with the entity name
+    (``"robot/left_hip_joint"``). Mutates each term in place.
     """
     if not actions or not joint_names:
         return

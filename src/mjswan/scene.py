@@ -89,17 +89,21 @@ def _resolve_command_joints(
             if model.actuator_trntype[index] == mujoco.mjtTrn.mjTRN_JOINT
         }
     )
-    regexes = [re.compile(f"(?:{pattern})") for pattern in term.actuator_names]
-    joints = [
+    actuated = [
         joint
         for index in driven
         if (joint := mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, index))
-        and any(regex.fullmatch(joint) for regex in regexes)
     ]
-    if not joints:
+    regexes = [re.compile(f"(?:{pattern})") for pattern in term.actuator_names]
+    unmatched = [
+        pattern
+        for pattern, regex in zip(term.actuator_names, regexes)
+        if not any(regex.fullmatch(joint) for joint in actuated)
+    ]
+    joints = [j for j in actuated if any(r.fullmatch(j) for r in regexes)]
+    if unmatched or not joints:
         raise ValueError(
-            f"Action term {name!r} matches no actuated joint with "
-            f"{list(term.actuator_names)}."
+            f"Action term {name!r} matches no actuated joint with {unmatched}."
         )
     term.actuator_names = tuple(re.escape(joint) for joint in joints)
     return joints
@@ -605,6 +609,14 @@ class SceneHandle:
             for name, term in (mdp.actions or {}).items():
                 if isinstance(term, CommandJointPositionActionCfg):
                     joints = _resolve_command_joints(model, name, term)
+                    if shared := sorted(set(joints) & set(policy_joint_names or ())):
+                        warnings.warn(
+                            f"Action term {name!r} also drives the policy's joints "
+                            f"{shared}; whichever term comes later in `actions` sets "
+                            "their ctrl.",
+                            category=RuntimeWarning,
+                            stacklevel=3,
+                        )
                 else:
                     joints = policy_joint_names
                 if joints:
