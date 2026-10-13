@@ -1178,6 +1178,7 @@ from mjswan.envs.mdp.actions import JointPositionActionCfg
 | `JointVelocityActionCfg` | Supported. Adds `damping` (motor actuators only). |
 | `JointEffortActionCfg` | Supported. Adds `stiffness`, `damping`. |
 | `MuscleActivationActionCfg` | Supported. Adds `normalize` (default `True`). |
+| `CommandJointPositionActionCfg` | mjswan's own. Joint targets from a command rather than the policy. Adds `command_name`, `stiffness`, `damping`. See [Joints a command drives](../guides/policy-config.md#joints-a-command-drives). |
 | `TendonLengthActionCfg`, `TendonVelocityActionCfg`, `TendonEffortActionCfg` | Raise `NotImplementedError` at build time. |
 | `SiteEffortActionCfg` | Raises `NotImplementedError` at build time. |
 

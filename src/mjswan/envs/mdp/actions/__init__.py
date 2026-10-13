@@ -13,6 +13,7 @@ translates directly::
 from .actions import (
     ActionTermCfg,
     BaseActionCfg,
+    CommandJointPositionActionCfg,
     JointEffortActionCfg,
     JointPositionActionCfg,
     JointVelocityActionCfg,
@@ -30,6 +31,7 @@ __all__ = [
     "JointPositionActionCfg",
     "JointVelocityActionCfg",
     "ReferenceJointPositionActionCfg",
+    "CommandJointPositionActionCfg",
     "JointEffortActionCfg",
     "MuscleActivationActionCfg",
     "TendonLengthActionCfg",

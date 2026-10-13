@@ -8,7 +8,7 @@ import { PolicyStateBuilder } from '../PolicyStateBuilder';
  * `actuator_trnid` to a joint.
  */
 function makeModel(
-  joints: { joint: string; actuator: string }[]
+  joints: { joint: string; actuator?: string }[]
 ): { mujoco: MainModule; mjModel: MjModel; mjData: MjData } {
   const encoder = new TextEncoder();
   const blob: number[] = [];
@@ -19,19 +19,20 @@ function makeModel(
   };
 
   const name_jntadr = joints.map((j) => address(j.joint));
-  const name_actuatoradr = joints.map((j) => address(j.actuator));
+  const actuated = joints.flatMap((j, i) => (j.actuator === undefined ? [] : [{ name: j.actuator, joint: i }]));
+  const name_actuatoradr = actuated.map((a) => address(a.name));
 
   const mjModel = {
     njnt: joints.length,
-    nu: joints.length,
+    nu: actuated.length,
     names: new Uint8Array(blob).buffer,
     name_jntadr: Int32Array.from(name_jntadr),
     name_actuatoradr: Int32Array.from(name_actuatoradr),
     jnt_qposadr: Int32Array.from(joints.map((_, i) => i)),
     jnt_dofadr: Int32Array.from(joints.map((_, i) => i)),
-    // One actuator per joint, in the same order, each a joint transmission.
-    actuator_trntype: Int32Array.from(joints.map(() => 0)),
-    actuator_trnid: Int32Array.from(joints.flatMap((_, i) => [i, -1])),
+    // One actuator per joint that names one, in joint order, each a joint transmission.
+    actuator_trntype: Int32Array.from(actuated.map(() => 0)),
+    actuator_trnid: Int32Array.from(actuated.flatMap((a) => [a.joint, -1])),
   } as unknown as MjModel;
 
   const mjData = {
@@ -132,5 +133,48 @@ describe('getControlMappingFor', () => {
     const builder = new PolicyStateBuilder(mujoco, mjModel, mjData, ['hip_pitch']);
 
     expect(builder.getControlMappingFor(['hip_'], ['hip_pitch'])).toBeNull();
+  });
+});
+
+describe('getModelControlMappingFor', () => {
+  it('reaches joints the policy does not drive, in model joint order', () => {
+    const { mujoco, mjModel, mjData } = makeModel([
+      { joint: 'hip', actuator: 'hip_act' },
+      { joint: 'shoulder', actuator: 'shoulder_act' },
+      { joint: 'elbow', actuator: 'elbow_act' },
+    ]);
+    const builder = new PolicyStateBuilder(mujoco, mjModel, mjData, ['hip']);
+
+    expect(builder.getModelControlMappingFor(['elbow', 'shoulder'])).toEqual({
+      ctrlAdr: [1, 2],
+      qposAdr: [1, 2],
+      qvelAdr: [1, 2],
+      actionIndices: [0, 1],
+      jointNames: ['shoulder', 'elbow'],
+    });
+  });
+
+  it('skips a joint no actuator drives, as mjlab does', () => {
+    const { mujoco, mjModel, mjData } = makeModel([
+      { joint: 'root' },
+      { joint: 'hip', actuator: 'hip_act' },
+      { joint: 'elbow', actuator: 'elbow_act' },
+    ]);
+    const builder = new PolicyStateBuilder(mujoco, mjModel, mjData, ['hip']);
+
+    expect(builder.getModelControlMappingFor(['.*'])).toMatchObject({
+      jointNames: ['hip', 'elbow'],
+      ctrlAdr: [0, 1],
+      qposAdr: [1, 2],
+    });
+  });
+
+  it('is null when nothing matches', () => {
+    const { mujoco, mjModel, mjData } = makeModel([
+      { joint: 'hip', actuator: 'hip_act' },
+    ]);
+    const builder = new PolicyStateBuilder(mujoco, mjModel, mjData, ['hip']);
+
+    expect(builder.getModelControlMappingFor(['elbow'])).toBeNull();
   });
 });

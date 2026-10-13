@@ -175,7 +175,10 @@ def mdp_entry(
             entry["observations"] = first_sidecar["observations"]
         if mdp.actions:
             entry["actions"] = serialize_actions(
-                mdp.actions, first_sidecar.get("actions")
+                mdp.actions,
+                first_sidecar.get("actions"),
+                commands=entry.get("commands", {}),
+                widths=widths,
             )
         elif first_sidecar.get("actions"):
             entry["actions"] = first_sidecar["actions"]

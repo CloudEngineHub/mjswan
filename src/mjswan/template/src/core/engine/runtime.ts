@@ -323,8 +323,6 @@ export class mjswanRuntime {
   private cameraTracking = true;
   private commandManager: CommandManager;
   private readonly debugVizSet: DebugViz;
-  /** `joint_position_reference` terms → the command name publishing their reference. */
-  private readonly referenceActionCommands = new Map<ResolvedActionTerm, string>();
   private scenePlugins: EnginePlugins;
   private policyPlugins: EnginePlugins;
   /** Every traced graph of the current MDP: observations, terminations, commands, events. */
@@ -1480,34 +1478,40 @@ export class mjswanRuntime {
     const buildEntry = (
       termKey: string,
       controlType: string,
-      mapping: { ctrlAdr: number[]; qposAdr: number[]; qvelAdr: number[]; actionIndices: number[] },
+      mapping: {
+        ctrlAdr: number[];
+        qposAdr: number[];
+        qvelAdr: number[];
+        actionIndices: number[];
+        jointNames?: string[];
+      },
       configScale: number[] | number | Record<string, number> | undefined,
       configOffset: number[] | number | Record<string, number> | undefined,
       configStiffness: number[] | number | Record<string, number> | undefined,
       configDamping: number[] | number | Record<string, number> | undefined,
       useDefaultOffset: boolean,
       configClip?: Record<string, readonly number[]>
-    ) => {
+    ): ResolvedActionTerm => {
       const n = mapping.qposAdr.length;
-      const subsetJointNames = mapping.actionIndices.map((i) => jointNames[i]);
+      const subsetJointNames = mapping.jointNames ?? mapping.actionIndices.map((i) => jointNames[i]);
 
       const actionScale = this.normalizeControlArray(configScale, n, 1.0, subsetJointNames);
       const actionOffset = this.normalizeControlArray(configOffset, n, 0.0, subsetJointNames);
 
-      const allDefaultJointPos = useDefaultOffset
-        ? runner.getDefaultJointPos()
-        : new Float32Array(jointNames.length);
+      // Default pose and encoder bias are indexed by policy joint, not command joint.
       const defaultJointPos = new Float32Array(n);
-      for (let i = 0; i < n; i++) {
-        defaultJointPos[i] = allDefaultJointPos[mapping.actionIndices[i]];
-      }
-
-      const allEncoderBias = Array.isArray(config.encoder_bias)
-        ? Float32Array.from(config.encoder_bias)
-        : new Float32Array(jointNames.length);
       const encoderBias = new Float32Array(n);
-      for (let i = 0; i < n; i++) {
-        encoderBias[i] = allEncoderBias[mapping.actionIndices[i]] ?? 0.0;
+      if (!mapping.jointNames) {
+        const allDefaultJointPos = useDefaultOffset
+          ? runner.getDefaultJointPos()
+          : new Float32Array(jointNames.length);
+        const allEncoderBias = Array.isArray(config.encoder_bias)
+          ? Float32Array.from(config.encoder_bias)
+          : new Float32Array(jointNames.length);
+        for (let i = 0; i < n; i++) {
+          defaultJointPos[i] = allDefaultJointPos[mapping.actionIndices[i]];
+          encoderBias[i] = allEncoderBias[mapping.actionIndices[i]] ?? 0.0;
+        }
       }
 
       const kp = this.normalizeControlArray(configStiffness, n, 0.0, subsetJointNames);
@@ -1598,6 +1602,7 @@ export class mjswanRuntime {
       if (
         controlType !== 'joint_position' &&
         controlType !== 'joint_position_reference' &&
+        controlType !== 'joint_position_command' &&
         controlType !== 'joint_velocity' &&
         controlType !== 'torque' &&
         controlType !== 'muscle_activation'
@@ -1666,9 +1671,20 @@ export class mjswanRuntime {
       // If actuator_names is absent or [".*"], match all joints (backward-compatible).
       const isMatchAll = patterns.length === 1 && patterns[0] === '.*';
 
-      let mapping: { ctrlAdr: number[]; qposAdr: number[]; qvelAdr: number[]; actionIndices: number[] } | null;
+      let mapping: Parameters<typeof buildEntry>[2] | null;
 
-      if (isMatchAll) {
+      if (controlType === 'joint_position_command') {
+        mapping = stateBuilder.getModelControlMappingFor(patterns);
+        const commandName = String(actionTerm.command_name);
+        const width = this.commandManager.getCommand(commandName).length;
+        if (mapping && width !== mapping.qposAdr.length) {
+          console.error(
+            `[PolicyRunner] Action term "${termKey}": command "${commandName}" is ${width} ` +
+            `wide but the term drives ${mapping.qposAdr.length} joint(s), skipping.`
+          );
+          continue;
+        }
+      } else if (isMatchAll) {
         const baseMapping = stateBuilder.getControlMapping();
         if (!baseMapping) {
           console.warn(`[PolicyRunner] Action term "${termKey}": failed to build control mapping, skipping.`);
@@ -1680,10 +1696,10 @@ export class mjswanRuntime {
         };
       } else {
         mapping = stateBuilder.getControlMappingFor(patterns, jointNames);
-        if (!mapping) {
-          console.warn(`[PolicyRunner] Action term "${termKey}": no joints matched patterns [${patterns.join(', ')}], skipping.`);
-          continue;
-        }
+      }
+      if (!mapping) {
+        console.warn(`[PolicyRunner] Action term "${termKey}": no joints matched patterns [${patterns.join(', ')}], skipping.`);
+        continue;
       }
 
       // `joint_velocity`'s default offset is a velocity, already folded into `offset`.
@@ -1704,8 +1720,8 @@ export class mjswanRuntime {
         useDefaultOffset,
         actionTerm.clip as Record<string, readonly number[]> | undefined
       );
-      if (controlType === 'joint_position_reference') {
-        this.referenceActionCommands.set(entry, String(actionTerm.command_name ?? 'motion'));
+      if (controlType === 'joint_position_reference' || controlType === 'joint_position_command') {
+        entry.commandName = String(actionTerm.command_name ?? 'motion');
       }
       results.push(entry);
     }
@@ -1741,7 +1757,7 @@ export class mjswanRuntime {
         if (idx >= 0 && idx < length) {
           output[idx] = val;
         } else {
-          console.warn(`[PolicyRunner] Joint name "${name}" not found in policy_joint_names; skipping.`);
+          console.warn(`[PolicyRunner] Joint name "${name}" is not one of the term's joints; skipping.`);
         }
       }
       return output;
@@ -1818,7 +1834,7 @@ export class mjswanRuntime {
     this.interaction.preStep();
     if (this.modelHasHands) this.handMocap.update(this.mjModel, this.mjData);
 
-    this.refreshActionReferences();
+    this.refreshActionCommands();
     stepPhysics(
       this.mujoco,
       this.mjModel,
@@ -1833,16 +1849,16 @@ export class mjswanRuntime {
     );
   }
 
-  /**
-   * Point each reference-residual action term at this step's reference pose. Refreshed
-   * here so `applyAction` stays a pure function of what it is handed — the rollout-parity
-   * harness drives it in Node with no command manager.
-   */
-  private refreshActionReferences(): void {
-    if (this.referenceActionCommands.size === 0) return;
-    for (const [term, commandName] of this.referenceActionCommands) {
-      const command = this.commandManager.getTerm(commandName);
-      term.referenceJointPos = command?.getStateField?.('tracked_joint_pos') ?? null;
+  /** Hands each command-reading term this step's value, so `applyAction` needs no command manager. */
+  private refreshActionCommands(): void {
+    for (const term of this.policyControl ?? []) {
+      if (term.commandName === undefined) continue;
+      const command = this.commandManager.getTerm(term.commandName);
+      if (term.controlType === 'joint_position_command') {
+        term.commandValue = command?.getCommand() ?? null;
+      } else {
+        term.referenceJointPos = command?.getStateField?.('tracked_joint_pos') ?? null;
+      }
     }
   }
 

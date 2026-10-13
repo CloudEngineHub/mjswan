@@ -13,6 +13,7 @@ type MjData = import('mujoco').MjData;
 export type ControlType =
   | 'joint_position'
   | 'joint_position_reference'
+  | 'joint_position_command'
   | 'joint_velocity'
   | 'torque'
   | 'muscle_activation';
@@ -31,7 +32,7 @@ export interface ResolvedActionTerm {
   ctrlAdr: number[];
   qposAdr: number[];
   qvelAdr: number[];
-  /** Indices into the flat policy action vector for this term's joints. */
+  /** Indices into the policy's action vector, or into `commandValue` for a command term. */
   actionIndices: number[];
   actionScale: Float32Array;
   actionOffset: Float32Array;
@@ -42,6 +43,10 @@ export interface ResolvedActionTerm {
    * stands in — a still robot rather than one folded into zeros.
    */
   referenceJointPos?: Float32Array | null;
+  /** Command term's raw input for this step; `null` skips the term. */
+  commandValue?: Float32Array | null;
+  /** The command a reference or command term reads each step. */
+  commandName?: string;
   encoderBias: Float32Array;
   /**
    * Per-actuator: true = `biastype=affine` (position or velocity), so `ctrl` is a target
@@ -83,8 +88,11 @@ export function applyAction(
 function applyActionTerm(
   mjData: MjData,
   term: ResolvedActionTerm,
-  actions: Float32Array,
+  policyActions: Float32Array,
 ): void {
+  const actions =
+    term.controlType === 'joint_position_command' ? term.commandValue : policyActions;
+  if (!actions) return;
   const {
     controlType,
     ctrlAdr,
@@ -105,7 +113,11 @@ function applyActionTerm(
   const numJoints = ctrlAdr.length;
   const ctrl = mjData.ctrl;
 
-  if (controlType === 'joint_position' || controlType === 'joint_position_reference') {
+  if (
+    controlType === 'joint_position' ||
+    controlType === 'joint_position_reference' ||
+    controlType === 'joint_position_command'
+  ) {
     const reference = term.referenceJointPos ?? null;
     for (let i = 0; i < numJoints; i++) {
       const ctrlIndex = ctrlAdr[i];

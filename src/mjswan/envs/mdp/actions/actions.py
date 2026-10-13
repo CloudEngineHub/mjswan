@@ -151,6 +151,40 @@ class ReferenceJointPositionActionCfg(BaseActionCfg):
 
 
 @dataclass(kw_only=True)
+class CommandJointPositionActionCfg(BaseActionCfg):
+    """Joint targets: ``scale * c + offset``, with ``c`` from ``command_name``.
+
+    One command value per matched actuated joint, in joint order; no policy output.
+    """
+
+    command_name: str
+
+    stiffness: float | list[float] | dict[str, float] | None = None
+    """Motor PD gain (kp): a scalar, a list in column order, or a dict by joint name."""
+
+    damping: float | list[float] | dict[str, float] | None = None
+    """Motor PD gain (kd): a scalar, a list in column order, or a dict by joint name."""
+
+    def to_dict(self) -> dict[str, Any]:
+        if self.unsupported_reason is not None:
+            raise NotImplementedError(self.unsupported_reason)
+
+        entry: dict[str, Any] = {"type": "joint_position_command"}
+        if self.scale != 1.0:
+            entry["scale"] = self.scale
+        if self.offset != 0.0:
+            entry["offset"] = self.offset
+        entry["actuator_names"] = list(self.actuator_names)
+        entry["command_name"] = self.command_name
+        if self.stiffness is not None:
+            entry["stiffness"] = self.stiffness
+        if self.damping is not None:
+            entry["damping"] = self.damping
+        self._add_clip(entry)
+        return entry
+
+
+@dataclass(kw_only=True)
 class JointVelocityActionCfg(BaseActionCfg):
     """Configuration for joint velocity control.
 
@@ -401,6 +435,7 @@ class SiteEffortActionCfg(BaseActionCfg):
 __all__ = [
     "ActionTermCfg",
     "BaseActionCfg",
+    "CommandJointPositionActionCfg",
     "JointPositionActionCfg",
     "JointVelocityActionCfg",
     "JointEffortActionCfg",

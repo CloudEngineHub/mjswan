@@ -16,6 +16,12 @@ shortcuts.
 
 - **`mjswan version` and `mjswan --version`** print the installed mjswan version.
 
+- **`CommandJointPositionActionCfg` drives joints from a command** (`joint_position_command`).
+  The target is `scale * c + offset`, with `c` the value of command `command_name`, one
+  column per matched actuated joint in the model's joint order. It takes no column of the
+  policy's output, so its joints need not be the policy's: a locomotion policy keeps the
+  legs while the panel's sliders or a scripted motion move the arms.
+
 - **A traced command can read another command.** `env.command_manager.get_command()` and
   `get_term(...).<field>` inside `_resample_command` / `_update_command` become
   `{command, field}` input slots, served from that command's state as an observation's
