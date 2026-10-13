@@ -727,6 +727,12 @@ shortcuts.
 
 ### Fixed
 
+- **A box draws a cube texture's faces where MuJoCo does.** The browser handed a box's six
+  faces the texture's images in an order of its own, on a box built in three's frame, so a
+  cube textured face by face (a die, a tagged cube) showed each image on another face,
+  turned: the `fileright` (+X) image on +Z. Each face now samples the image of the axis it
+  faces, laid out as MuJoCo's cube-map lookup lays it.
+
 - **A single-threaded build no longer ships the multithreaded MuJoCo.** Built without
   `Builder(mt=True)`, the SPA resolves `mujoco/mt` to a stub, which leaves out the
   10.5 MB build its app never loads: the engine goes from 36 MB to 26 MB. An `mt=True`

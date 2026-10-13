@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { MainModule, MjData, MjModel } from 'mujoco';
+import { mapCubeTextureOnBox } from './cubeMap';
 import { createLights, lightSpecularRatio } from './lights';
 import { createTexture, createSkyboxTexture } from './textures';
 import { createTendonMeshes } from './tendons';
@@ -422,7 +423,10 @@ export async function loadSceneFromURL(
       const role = mujoco.mjtTextureRole.mjTEXROLE_RGB.value;
       const texId = mjModel.mat_texid[matId * mujoco.mjtTextureRole.mjNTEXROLE.value + role];
       if (texId !== -1) {
-        texture = createTexture({ mujoco, mjModel, texId });
+        // A box takes a cube texture's faces in MuJoCo's own order, for `mapCubeTextureOnBox`.
+        const cubeFaceOrder =
+          type === mujoco.mjtGeom.mjGEOM_BOX.value ? [0, 1, 2, 3, 4, 5] : undefined;
+        texture = createTexture({ mujoco, mjModel, texId, cubeFaceOrder });
         if (texture) {
           const repeatX = mjModel.mat_texrepeat ? mjModel.mat_texrepeat[matId * 2 + 0] : 1;
           const repeatY = mjModel.mat_texrepeat ? mjModel.mat_texrepeat[matId * 2 + 1] : 1;
@@ -451,15 +455,10 @@ export async function loadSceneFromURL(
           texture.image.length === 6
         ) {
           const images = texture.image as unknown as HTMLCanvasElement[];
-          if (images.length === 6) {
-            if (geometry && geometry.groups && geometry.groups.length !== 6) {
-              geometry.clearGroups();
-            }
-
+          if (geometry && images.length === 6) {
             const materials: THREE.MeshPhysicalMaterial[] = [];
-            for (let i = 0; i < 6; i++) {
-              const canvas = images[i];
-              const faceTex = new THREE.CanvasTexture(canvas);
+            for (const face of mapCubeTextureOnBox(geometry, size)) {
+              const faceTex = new THREE.CanvasTexture(images[face]);
               faceTex.flipY = false;
               faceTex.wrapS = THREE.ClampToEdgeWrapping;
               faceTex.wrapT = THREE.ClampToEdgeWrapping;
