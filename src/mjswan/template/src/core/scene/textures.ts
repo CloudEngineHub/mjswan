@@ -5,6 +5,8 @@ interface CreateTextureParams {
   mujoco: MainModule;
   mjModel: MjModel;
   texId: number;
+  /** A cube texture's faces, as indices into MuJoCo's order (+X, -X, +Y, -Y, +Z, -Z). */
+  cubeFaceOrder?: number[];
 }
 
 function expandChannelsToRGBA(src: Uint8Array, dest: Uint8Array, nchannel: number): void {
@@ -194,6 +196,7 @@ export function createTexture({
   mujoco,
   mjModel,
   texId,
+  cubeFaceOrder,
 }: CreateTextureParams): THREE.Texture | null {
   if (!mjModel || texId < 0) {
     return null;
@@ -206,7 +209,7 @@ export function createTexture({
   }
 
   if (type === mujoco.mjtTexture.mjTEXTURE_CUBE.value) {
-    return createCubeTexture(mjModel, texId);
+    return createCubeTexture(mjModel, texId, cubeFaceOrder);
   }
 
   console.warn(`Unsupported texture type ${type} for texId: ${texId}`);

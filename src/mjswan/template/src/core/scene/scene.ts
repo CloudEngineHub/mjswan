@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { MainModule, MjData, MjModel } from 'mujoco';
+import { sampleCubeTexture } from './cubeMap';
 import { createLights, lightSpecularRatio } from './lights';
 import { createTexture, createSkyboxTexture } from './textures';
 import { createTendonMeshes } from './tendons';
@@ -422,7 +423,10 @@ export async function loadSceneFromURL(
       const role = mujoco.mjtTextureRole.mjTEXROLE_RGB.value;
       const texId = mjModel.mat_texid[matId * mujoco.mjtTextureRole.mjNTEXROLE.value + role];
       if (texId !== -1) {
-        texture = createTexture({ mujoco, mjModel, texId });
+        // A box samples a cube texture as MuJoCo does, so it keeps MuJoCo's face order.
+        const cubeFaceOrder =
+          type === mujoco.mjtGeom.mjGEOM_BOX.value ? [0, 1, 2, 3, 4, 5] : undefined;
+        texture = createTexture({ mujoco, mjModel, texId, cubeFaceOrder });
         if (texture) {
           const repeatX = mjModel.mat_texrepeat ? mjModel.mat_texrepeat[matId * 2 + 0] : 1;
           const repeatY = mjModel.mat_texrepeat ? mjModel.mat_texrepeat[matId * 2 + 1] : 1;
@@ -433,63 +437,26 @@ export async function loadSceneFromURL(
       }
     }
 
-    let currentMaterial: THREE.MeshPhysicalMaterial | THREE.MeshPhysicalMaterial[] =
-      new THREE.MeshPhysicalMaterial({
-        color: new THREE.Color(color[0], color[1], color[2]),
-        transparent: color[3] < 1.0,
-        opacity: color[3],
-        ...reflectanceParams(mjModel, mjModel.geom_matid[g], specularRatio),
-      });
+    const currentMaterial = new THREE.MeshPhysicalMaterial({
+      color: new THREE.Color(color[0], color[1], color[2]),
+      transparent: color[3] < 1.0,
+      opacity: color[3],
+      ...reflectanceParams(mjModel, mjModel.geom_matid[g], specularRatio),
+    });
 
     if (texture) {
       if (!(texture instanceof THREE.CubeTexture)) {
-        (currentMaterial as THREE.MeshPhysicalMaterial).map = texture;
+        currentMaterial.map = texture;
+      } else if (type === mujoco.mjtGeom.mjGEOM_BOX.value) {
+        // MuJoCo samples at the point on the unit box, or on the box itself with `texuniform`.
+        const uniform = mjModel.mat_texuniform[mjModel.geom_matid[g]];
+        sampleCubeTexture(currentMaterial, texture, uniform ? [1, 1, 1] : size);
       } else {
-        if (
-          type === mujoco.mjtGeom.mjGEOM_BOX.value &&
-          Array.isArray(texture.image) &&
-          texture.image.length === 6
-        ) {
-          const images = texture.image as unknown as HTMLCanvasElement[];
-          if (images.length === 6) {
-            if (geometry && geometry.groups && geometry.groups.length !== 6) {
-              geometry.clearGroups();
-            }
-
-            const materials: THREE.MeshPhysicalMaterial[] = [];
-            for (let i = 0; i < 6; i++) {
-              const canvas = images[i];
-              const faceTex = new THREE.CanvasTexture(canvas);
-              faceTex.flipY = false;
-              faceTex.wrapS = THREE.ClampToEdgeWrapping;
-              faceTex.wrapT = THREE.ClampToEdgeWrapping;
-              faceTex.magFilter = THREE.LinearFilter;
-              faceTex.minFilter = THREE.LinearFilter;
-
-              const m = new THREE.MeshPhysicalMaterial({
-                color: new THREE.Color(color[0], color[1], color[2]),
-                transparent: color[3] < 1.0,
-                opacity: color[3],
-                ...reflectanceParams(mjModel, mjModel.geom_matid[g], specularRatio),
-                map: faceTex,
-              });
-              materials.push(m);
-            }
-            currentMaterial = materials;
-          } else {
-            (currentMaterial as THREE.MeshPhysicalMaterial).envMap = texture;
-            (currentMaterial as THREE.MeshPhysicalMaterial).envMapIntensity =
-              mjModel.geom_matid[g] !== -1
-                ? (mjModel.mat_reflectance?.[mjModel.geom_matid[g]] ?? 0)
-                : 0;
-          }
-        } else {
-          (currentMaterial as THREE.MeshPhysicalMaterial).envMap = texture;
-          (currentMaterial as THREE.MeshPhysicalMaterial).envMapIntensity =
-            mjModel.geom_matid[g] !== -1
-              ? (mjModel.mat_reflectance?.[mjModel.geom_matid[g]] ?? 0)
-              : 0;
-        }
+        currentMaterial.envMap = texture;
+        currentMaterial.envMapIntensity =
+          mjModel.geom_matid[g] !== -1
+            ? (mjModel.mat_reflectance?.[mjModel.geom_matid[g]] ?? 0)
+            : 0;
       }
     }
 
@@ -523,9 +490,7 @@ export async function loadSceneFromURL(
       mesh.scale.set(size[0], size[2], size[1]);
     }
     if (isInfinitePlane) {
-      const baseMat = (
-        Array.isArray(currentMaterial) ? currentMaterial[0] : currentMaterial
-      ) as THREE.MeshPhysicalMaterial;
+      const baseMat = currentMaterial;
       const tex = baseMat.map ?? null;
       const repeatX = tex?.repeat.x ?? 1;
       const repeatY = tex?.repeat.y ?? 1;
@@ -555,7 +520,7 @@ export async function loadSceneFromURL(
         shaderMat.uniforms.uCamWorldMatrix.value.copy(camera.matrixWorld);
       };
     } else if (type === mujoco.mjtGeom.mjGEOM_PLANE.value) {
-      const frontMat = currentMaterial as THREE.MeshPhysicalMaterial;
+      const frontMat = currentMaterial;
       const backMat = frontMat.clone();
       backMat.side = THREE.BackSide;
       backMat.transparent = true;
