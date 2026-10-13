@@ -283,14 +283,13 @@ they have to be in the policy config. Both accept a scalar, a per-joint list (al
 ### Joints a command drives
 
 `CommandJointPositionActionCfg` writes `scale * c + offset` as the position target of its
-joints, where `c` is the value of the command `command_name` names. It takes no column of
-the policy's output, so its joints need not be the policy's: a locomotion policy keeps the
-legs while something else moves the arms, as an mjlab `ActionTerm` with `action_dim == 0`
-does. Its `actuator_names` are matched against the model's actuated joints, as mjlab
-resolves an action term's, and the command has one column per matched joint, in the
-model's joint order. `add_policy` writes the matches back as exact joint names. A
-list-valued `scale`, `offset`, `stiffness` or `damping` follows that order too, and a
-pattern-keyed one is resolved against these joints, as a motor robot's PD gains are.
+joints, where `c` is the value of command `command_name`. It takes no column of the
+policy's output, so its joints need not be the policy's: a locomotion policy keeps the legs
+while something else moves the arms, as an mjlab `ActionTerm` with `action_dim == 0` does.
+Its `actuator_names` are matched against the model's actuated joints, and the command has
+one column per matched joint, in the model's joint order. A list-valued `scale`, `offset`,
+`stiffness` or `damping` follows that order too, and a pattern-keyed one is resolved
+against these joints.
 
 ```python
 from mjswan import SliderConfig, ui_command
@@ -314,12 +313,11 @@ scene.add_policy(
 )
 ```
 
-Any command works: a `ui_command` puts the joints on the panel's sliders, a traced command
-moves them on its own, and a command's UI override reaches the joints as it reaches any
-other reader. `add_policy` fails if a pattern matches no actuated joint, and warns if a
-joint is also the policy's, since whichever term comes later in `actions` sets its `ctrl`.
-The build fails if the MDP has no command of that name or its width is not the number of
-joints.
+Any command works: a `ui_command` puts the joints on the panel's sliders, and a traced
+command moves them on its own. `add_policy` fails if a pattern matches no actuated joint,
+and warns if a joint is also the policy's, since the later term in `actions` sets its
+`ctrl`. The build fails if the MDP has no command of that name or its width is not the
+number of joints.
 
 ### Muscle actuators
 

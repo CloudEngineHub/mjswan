@@ -17,15 +17,10 @@ shortcuts.
 - **`mjswan version` and `mjswan --version`** print the installed mjswan version.
 
 - **`CommandJointPositionActionCfg` drives joints from a command** (`joint_position_command`).
-  The target is `scale * c + offset`, where `c` is the value of command `command_name`, one
-  column per matched actuated joint in the model's joint order. The term takes no column
-  of the policy's output, so its joints need not be the policy's: a locomotion policy
-  keeps the legs while the panel's sliders, a scripted motion or another controller moves
-  the arms, as DUET's decoupled upper body does. `add_policy` resolves its joints, and
-  its pattern-keyed `scale`, `offset` and PD gains, against the model rather than the
-  policy's joints. It fails if a pattern matches no actuated joint and warns if a joint is
-  also the policy's; the build fails if the command is missing or its width is not the
-  joint count. `add_policy_hf` no longer counts the term's joints as policy outputs.
+  The target is `scale * c + offset`, with `c` the value of command `command_name`, one
+  column per matched actuated joint in the model's joint order. It takes no column of the
+  policy's output, so its joints need not be the policy's: a locomotion policy keeps the
+  legs while the panel's sliders or a scripted motion move the arms.
 
 - **A traced command can read another command.** `env.command_manager.get_command()` and
   `get_term(...).<field>` inside `_resample_command` / `_update_command` become
