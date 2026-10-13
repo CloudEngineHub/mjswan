@@ -24,8 +24,7 @@ def serialize_actions(
     authored for the same term, where a motor robot's PD gains live, so a scene can
     tweak the offset without restating them.
 
-    Raises ``ValueError`` if a command term's ``command_name`` is not in ``commands``,
-    or if that command's width in ``widths`` is not the term's joint count.
+    Raises ``ValueError`` if a command term's command is missing or the wrong width.
     """
     for name, cfg in actions.items():
         if not isinstance(cfg, CommandJointPositionActionCfg):

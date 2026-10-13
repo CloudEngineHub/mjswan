@@ -157,9 +157,8 @@ def actuated_joints_in_joint_order(model: mujoco.MjModel | None) -> list[str] | 
 def drives_joints(actions: Mapping[str, Any] | None) -> bool:
     """Whether any action term reaches its actuator through a policy joint.
 
-    A muscle term names actuators directly and a command term finds its joints in the
-    model, so neither needs ``policy_joint_names``; every other kind the browser looks
-    up by policy joint name, so it needs them or it drives nothing.
+    A muscle term names actuators and a command term finds its joints in the model, so
+    neither needs ``policy_joint_names``; without them, any other term drives nothing.
     """
     return any(
         type(term).__name__

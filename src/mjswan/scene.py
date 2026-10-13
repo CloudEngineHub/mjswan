@@ -75,9 +75,8 @@ def _resolve_command_joints(
 ) -> list[str]:
     """The joints *term* drives, resolved as mjlab resolves an action term's.
 
-    Only joints a joint actuator drives, in model joint order, each matched whole by a
-    pattern. They are written back as exact ``actuator_names``, one per command column,
-    so the build can check the command's width and the browser finds the same joints.
+    Writes them back as exact ``actuator_names``, one per command column, so the build
+    can check the command's width and the browser finds the same joints.
     """
     if model is None:
         raise ValueError(
@@ -604,7 +603,6 @@ class SceneHandle:
             resolved_env_cfg = self._resolve_env_cfg(env_cfg)
             model = _get_scene_model(self._config) if has_command_terms else None
             for name, term in (mdp.actions or {}).items():
-                # A command term's joints are its own, found in the model.
                 if isinstance(term, CommandJointPositionActionCfg):
                     joints = _resolve_command_joints(model, name, term)
                 else:

@@ -154,7 +154,7 @@ class ReferenceJointPositionActionCfg(BaseActionCfg):
 class CommandJointPositionActionCfg(BaseActionCfg):
     """Joint targets: ``scale * c + offset``, with ``c`` from ``command_name``.
 
-    One command value per matched actuated joint, in model order; no policy output.
+    One command value per matched actuated joint, in joint order; no policy output.
     """
 
     command_name: str
