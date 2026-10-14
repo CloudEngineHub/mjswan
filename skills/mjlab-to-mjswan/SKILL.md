@@ -63,9 +63,21 @@ for name, term in (adapt_actions(cfg.actions) or {}).items():
 PY
 ```
 
-An action term with a non-`None` `unsupported_reason`, or one `adapt_actions` warns it is **skipping**, makes the task unportable as configured. The action layer is permanently native in mjswan, so there is no author-side escape hatch. Report the reason verbatim, then go to step 8, which decides whether mjswan should learn it. Never hardcode which action classes those are; the `unsupported_reason` field is the source of truth.
+An action term with a non-`None` `unsupported_reason`, or one `adapt_actions` warns it is **skipping**, makes the task unportable as configured. The action layer is permanently native in mjswan, so the term cannot be registered from the author's side. Report the reason verbatim, then go to step 8, which decides whether mjswan should learn it; a task-specific term can still port by wrapping the policy (below). Never hardcode which action classes those are; the `unsupported_reason` field is the source of truth.
 
-One shape still ports: a skipped term that takes no column of the policy's output (`action_dim == 0`) and writes joint targets of its own, such as an arm-motion generator beside a locomotion policy. Drop it, and the terms that read it, from the env config. Then pass a `CommandJointPositionActionCfg` for its joints, and the command it reads, to `add_policy(actions=..., commands=...)`, never to the env config, whose terms mjlab builds itself. The command can be a `ui_command` of sliders, or a traced command that reproduces the dropped term's motion.
+A warning that a term **sets** fields mjswan's class does not have, or that an actuator sets what the browser does not run (anything past PD within the effort limit: a torque-speed curve, friction, a command delay), names settings the browser drops while the term itself ports. Each is a behaviour gap: report it verbatim beside the skipped terms. A generic one goes to step 8 like a skipped term; one the model can carry instead, such as an actuator's friction as the joint's `frictionloss`, moves there.
+
+Two shapes still port. One is a skipped term that takes no column of the policy's output (`action_dim == 0`) and writes joint targets of its own, such as an arm-motion generator beside a locomotion policy. Drop it, and the terms that read it, from the env config. Then pass a `CommandJointPositionActionCfg` for its joints, and the command it reads, to `add_policy(actions=..., commands=...)`, never to the env config, whose terms mjlab builds itself. The command can be a `ui_command` of sliders, or a traced command that reproduces the dropped term's motion.
+
+The other is a term the target repo defines whose state follows from what the policy observes and outputs: a filter on the targets, a residual on a reference, a gate that latches, an accumulator. Fold it into the policy:
+
+1. Write a wrapper ONNX around the checkpoint that computes what the term's `process_actions` computes, from the policy's output and slices of its observation, and outputs the action a native term then applies. Replace the term in `env_cfg.actions` with that native term, usually a plain `JointPositionActionCfg`.
+2. Keep the term's state in the recurrent carry: the wrapper takes `is_init` (bool, `[1]`) and `adapt_hx` (float, `[1, carry]`) beside the observation and returns `next_adapt_hx` beside the action, and the policy is added with `in_keys=["actor", "is_init", "adapt_hx"]` and `out_keys=["action", ["next", "adapt_hx"]]`. The runtime opens every episode with `is_init` true and a `[1, 128]` zero carry, so the state fits in 128 values and the wrapper resets it while `is_init` holds, as the term's `reset` does.
+3. The observation's previous action reads the wrapper's output. When the term observes another value, such as the raw action before a filter, carry that value and splice it into the observation inside the wrapper.
+4. Stamp the wrapper with the keys mjswan stamps on the graphs it traces, so a viewer can show the term the policy now holds: `metadata_props` `mjswan.kind` = `action`, `mjswan.term` = the term's key in `env_cfg.actions`, `mjswan.func` = its cfg class as `module:Class`.
+5. Before parity, run the target's env with its own term in mjlab and feed the wrapper the same observations each step: the actions match exactly, or the wrapper is wrong.
+
+A term that reads state the observation does not carry, or that acts per physics substep, cannot be wrapped: report it and stop.
 
 ## 4. Get the policy into ONNX
 
@@ -224,7 +236,7 @@ print(type(cfg.actions['TERM_NAME']).__module__)
 ```
 
 - Defined in `mjlab`, `myosuite`, or another published package → generic. Open the PR.
-- Defined in the target repo → task-specific. It does **not** go into mjswan. Use the author-side escape hatch in `terms.py`; if that cannot work either, report it and stop.
+- Defined in the target repo → task-specific. It does **not** go into mjswan. Use the author-side escape hatch: `terms.py` for an observation, termination, event or command, a policy wrapper (step 3) for an action term; if that cannot work either, report it and stop.
 
 ### Take the configuration from mjlab
 
@@ -264,6 +276,6 @@ Write `mjswan_app/README.md`: the target's source URL, the task id, prerequisite
 Then tell the user, in this order:
 
 1. the `mjswan info` tree, then terms traced and parity result (`report.summary()` verbatim if anything failed);
-2. terms skipped, each with what unblocks it: an author-side `terms.py` replacement, a `ts_src` TypeScript class (out of scope here), or the mjswan PR you opened in step 8, with its URL;
+2. terms skipped and settings dropped, each with what unblocks it: an author-side `terms.py` replacement, a policy wrapper, a `ts_src` TypeScript class (out of scope here), or the mjswan PR you opened in step 8, with its URL;
 3. anything you stopped on: dependency conflicts, missing credentials, task-specific gaps that mjswan must not absorb;
 4. that browser behaviour is unverified by this pipeline: parity proves the graph matches mjlab, but mjlab integrates with `mujoco_warp` while the browser runs MuJoCo's WASM build, and a policy can behave differently under the two.
