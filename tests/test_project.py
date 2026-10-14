@@ -826,6 +826,20 @@ class TestPolicyTermsDerivedFromEnvCfg:
         same = _MdpEnvCfg(timestep=0.002, decimation=10)  # 0.02 s
         assert scene.add_policy(name="Policy", policy=minimal_onnx, env_cfg=same)
 
+    def test_a_per_policy_env_cfg_sets_that_mdps_episode_length(
+        self, minimal_model, minimal_onnx
+    ):
+        scene = _mjlab_scene(minimal_model, _MdpEnvCfg())
+        short = _MdpEnvCfg()
+        short.episode_length_s = 3.0
+
+        own = scene.add_policy(name="Own", policy=minimal_onnx, env_cfg=short)
+        inherited = scene.add_policy(name="Inherited", policy=minimal_onnx)
+
+        assert own._config.mdp.episode_length_s == 3.0
+        # Traced at the scene env's own length.
+        assert inherited._config.mdp.episode_length_s is None
+
     @pytest.mark.mjlab
     def test_an_actuator_curve_the_browser_does_not_run_warns(
         self, minimal_model, minimal_onnx

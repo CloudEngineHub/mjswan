@@ -60,6 +60,10 @@ class MdpConfig:
     """Optional name; its ``name2id`` is the MDP's id, its ``mdp/<id>/`` directory in the
     build. Unnamed ids are derived instead: see :meth:`~mjswan.scene.SceneConfig.mdp_id`."""
 
+    episode_length_s: float | None = None
+    """Seconds an episode lasts, which a time limit ends it at. ``None`` takes the
+    ``env_cfg`` the first policy passes to ``add_policy``, else the scene's."""
+
     _adapted: bool = field(default=False, init=False, repr=False, compare=False)
     """Set once the first policy has filled and adapted this config on a scene."""
 

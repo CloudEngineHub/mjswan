@@ -589,6 +589,8 @@ class SceneHandle:
             mdp.terminations,
             events=mdp.events,
         )
+        if mdp.episode_length_s is None and env_cfg is not None:
+            mdp.episode_length_s = getattr(env_cfg, "episode_length_s", None)
         runner = resolve_runner_defaults(
             task_id if task_id is not None else self._config.mjlab_task_id
         )

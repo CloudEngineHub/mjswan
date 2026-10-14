@@ -116,6 +116,33 @@ def test_control_dt_and_episode_length_set_the_horizon_in_control_steps():
     assert env.max_episode_length == 500
 
 
+def test_an_mdps_own_episode_length_sets_the_horizon_it_traces_at():
+    """Every MDP of a scene traces against the scene's env, here a 20 s one."""
+    onnxruntime = pytest.importorskip("onnxruntime")
+    import numpy as np
+    from mjlab.envs.mdp import time_out
+
+    from mjswan.compile import trace_term
+    from mjswan.mjlab.env import mdp_episode_length
+
+    env = build_single_entity_trace_env(
+        _spec_fn(KEYFRAME), control_dt=0.02, episode_length_s=20.0
+    )
+    with mdp_episode_length(env, 3.0):
+        export = trace_term(time_out, {}, env, name="time_out")
+
+    assert env.max_episode_length == 1000
+    session = onnxruntime.InferenceSession(
+        export.onnx_bytes, providers=["CPUExecutionProvider"]
+    )
+    name = export.input_names[0]
+    fired = [
+        bool(session.run(None, {name: np.array([steps], dtype=np.float32)})[0].any())
+        for steps in (149, 150)
+    ]
+    assert fired == [False, True]
+
+
 def test_an_episode_length_without_control_dt_is_refused():
     """The env would count it in its own 2 ms steps rather than the scene's."""
     with pytest.raises(ValueError, match="control_dt"):

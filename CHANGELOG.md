@@ -742,6 +742,12 @@ shortcuts.
   friction in wbc's `UnitreeActuatorCfg`, whose loss failed a motion's landing) and a
   command delay now warn too, once per actuator config.
 
+- **A policy's own env config sets its episode length.** Every MDP of a scene traces
+  against the scene's env, so a time limit ended each policy's episodes at the scene
+  config's length, even for a policy given an `env_cfg` with its own: asimov's 3 s safe
+  fall ran 20 s episodes on the walk's scene. `MdpConfig.episode_length_s` now takes that
+  config's length, and the MDP's terms trace at it.
+
 - **Meshes collide as MuJoCo compiled them.** The browser turned each mesh's vertices
   Y-up for three in place, in the model arrays MuJoCo collides against, so every mesh
   collider sat turned 90 degrees about its own x while the drawn mesh looked right. On
