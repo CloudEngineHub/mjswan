@@ -739,8 +739,8 @@ shortcuts.
   `JointPositionActionCfg`) now warns when it holds a non-default value. The browser runs
   an ideal-PD actuator's PD within its effort limit and nothing more, so the fields an
   `IdealPdActuatorCfg` subclass adds (`DcMotorActuatorCfg`'s torque-speed curve, the
-  friction in wbc's `UnitreeActuatorCfg`, whose loss failed a motion's landing) and a
-  command delay now warn too, once per actuator config.
+  friction in wbc's `UnitreeActuatorCfg`) and a command delay now warn too, once per
+  actuator config.
 
 - **A policy's own env config sets its episode length.** Every MDP of a scene traces
   against the scene's env, so a time limit ended each policy's episodes at the scene

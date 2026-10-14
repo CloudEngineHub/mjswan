@@ -177,7 +177,7 @@ builder.build().launch()
 | `env_cfg.observations` / `actions` / `commands` / `terminations` | defaults for every policy on the scene, [traced to ONNX](how-it-works.md) |
 | `env_cfg.events` | the scene's default events, which every policy that declares none inherits into its MDP; `reset_root_state_uniform` is swapped for a spawn on a random flat terrain patch, since the browser runs one env where mjlab trains many spread across the terrain |
 | `env_cfg.sim.timestep × decimation` | `control_dt` |
-| `env_cfg.episode_length_s` | when `time_out` ends an episode, for every policy on the scene but one given an `env_cfg` of its own, which keeps its own |
+| `env_cfg.episode_length_s` | the episode length `time_out` ends at, for every policy not given an `env_cfg` of its own |
 | `env_cfg.viewer` | the initial camera |
 | terrain flat-patch table | baked spawn points |
 | the task's **runner** config | which observation group the actor reads, and `clip_actions` |
