@@ -733,6 +733,15 @@ shortcuts.
 
 ### Fixed
 
+- **An mjlab setting the browser does not run warns at build time** instead of being
+  dropped silently ([#165](https://github.com/ttktjmt/mjswan/issues/165)). An action term
+  keeps only the fields mjswan's class has, so one it lacks (a fork's `lpf_cutoff_freq` on
+  `JointPositionActionCfg`) now warns when it holds a non-default value. The browser runs
+  an ideal-PD actuator's PD within its effort limit and nothing more, so the fields an
+  `IdealPdActuatorCfg` subclass adds (`DcMotorActuatorCfg`'s torque-speed curve, the
+  friction in wbc's `UnitreeActuatorCfg`, whose loss failed a motion's landing) and a
+  command delay now warn too, once per actuator config.
+
 - **Meshes collide as MuJoCo compiled them.** The browser turned each mesh's vertices
   Y-up for three in place, in the model arrays MuJoCo collides against, so every mesh
   collider sat turned 90 degrees about its own x while the drawn mesh looked right. On

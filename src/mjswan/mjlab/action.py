@@ -11,6 +11,7 @@ from __future__ import annotations
 import copy
 import dataclasses
 import re
+import reprlib
 import warnings
 from collections.abc import Mapping
 from typing import Any
@@ -23,12 +24,34 @@ from ..envs.mdp.actions.actions import (
     ReferenceJointPositionActionCfg,
 )
 from ..managers.action_manager import ActionTermCfg as MjswanActionTermCfg
-from .detect import is_from_mjlab
+from .detect import differs, field_default, is_from_mjlab
 
 _ACTION_CLASS_ALIASES: dict[str, str] = {
     # myosuite's muscle action cfg sits outside mjlab's hierarchy; translate it.
     "MyoMuscleActivationActionCfg": "MuscleActivationActionCfg",
 }
+
+#: Set by each mjlab action class in ``__post_init__`` (a tendon action's is ``TENDON``),
+#: so the class name the mapping goes by already carries it.
+_SET_BY_CLASS = frozenset({"transmission_type"})
+
+
+def _set_fields(cfg: Any) -> dict[str, Any]:
+    """*cfg*'s dataclass fields that hold other than their default, as a field without
+    one always does. A duck-typed cfg has no fields to walk."""
+    if not dataclasses.is_dataclass(cfg):
+        return {}
+    found: dict[str, Any] = {}
+    for f in dataclasses.fields(cfg):
+        value = getattr(cfg, f.name, dataclasses.MISSING)
+        default = field_default(f)
+        if default is dataclasses.MISSING or differs(value, default):
+            found[f.name] = value
+    return found
+
+
+def _listing(fields: Mapping[str, Any]) -> str:
+    return ", ".join(f"{name}={reprlib.repr(value)}" for name, value in fields.items())
 
 
 def _mjswan_action_class(term: Any) -> type[MjswanActionTermCfg] | None:
@@ -48,7 +71,8 @@ def _adapt_action_cfg(term: Any) -> MjswanActionTermCfg | None:
     """Convert a single mjlab ``ActionTermCfg`` to mjswan.
 
     The class is looked up by name on ``mjswan.envs.mdp.actions`` and every field it
-    shares with *term* is copied. ``None`` if no mjswan equivalent exists.
+    shares with *term* is copied; a field set on *term* that the class lacks warns, since
+    the browser ignores it. ``None`` if no mjswan equivalent exists.
     """
     class_name = _ACTION_CLASS_ALIASES.get(type(term).__name__, type(term).__name__)
     mjswan_cls = _mjswan_action_class(term)
@@ -70,6 +94,15 @@ def _adapt_action_cfg(term: Any) -> MjswanActionTermCfg | None:
         val = getattr(term, f.name, dataclasses.MISSING)
         if val is not dataclasses.MISSING:
             kwargs[f.name] = val
+
+    carried = {f.name for f in dataclasses.fields(mjswan_cls)} | _SET_BY_CLASS
+    if dropped := {k: v for k, v in _set_fields(term).items() if k not in carried}:
+        warnings.warn(
+            f"mjlab action type '{type(term).__name__}' sets {_listing(dropped)}, which "
+            f"mjswan's {mjswan_cls.__name__} does not have and the browser ignores.",
+            category=RuntimeWarning,
+            stacklevel=3,
+        )
 
     # Prefixed with the entity name, as mjlab does, to match policy_joint_names. An
     # alternation is grouped, or the prefix would bind to its first branch only.
@@ -158,6 +191,15 @@ def _entity_cfg(env_cfg: Any | None, term: MjswanActionTermCfg) -> Any | None:
     return entities.get(getattr(term, "entity_name", "robot"))
 
 
+def _pd_actuators(env_cfg: Any | None, term: MjswanActionTermCfg) -> list[Any]:
+    entity = _entity_cfg(env_cfg, term)
+    return [
+        cfg
+        for cfg in getattr(getattr(entity, "articulation", None), "actuators", ())
+        if any(base.__name__ == _PYTHON_PD_ACTUATOR for base in type(cfg).__mro__)
+    ]
+
+
 def resolve_pd_gains(
     actions: Mapping[str, MjswanActionTermCfg] | None,
     joint_names: list[str],
@@ -185,12 +227,7 @@ def resolve_pd_gains(
             continue
         if getattr(term, "stiffness", None) is not None or term.damping is not None:
             continue
-        entity = _entity_cfg(env_cfg, term)
-        actuators = [
-            cfg
-            for cfg in getattr(getattr(entity, "articulation", None), "actuators", ())
-            if any(base.__name__ == _PYTHON_PD_ACTUATOR for base in type(cfg).__mro__)
-        ]
+        actuators = _pd_actuators(env_cfg, term)
         gains = {
             field: _expand_patterns(
                 {
@@ -207,6 +244,44 @@ def resolve_pd_gains(
         if not velocity:
             term.stiffness = gains["stiffness"]
         term.damping = gains["damping"]
+
+
+def _unrun_fields(cfg: Any) -> dict[str, Any]:
+    """What an ideal-PD-family *cfg* sets beyond that PD: a subclass's own fields (a
+    torque-speed curve, friction) and a command delay."""
+    pd_fields = {
+        f.name
+        for base in type(cfg).__mro__
+        if base.__name__ == _PYTHON_PD_ACTUATOR and dataclasses.is_dataclass(base)
+        for f in dataclasses.fields(base)
+    }
+    delayed = getattr(cfg, "delay_max_lag", 0) > 0
+    return {
+        name: value
+        for name, value in _set_fields(cfg).items()
+        if name not in pd_fields or (delayed and name.startswith("delay_"))
+    }
+
+
+def warn_unrun_actuator_fields(
+    actions: Mapping[str, MjswanActionTermCfg] | None, env_cfg: Any | None
+) -> None:
+    """Warn once per ideal-PD actuator config of the entities *actions* drive that does
+    more than its PD within the effort limit, which is all the browser runs."""
+    actuators = {
+        id(cfg): cfg
+        for term in (actions or {}).values()
+        for cfg in _pd_actuators(env_cfg, term)
+    }
+    for cfg in actuators.values():
+        if unrun := _unrun_fields(cfg):
+            warnings.warn(
+                f"mjlab actuator '{type(cfg).__name__}' on "
+                f"{reprlib.repr(cfg.target_names_expr)} sets {_listing(unrun)}, which "
+                "the browser does not run: it runs only the PD within the effort limit.",
+                category=RuntimeWarning,
+                stacklevel=2,
+            )
 
 
 def resolve_default_joint_vel(
@@ -247,4 +322,5 @@ __all__ = [
     "resolve_action_scales",
     "resolve_default_joint_vel",
     "resolve_pd_gains",
+    "warn_unrun_actuator_fields",
 ]

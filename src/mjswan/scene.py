@@ -34,6 +34,7 @@ from .mjlab import (
     resolve_default_joint_vel,
     resolve_pd_gains,
     resolve_runner_defaults,
+    warn_unrun_actuator_fields,
 )
 from .mjlab.task import env_cfg_control_dt
 from .motion import attach_tracking_motion, tracking_motion_term
@@ -624,6 +625,7 @@ class SceneHandle:
                     resolve_action_scales(one, joints)
                     resolve_pd_gains(one, joints, resolved_env_cfg)
                     resolve_default_joint_vel(one, joints, resolved_env_cfg)
+            warn_unrun_actuator_fields(mdp.actions, resolved_env_cfg)
         mdp._adapted = True
 
     def add_policy(

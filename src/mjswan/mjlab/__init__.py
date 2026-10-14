@@ -21,6 +21,7 @@ from .action import (
     resolve_action_scales,
     resolve_default_joint_vel,
     resolve_pd_gains,
+    warn_unrun_actuator_fields,
 )
 from .command import adapt_commands
 from .detect import is_from_mjlab
@@ -49,4 +50,5 @@ __all__ = [
     "resolve_default_joint_vel",
     "resolve_pd_gains",
     "resolve_runner_defaults",
+    "warn_unrun_actuator_fields",
 ]
