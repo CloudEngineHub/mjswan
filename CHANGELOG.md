@@ -733,6 +733,12 @@ shortcuts.
 
 ### Fixed
 
+- **Meshes collide as MuJoCo compiled them.** The browser turned each mesh's vertices
+  Y-up for three in place, in the model arrays MuJoCo collides against, so every mesh
+  collider sat turned 90 degrees about its own x while the drawn mesh looked right. On
+  wuji-mjlab's pen spin that dropped the pen in 9 of 21 episodes, where MuJoCo's C build
+  drops none. The renderer now turns copies.
+
 - **A box draws a cube texture's faces where MuJoCo does.** A cube textured face by face
   (a die, a tagged cube) showed each image on another face, turned: the `fileright` (+X)
   image on +Z.

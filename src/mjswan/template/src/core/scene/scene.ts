@@ -317,88 +317,9 @@ export async function loadSceneFromURL(
         const meshID = mjModel.geom_dataid[g];
 
         if (!(meshID in meshes)) {
-          geometry = new THREE.BufferGeometry();
-
-          const vertexBuffer = mjModel.mesh_vert.subarray(
-            mjModel.mesh_vertadr[meshID] * 3,
-            (mjModel.mesh_vertadr[meshID] + mjModel.mesh_vertnum[meshID]) * 3
-          );
-          for (let v = 0; v < vertexBuffer.length; v += 3) {
-            const temp = vertexBuffer[v + 1];
-            vertexBuffer[v + 1] = vertexBuffer[v + 2];
-            vertexBuffer[v + 2] = -temp;
-          }
-
-          const normalBuffer = mjModel.mesh_normal.subarray(
-            mjModel.mesh_normaladr[meshID] * 3,
-            (mjModel.mesh_normaladr[meshID] + mjModel.mesh_normalnum[meshID]) * 3
-          );
-          for (let v = 0; v < normalBuffer.length; v += 3) {
-            const temp = normalBuffer[v + 1];
-            normalBuffer[v + 1] = normalBuffer[v + 2];
-            normalBuffer[v + 2] = -temp;
-          }
-
-          const uvBuffer = mjModel.mesh_texcoord.subarray(
-            mjModel.mesh_texcoordadr[meshID] * 2,
-            (mjModel.mesh_texcoordadr[meshID] + mjModel.mesh_texcoordnum[meshID]) * 2
-          );
-
-          const faceToVertexBuffer = mjModel.mesh_face.subarray(
-            mjModel.mesh_faceadr[meshID] * 3,
-            (mjModel.mesh_faceadr[meshID] + mjModel.mesh_facenum[meshID]) * 3
-          );
-          const faceToUvBuffer = mjModel.mesh_facetexcoord.subarray(
-            mjModel.mesh_faceadr[meshID] * 3,
-            (mjModel.mesh_faceadr[meshID] + mjModel.mesh_facenum[meshID]) * 3
-          );
-          const faceToNormalBuffer = mjModel.mesh_facenormal.subarray(
-            mjModel.mesh_faceadr[meshID] * 3,
-            (mjModel.mesh_faceadr[meshID] + mjModel.mesh_facenum[meshID]) * 3
-          );
-
-          const positions: number[] = [];
-          const normals: number[] = [];
-          const uvs: number[] = [];
-          const indices: number[] = [];
-          const tupleToIndex = new Map<string, number>();
-
-          const faceCount = faceToVertexBuffer.length / 3;
-          for (let t = 0; t < faceCount; t++) {
-            for (let c = 0; c < 3; c++) {
-              const vi = faceToVertexBuffer[t * 3 + c];
-              const nvi = faceToNormalBuffer[t * 3 + c];
-              const uvi = faceToUvBuffer[t * 3 + c];
-              const key = `${vi}_${nvi}_${uvi}`;
-              let outIndex = tupleToIndex.get(key);
-              if (outIndex === undefined) {
-                outIndex = positions.length / 3;
-                tupleToIndex.set(key, outIndex);
-                positions.push(
-                  vertexBuffer[vi * 3 + 0],
-                  vertexBuffer[vi * 3 + 1],
-                  vertexBuffer[vi * 3 + 2]
-                );
-                normals.push(
-                  normalBuffer[nvi * 3 + 0],
-                  normalBuffer[nvi * 3 + 1],
-                  normalBuffer[nvi * 3 + 2]
-                );
-                uvs.push(uvBuffer[uvi * 2 + 0], uvBuffer[uvi * 2 + 1]);
-              }
-              indices.push(outIndex);
-            }
-          }
-
-          geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-          geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
-          geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-          geometry.setIndex(indices);
-          geometry.computeVertexNormals();
-          meshes[meshID] = geometry;
-        } else {
-          geometry = meshes[meshID];
+          meshes[meshID] = createMeshGeometry(mjModel, meshID);
         }
+        geometry = meshes[meshID];
         bodies[b].has_custom_mesh = true;
         break;
       }
@@ -572,6 +493,90 @@ export async function loadSceneFromURL(
   }
 
   return [mjModel, mjData, bodies, lights];
+}
+
+/** A mesh's three geometry, Y-up, built off copies of the model's buffers. */
+export function createMeshGeometry(mjModel: MjModel, meshID: number): THREE.BufferGeometry {
+  const geometry = new THREE.BufferGeometry();
+
+  // Copies, turned Y-up below: MuJoCo collides against the model's own vertices.
+  const vertexBuffer = mjModel.mesh_vert.slice(
+    mjModel.mesh_vertadr[meshID] * 3,
+    (mjModel.mesh_vertadr[meshID] + mjModel.mesh_vertnum[meshID]) * 3
+  );
+  for (let v = 0; v < vertexBuffer.length; v += 3) {
+    const temp = vertexBuffer[v + 1];
+    vertexBuffer[v + 1] = vertexBuffer[v + 2];
+    vertexBuffer[v + 2] = -temp;
+  }
+
+  const normalBuffer = mjModel.mesh_normal.slice(
+    mjModel.mesh_normaladr[meshID] * 3,
+    (mjModel.mesh_normaladr[meshID] + mjModel.mesh_normalnum[meshID]) * 3
+  );
+  for (let v = 0; v < normalBuffer.length; v += 3) {
+    const temp = normalBuffer[v + 1];
+    normalBuffer[v + 1] = normalBuffer[v + 2];
+    normalBuffer[v + 2] = -temp;
+  }
+
+  const uvBuffer = mjModel.mesh_texcoord.subarray(
+    mjModel.mesh_texcoordadr[meshID] * 2,
+    (mjModel.mesh_texcoordadr[meshID] + mjModel.mesh_texcoordnum[meshID]) * 2
+  );
+
+  const faceToVertexBuffer = mjModel.mesh_face.subarray(
+    mjModel.mesh_faceadr[meshID] * 3,
+    (mjModel.mesh_faceadr[meshID] + mjModel.mesh_facenum[meshID]) * 3
+  );
+  const faceToUvBuffer = mjModel.mesh_facetexcoord.subarray(
+    mjModel.mesh_faceadr[meshID] * 3,
+    (mjModel.mesh_faceadr[meshID] + mjModel.mesh_facenum[meshID]) * 3
+  );
+  const faceToNormalBuffer = mjModel.mesh_facenormal.subarray(
+    mjModel.mesh_faceadr[meshID] * 3,
+    (mjModel.mesh_faceadr[meshID] + mjModel.mesh_facenum[meshID]) * 3
+  );
+
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+  const tupleToIndex = new Map<string, number>();
+
+  const faceCount = faceToVertexBuffer.length / 3;
+  for (let t = 0; t < faceCount; t++) {
+    for (let c = 0; c < 3; c++) {
+      const vi = faceToVertexBuffer[t * 3 + c];
+      const nvi = faceToNormalBuffer[t * 3 + c];
+      const uvi = faceToUvBuffer[t * 3 + c];
+      const key = `${vi}_${nvi}_${uvi}`;
+      let outIndex = tupleToIndex.get(key);
+      if (outIndex === undefined) {
+        outIndex = positions.length / 3;
+        tupleToIndex.set(key, outIndex);
+        positions.push(
+          vertexBuffer[vi * 3 + 0],
+          vertexBuffer[vi * 3 + 1],
+          vertexBuffer[vi * 3 + 2]
+        );
+        normals.push(
+          normalBuffer[nvi * 3 + 0],
+          normalBuffer[nvi * 3 + 1],
+          normalBuffer[nvi * 3 + 2]
+        );
+        uvs.push(uvBuffer[uvi * 2 + 0], uvBuffer[uvi * 2 + 1]);
+      }
+      indices.push(outIndex);
+    }
+  }
+
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
 }
 
 function createHFieldGeometry(mjModel: MjModel, geomId: number): THREE.BufferGeometry | undefined {
