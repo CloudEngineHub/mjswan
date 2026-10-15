@@ -34,6 +34,7 @@ from .mjlab import (
     resolve_default_joint_vel,
     resolve_pd_gains,
     resolve_runner_defaults,
+    warn_unrun_actuator_fields,
 )
 from .mjlab.task import env_cfg_control_dt
 from .motion import attach_tracking_motion, tracking_motion_term
@@ -588,6 +589,8 @@ class SceneHandle:
             mdp.terminations,
             events=mdp.events,
         )
+        if mdp.episode_length_s is None and env_cfg is not None:
+            mdp.episode_length_s = getattr(env_cfg, "episode_length_s", None)
         runner = resolve_runner_defaults(
             task_id if task_id is not None else self._config.mjlab_task_id
         )
@@ -624,6 +627,7 @@ class SceneHandle:
                     resolve_action_scales(one, joints)
                     resolve_pd_gains(one, joints, resolved_env_cfg)
                     resolve_default_joint_vel(one, joints, resolved_env_cfg)
+            warn_unrun_actuator_fields(mdp.actions, resolved_env_cfg)
         mdp._adapted = True
 
     def add_policy(

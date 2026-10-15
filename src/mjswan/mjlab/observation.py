@@ -19,7 +19,7 @@ from ..managers.observation_manager import (
 from ..managers.observation_manager import (
     ObservationTermCfg as MjswanObservationTermCfg,
 )
-from .detect import is_from_mjlab
+from .detect import differs, field_default, is_from_mjlab
 
 
 def _adapt_obs_func(
@@ -96,21 +96,6 @@ _LAYOUT_DEFAULTS: dict[str, tuple[Any, ...]] = {
 }
 
 
-def _field_default(f: dataclasses.Field[Any]) -> Any:
-    if f.default is not dataclasses.MISSING:
-        return f.default
-    if f.default_factory is not dataclasses.MISSING:
-        return f.default_factory()
-    return dataclasses.MISSING
-
-
-def _differs(value: Any, default: Any) -> bool:
-    try:
-        return bool(value != default)
-    except Exception:  # noqa: BLE001 (an ambiguous comparison is not the default)
-        return value is not default
-
-
 def _refuse_dropped_fields(
     cfg: Any, carried: frozenset[str], where: str, *, has_history: bool
 ) -> None:
@@ -131,11 +116,11 @@ def _refuse_dropped_fields(
             # The stack layout is moot without history.
             if f.name == "flatten_history_dim" and not has_history:
                 continue
-            if all(_differs(value, ok) for ok in _LAYOUT_DEFAULTS[f.name]):
+            if all(differs(value, ok) for ok in _LAYOUT_DEFAULTS[f.name]):
                 offending.append(f"{f.name}={value!r}")
             continue
-        default = _field_default(f)
-        if default is dataclasses.MISSING or _differs(value, default):
+        default = field_default(f)
+        if default is dataclasses.MISSING or differs(value, default):
             offending.append(f"{f.name}={value!r}")
     if offending:
         raise ValueError(

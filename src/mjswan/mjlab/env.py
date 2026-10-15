@@ -205,6 +205,18 @@ def mdp_commands(env: Any, widths: Mapping[str, int]) -> Iterator[None]:
         yield
 
 
+@contextlib.contextmanager
+def mdp_episode_length(env: Any, seconds: float | None) -> Iterator[None]:
+    """Give *env* an MDP's own episode length while tracing it: every MDP of a scene
+    traces against the scene's env, whose ``max_episode_length`` a time limit bakes in."""
+    cfg = getattr(env, "cfg", None)
+    if seconds is None or not hasattr(cfg, "episode_length_s"):
+        yield
+        return
+    with mock.patch.object(cfg, "episode_length_s", seconds):
+        yield
+
+
 #: mjlab's play configs' episode length for "no time limit".
 _NO_TIME_LIMIT_S = 1e9
 

@@ -39,6 +39,7 @@ from ..envs.mdp.actions.actions import (
     MuscleActivationActionCfg,
     validate_muscle_actuators,
 )
+from ..mjlab.env import mdp_episode_length
 from .asset import (
     point_env_cfg_at_bundled_motion,
     write_scene_motions,
@@ -206,19 +207,21 @@ def write_app(
                 for mdp, mdp_id in zip(scene.mdps, scene.mdp_ids):
                     owners = [p for p in scene.policies if p.mdp is mdp]
                     steps.on(f"mdp/{mdp_id}")
-                    mdp_entries.append(
-                        mdp_entry(
-                            mdp,
-                            mdp_id,
-                            owners,
-                            sidecars=sidecars,
-                            env=_scene_trace_env(scene),
-                            scene_dir=scene_dir,
-                            on_term=lambda name, mdp_id=mdp_id: steps.on(
-                                f"mdp/{mdp_id}/{name}"
-                            ),
+                    env = _scene_trace_env(scene)
+                    with mdp_episode_length(env, mdp.episode_length_s):
+                        mdp_entries.append(
+                            mdp_entry(
+                                mdp,
+                                mdp_id,
+                                owners,
+                                sidecars=sidecars,
+                                env=env,
+                                scene_dir=scene_dir,
+                                on_term=lambda name, mdp_id=mdp_id: steps.on(
+                                    f"mdp/{mdp_id}/{name}"
+                                ),
+                            )
                         )
-                    )
 
                 policy_entries = []
                 if scene.policies:

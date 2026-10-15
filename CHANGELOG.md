@@ -733,6 +733,21 @@ shortcuts.
 
 ### Fixed
 
+- **An mjlab setting the browser does not run warns at build time** instead of being
+  dropped silently ([#165](https://github.com/ttktjmt/mjswan/issues/165)). An action term
+  keeps only the fields mjswan's class has, so one it lacks (a fork's `lpf_cutoff_freq` on
+  `JointPositionActionCfg`) now warns when it holds a non-default value. The browser runs
+  an ideal-PD actuator's PD within its effort limit and nothing more, so the fields an
+  `IdealPdActuatorCfg` subclass adds (`DcMotorActuatorCfg`'s torque-speed curve, the
+  friction in wbc's `UnitreeActuatorCfg`) and a command delay now warn too, once per
+  actuator config.
+
+- **A policy's own env config sets its episode length.** Every MDP of a scene traces
+  against the scene's env, so a time limit ended each policy's episodes at the scene
+  config's length, even for a policy given an `env_cfg` with its own: asimov's 3 s safe
+  fall ran 20 s episodes on the walk's scene. `MdpConfig.episode_length_s` now takes that
+  config's length, and the MDP's terms trace at it.
+
 - **Meshes collide as MuJoCo compiled them.** The browser turned each mesh's vertices
   Y-up for three in place, in the model arrays MuJoCo collides against, so every mesh
   collider sat turned 90 degrees about its own x while the drawn mesh looked right. On

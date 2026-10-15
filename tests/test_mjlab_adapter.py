@@ -34,6 +34,7 @@ from mjswan.mjlab import (
     resolve_action_scales,
     resolve_pd_gains,
     resolve_runner_defaults,
+    warn_unrun_actuator_fields,
 )
 
 # ---------------------------------------------------------------------------
@@ -584,9 +585,60 @@ class TestAdaptTerminations:
 # ===================================================================
 
 
+def _forked_joint_position_cfg() -> type:
+    """mjlab's `JointPositionActionCfg` as a fork that low-pass filters the target has it."""
+    actions = pytest.importorskip("mjlab.envs.mdp.actions")
+
+    @dataclass(kw_only=True)
+    class JointPositionActionCfg(actions.JointPositionActionCfg):
+        lpf_cutoff_freq: float | None = None
+
+    return JointPositionActionCfg
+
+
 class TestAdaptActions:
     def test_none_passthrough(self):
         assert adapt_actions(None) is None
+
+    @pytest.mark.mjlab
+    def test_a_field_mjswan_lacks_warns_naming_it(self):
+        cfg = _forked_joint_position_cfg()(
+            entity_name="robot", actuator_names=(".*",), lpf_cutoff_freq=4.0
+        )
+        with pytest.warns(
+            RuntimeWarning,
+            match=r"'JointPositionActionCfg' sets lpf_cutoff_freq=4\.0, .* browser ignores",
+        ):
+            result = adapt_actions({"joint_pos": cfg})
+        assert result is not None
+        assert "joint_pos" in result
+
+    @pytest.mark.mjlab
+    def test_that_field_at_its_default_does_not_warn(self):
+        cfg = _forked_joint_position_cfg()(entity_name="robot", actuator_names=(".*",))
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            adapt_actions({"joint_pos": cfg})
+
+    @pytest.mark.mjlab
+    def test_mjlabs_own_action_classes_do_not_warn(self):
+        """Their one field mjswan lacks, `transmission_type`, each class sets itself."""
+        actions = pytest.importorskip("mjlab.envs.mdp.actions")
+        terms = {
+            name: getattr(actions, name)(entity_name="robot", actuator_names=(".*",))
+            for name in (
+                "JointPositionActionCfg",
+                "JointVelocityActionCfg",
+                "JointEffortActionCfg",
+                "TendonLengthActionCfg",
+                "TendonVelocityActionCfg",
+                "TendonEffortActionCfg",
+                "SiteEffortActionCfg",
+            )
+        }
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            adapt_actions(terms)
 
 
 class TestAdaptCommands:
@@ -860,6 +912,84 @@ class TestResolvePdGains:
 
         assert actions["joint_pos"].stiffness == 1.0
         assert actions["joint_pos"].damping is None
+
+
+@pytest.mark.mjlab
+class TestWarnUnrunActuatorFields:
+    """The browser runs an ideal-PD actuator's PD within its effort limit, and no more."""
+
+    @pytest.fixture
+    def actuator(self):
+        return pytest.importorskip("mjlab.actuator")
+
+    @staticmethod
+    def _two_terms_on_one_entity() -> dict:
+        from mjswan.envs.mdp.actions import JointPositionActionCfg
+
+        return {"legs": JointPositionActionCfg(), "arms": JointPositionActionCfg()}
+
+    def test_a_plain_ideal_pd_actuator_does_not_warn(self, actuator):
+        # Armature and friction loss are baked into the model the browser loads.
+        cfg = actuator.IdealPdActuatorCfg(
+            target_names_expr=(".*",),
+            stiffness=40.0,
+            damping=2.0,
+            effort_limit=30.0,
+            armature=0.01,
+            frictionloss=0.1,
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            warn_unrun_actuator_fields(
+                self._two_terms_on_one_entity(), _env_cfg_with(cfg)
+            )
+
+    def test_a_subclass_field_warns_once(self, actuator):
+        @dataclass(kw_only=True)
+        class FrictionPdActuatorCfg(actuator.IdealPdActuatorCfg):
+            """wbc's `UnitreeActuatorCfg` in brief: friction torques on top of the PD."""
+
+            fs: float = 0.0
+            fd: float = 0.0
+
+        cfg = FrictionPdActuatorCfg(
+            target_names_expr=(".*",), stiffness=40.0, damping=2.0, fs=2.4
+        )
+        with pytest.warns(
+            RuntimeWarning,
+            match=r"'FrictionPdActuatorCfg' on \('\.\*',\) sets fs=2\.4, which",
+        ) as record:
+            warn_unrun_actuator_fields(
+                self._two_terms_on_one_entity(), _env_cfg_with(cfg)
+            )
+        assert len(record) == 1
+
+    def test_a_dc_motor_warns_naming_its_curve(self, actuator):
+        cfg = actuator.DcMotorActuatorCfg(
+            target_names_expr=(".*",),
+            stiffness=40.0,
+            damping=2.0,
+            effort_limit=20.0,
+            saturation_effort=30.0,
+            velocity_limit=20.0,
+        )
+        with pytest.warns(
+            RuntimeWarning,
+            match=r"sets saturation_effort=30\.0, velocity_limit=20\.0, which the "
+            r"browser does not run: it runs only the PD within the effort limit",
+        ):
+            warn_unrun_actuator_fields(
+                self._two_terms_on_one_entity(), _env_cfg_with(cfg)
+            )
+
+    def test_a_command_delay_warns(self, actuator):
+        cfg = actuator.IdealPdActuatorCfg(
+            target_names_expr=(".*",), stiffness=40.0, damping=2.0, delay_max_lag=3
+        )
+        with pytest.warns(RuntimeWarning, match=r"sets delay_max_lag=3, which"):
+            warn_unrun_actuator_fields(
+                self._two_terms_on_one_entity(), _env_cfg_with(cfg)
+            )
 
 
 # ===================================================================

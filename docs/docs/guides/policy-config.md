@@ -280,6 +280,12 @@ the browser runtime computes PD externally for motor actuators with `biastype=no
 they have to be in the policy config. Both accept a scalar, a per-joint list (aligned with
 `policy_joint_names`), or a dict keyed by joint name.
 
+What the browser does not run warns at build time rather than being dropped silently: an
+mjlab action field mjswan's class does not have, when it holds a non-default value, and
+whatever an `IdealPdActuatorCfg` does beyond its PD within the effort limit, such as a
+subclass's own fields (`DcMotorActuatorCfg`'s torque-speed curve, a friction model) or a
+command delay.
+
 ### Joints a command drives
 
 `CommandJointPositionActionCfg` writes `scale * c + offset` as the position target of its
