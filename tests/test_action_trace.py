@@ -235,3 +235,52 @@ def test_an_observation_reads_a_traced_terms_state_as_a_slot(env, tmp_path):
         ("joint_pos", "_processed_actions"),
         ("joint_pos", "_target"),
     ]
+
+
+def _find(tree, key):
+    """Every value under *key*, anywhere in a JSON tree."""
+    if isinstance(tree, dict):
+        for k, v in tree.items():
+            if k == key:
+                yield v
+            yield from _find(v, key)
+    elif isinstance(tree, list):
+        for v in tree:
+            yield from _find(v, key)
+
+
+def test_a_scene_builds_a_task_action_into_its_manifest(
+    tmp_path, build_manifest, minimal_onnx
+):
+    from mjswan import Builder, register_action
+    from mjswan.managers.action_manager import _action_registry
+
+    env = fx.arm_env({"joint_pos": fx.on_arm(fx.DeltaActionCfg)})
+    builder = Builder()
+    scene = builder.add_project(name="P").add_scene(
+        control_dt=0.02, name="S", model=env.sim.mj_model
+    )
+    scene.set_trace_env(env)
+    scene.add_policy(
+        name="Policy",
+        policy=minimal_onnx,
+        actions={"joint_pos": fx.on_arm(fx.DeltaActionCfg)},
+        policy_joint_names=["robot/j1", "robot/j2", "robot/j3"],
+    )
+    # After `add_policy`: the build looks the binding up again.
+    register_action(
+        "DeltaActionCfg", ActionBinding(apply="joint_position", interpolate=True)
+    )
+    try:
+        manifest = build_manifest(builder, tmp_path / "dist")
+    finally:
+        _action_registry.pop("DeltaActionCfg", None)
+        env.close()
+
+    (actions,) = list(_find(manifest, "actions"))
+    entry = actions["joint_pos"]
+    assert entry["type"] == "joint_position"
+    assert entry["interpolate"] is True
+    assert {"process", "reset"} <= set(entry)
+    graphs = {p.name for p in (tmp_path / "dist").rglob("*.onnx")}
+    assert {"joint_pos.onnx", "joint_pos_reset.onnx"} <= graphs

@@ -8,6 +8,7 @@ for the top-level ``plugins`` (manifest rules 1 and 2).
 
 from __future__ import annotations
 
+import contextlib
 import json
 import warnings
 from collections.abc import Callable
@@ -15,7 +16,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .._version import __version__
-from ..compile.slot import traced_action_state
 from ..document import DOCUMENT_FORMAT
 from ..document.manifest import DEFAULT_IN_KEYS, DEFAULT_OUT_KEYS, RUNTIME_INPUT_SLOTS
 from ..envs.mdp.actions import TracedActionCfg
@@ -183,7 +183,13 @@ def mdp_entry(
             for name, action in entry.get("actions", {}).items()
             if "process" in action
         }
-        with traced_action_state(action_state):
+        reading: contextlib.AbstractContextManager[None] = contextlib.nullcontext()
+        if action_state:
+            # Lazy: a core install has no torch, which only a traced term needs.
+            from ..compile.slot import traced_action_state
+
+            reading = traced_action_state(action_state)
+        with reading:
             _serialize_reading_actions(
                 mdp,
                 entry,

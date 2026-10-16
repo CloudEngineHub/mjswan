@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ...envs.mdp.actions import CommandJointPositionActionCfg, TracedActionCfg
-from ...managers.action_manager import ActionBinding
+from ...managers.action_manager import ActionBinding, _action_registry
 from . import graph
 from .provenance import graph_meta, term_provenance
 
@@ -115,10 +115,12 @@ def traced_action_entry(
             "one; a plain scene needs `scene.set_trace_env(...)` (ADR 0005 §6)."
         )
     term = cfg.mjlab_cfg.build(env)
-    binding = cfg.binding or ActionBinding()
+    # Looked up again here, so a binding registered after `add_policy` still counts.
+    registered = cfg.binding or _action_registry.get(cls_name)
+    binding = registered or ActionBinding()
     if binding.trace_override is not None:
         binding.trace_override(term)
-    kind = binding.apply or inherited_apply(term, unchanged=cfg.binding is None)
+    kind = binding.apply or inherited_apply(term, unchanged=registered is None)
     if kind is None:
         raise ValueError(
             f"Action term {name!r}: {type(term).__name__} overrides apply_actions, "
