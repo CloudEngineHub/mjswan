@@ -13,11 +13,16 @@ from typing import Any, Callable, Collection
 import numpy as np
 import torch
 
-from .event import _env_ids, _event_outputs, trace_event_term
+from .event import (
+    _env_ids,
+    _event_outputs,
+    event_writes_nothing_reason,
+    trace_event_term,
+)
 from .record import WriteCaptures, _EventCaptureEnv
 from .rng import DrawRecorder
 from .slot import read_slot, slot_label
-from .term import TermExport, trace_term
+from .term import ConstantTerm, TermExport, trace_term
 
 
 @dataclass
@@ -185,8 +190,9 @@ def run_parity(
                     name=term_name,
                     kind=kind,
                     representation="native",
-                    # The build bakes a constant observation but refuses a termination.
-                    passed=kind == "observation",
+                    # The build bakes a constant observation; it refuses an untraceable
+                    # term, and a constant termination.
+                    passed=kind == "observation" and isinstance(exc, ConstantTerm),
                     note=str(exc).split(";")[0],
                 )
             )
@@ -243,6 +249,8 @@ def run_parity(
             except Exception as exc:  # noqa: BLE001 — untraceable term → native fallback
                 tr.representation = "native"
                 tr.note = f"{type(exc).__name__}: {str(exc).splitlines()[0][:80]}"
+                # As the build, which fails on any other untraceable event.
+                tr.passed = event_writes_nothing_reason(func, env, params) is not None
                 continue
             tr.rand_dim = export.rand_dim
             tr.input_slots = [slot_label(k) for k in export.input_slots]

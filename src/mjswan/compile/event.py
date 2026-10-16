@@ -8,6 +8,7 @@ randomness is threaded in as an explicit ``rand`` input replayed by
 
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -255,3 +256,59 @@ def _static_ids(ids: Any) -> Any:
     if hasattr(ids, "tolist"):
         return ids.tolist()
     return ids
+
+
+#: Events whose trace legitimately captures no write, and why. The build fails on any
+#: other untraceable event: a dropped reset randomization is invisible in the browser.
+EVENTS_WITH_NOTHING_TO_WRITE: dict[str, str] = {
+    "randomize_terrain": (
+        "it re-draws each env's sub-terrain origin, and the browser has one baked terrain "
+        "with one origin"
+    ),
+    "encoder_bias": (
+        "it writes `Entity.data.encoder_bias`, which the runtime applies from the policy "
+        "config's `encoder_bias` rather than from an event graph"
+    ),
+    "reset_scene_to_default": (
+        "it restores every entity's default root and joint state, which is what the "
+        "runtime's own reset already does (`mj_resetData` to `qpos0`, or keyframe 0) "
+        'before any `mode="reset"` event runs'
+    ),
+}
+
+
+def _term_arg(func: Any, params: dict[str, Any], key: str) -> Any:
+    """A keyword as the body sees it: the term's value, else *func*'s default."""
+    if key in params:
+        return params[key]
+    param = inspect.signature(func).parameters.get(key)
+    return (
+        None
+        if param is None or param.default is inspect.Parameter.empty
+        else param.default
+    )
+
+
+def event_writes_nothing_reason(
+    func: Callable[..., None], env: Any, params: dict[str, Any]
+) -> str | None:
+    """Why *func*'s trace legitimately captured no write, or ``None``."""
+    func_name = getattr(func, "__name__", "")
+    reason = EVENTS_WITH_NOTHING_TO_WRITE.get(func_name)
+    if reason is not None:
+        return reason
+    if not func_name.startswith("reset_root_state"):
+        return None
+    # A root write cannot move a fixed-base entity, in mjlab either, and its
+    # manipulation tasks still configure `reset_base` on their arms, leaving
+    # `asset_cfg` to the signature default, hence `_term_arg` and not `params`.
+    entity_name = getattr(_term_arg(func, params, "asset_cfg"), "name", None)
+    if entity_name is None:
+        return None
+    try:
+        entity = env.scene[entity_name]
+    except (KeyError, TypeError):
+        return None
+    if getattr(entity, "is_fixed_base", False):
+        return f"entity {entity_name!r} is fixed-base, so a root write cannot move it"
+    return None

@@ -933,9 +933,10 @@ class TestWriteTargetEntity:
 
 def test_reset_scene_to_default_needs_no_graph():
     """The runtime's reset already restores every default, so nothing is left to write."""
-    from mjswan.build.mdp.event import _EVENTS_WITH_NOTHING_TO_WRITE
+    pytest.importorskip("torch")
+    from mjswan.compile.event import EVENTS_WITH_NOTHING_TO_WRITE
 
-    assert "reset_scene_to_default" in _EVENTS_WITH_NOTHING_TO_WRITE
+    assert "reset_scene_to_default" in EVENTS_WITH_NOTHING_TO_WRITE
 
 
 class TestApplyTerrainSpawn:
