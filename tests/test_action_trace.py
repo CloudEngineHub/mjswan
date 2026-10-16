@@ -196,6 +196,12 @@ def test_the_build_writes_both_graphs_and_names_the_apply(env, tmp_path):
     np.testing.assert_allclose(init["_target"], list(fx.HOME.values()), atol=1e-6)
 
 
+def test_the_build_refuses_an_overridden_apply_without_a_binding(env, tmp_path):
+    cfg = TracedActionCfg(mjlab_cfg=fx.on_arm(fx.HeldActionCfg))
+    with pytest.raises(ValueError, match="overrides apply_actions"):
+        serialize_actions({"joint_pos": cfg}, env=env, out_dir=tmp_path)
+
+
 def test_without_a_trace_env_the_build_says_how_to_supply_one(tmp_path):
     cfg = TracedActionCfg(mjlab_cfg=fx.on_arm(fx.DeltaActionCfg))
     with pytest.raises(ValueError, match="set_trace_env"):

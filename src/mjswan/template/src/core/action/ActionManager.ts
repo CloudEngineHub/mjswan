@@ -16,7 +16,7 @@ export interface ManagedActionTerm {
   traced?: OnnxActionProcess | null;
 }
 
-/** `processed_actions` by either name mjlab gives it: the property or its backing field. */
+/** The processed action's field, and the property some mjlab versions read it through. */
 const PROCESSED_FIELDS = new Set(['processed_actions', '_processed_actions']);
 
 export class ActionManager {

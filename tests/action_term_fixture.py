@@ -195,19 +195,6 @@ class WritingAction(JointPositionAction):
         self._entity.set_joint_position_target(self._processed_actions)
 
 
-@dataclass(kw_only=True)
-class StatelessDeltaActionCfg(JointPositionActionCfg):
-    def build(self, env):
-        return StatelessDeltaAction(self, env)
-
-
-class StatelessDeltaAction(JointPositionAction):
-    """Overrides apply_actions without a binding naming what it does."""
-
-    def apply_actions(self):
-        super().apply_actions()
-
-
 def arm_env(
     actions: dict, *, decimation: int = 4, delay_lag: int = 0
 ) -> ManagerBasedRlEnv:

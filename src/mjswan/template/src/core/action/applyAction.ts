@@ -8,8 +8,8 @@
  *   per-substep options (a ramp, a hold, a relative target, a command delay) and the PD a
  *   motor needs. Synchronous, with no ONNX: it runs on the hottest loop.
  *
- * Free functions over `mjData`, not methods on the DOM-bound runtime, so the
- * rollout-parity harness can drive them in Node.
+ * Free functions over `mjData`, not methods on the DOM-bound runtime, so the parity tests
+ * can drive them in Node.
  */
 
 import { CommandDelay, resolveDelays, type DelayConfigEntry, type DelayRng } from './commandDelay';

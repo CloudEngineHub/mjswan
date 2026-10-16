@@ -230,8 +230,7 @@ def _run_body(term: Any, body: Body, raw: torch.Tensor | None) -> None:
 
 
 def _processed(term: Any) -> torch.Tensor:
-    """The term's processed action, which mjlab's ``BaseAction`` keeps in
-    ``_processed_actions`` and ``apply_actions`` writes to the sim."""
+    """mjlab's ``BaseAction._processed_actions``: what ``apply_actions`` applies."""
     value = getattr(term, "_processed_actions", None)
     if not isinstance(value, torch.Tensor):
         raise UntraceableAction(
