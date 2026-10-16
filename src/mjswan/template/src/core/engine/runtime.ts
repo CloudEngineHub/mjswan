@@ -53,12 +53,12 @@ import {
   readClipActions,
   resolveActionClip,
   stepPhysics,
+  substepOptions,
   type ControlType,
   type MuscleMode,
   type ResolvedActionTerm,
 } from '../action/applyAction';
 import { ActionManager, type ManagedActionTerm } from '../action/ActionManager';
-import { CommandDelay, resolveDelays } from '../action/commandDelay';
 import {
   OnnxActionProcess,
   type OnnxActionGraphConfig,
@@ -1581,12 +1581,7 @@ export class mjswanRuntime {
         clipHi,
         processed: new Float32Array(n),
         active: false,
-        rampFrom: actionTerm.interpolate === true ? new Float32Array(n) : null,
-        holdS: typeof actionTerm.hold_s === 'number' ? actionTerm.hold_s : null,
-        holding: false,
-        delays: resolveDelays(actionTerm.delay, subsetJointNames, termKey).map(
-          (spec) => new CommandDelay(spec, this.termRng),
-        ),
+        ...substepOptions(actionTerm, subsetJointNames, termKey, this.termRng),
       };
     };
 

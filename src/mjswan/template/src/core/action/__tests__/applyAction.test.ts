@@ -666,25 +666,29 @@ function delaySpec(over: Partial<DelaySpec> = {}): DelaySpec {
 }
 
 describe('CommandDelay', () => {
-  it('serves the target `lag` steps old, never older than the reset', () => {
-    // mjlab's DelayBuffer: frame[t - min(lag, t)], so the first frame stands in early on.
+  it('serves the target `lag` steps old, and the reset\'s zeros before that', () => {
+    // mjlab writes the zeroed targets once at a reset, so they fill the history.
     const delay = new CommandDelay(delaySpec(), scriptedRng([0.5]));
     const out: number[] = [];
-    for (let t = 0; t < 5; t++) {
+    for (let t = 1; t <= 5; t++) {
       const values = Float32Array.from([t]);
       delay.apply(values);
       out.push(values[0]);
     }
-    expect(out).toEqual([0, 0, 0, 1, 2]);
+    expect(out).toEqual([0, 0, 1, 2, 3]);
   });
 
   it('starts over at a reset', () => {
     const delay = new CommandDelay(delaySpec(), scriptedRng([0.5]));
-    for (let t = 0; t < 4; t++) delay.apply(Float32Array.from([t]));
+    for (let t = 1; t <= 4; t++) delay.apply(Float32Array.from([t]));
     delay.reset();
-    const values = Float32Array.from([10]);
-    delay.apply(values);
-    expect(values[0]).toBe(10);
+    const out: number[] = [];
+    for (const t of [10, 11, 12]) {
+      const values = Float32Array.from([t]);
+      delay.apply(values);
+      out.push(values[0]);
+    }
+    expect(out).toEqual([0, 0, 10]);
   });
 
   it('draws the lag from [min, max] each step, and keeps it with hold_prob', () => {

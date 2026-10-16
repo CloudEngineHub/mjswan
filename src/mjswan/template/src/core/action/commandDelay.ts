@@ -35,9 +35,7 @@ export interface DelayConfigEntry {
 
 export class CommandDelay {
   private readonly history: Float32Array[];
-  private pointer = -1;
-  /** Frames pushed since the last reset: mjlab never reads further back than this. */
-  private pushes = 0;
+  private pointer = 0;
   private lag = 0;
   private stepCount = 0;
   private phase = 0;
@@ -51,34 +49,41 @@ export class CommandDelay {
     this.reset();
   }
 
-  /** Clear the history and the lag, as mjlab's entity reset does at an episode's start. */
+  /**
+   * Start over, as mjlab's entity reset does at an episode's start. It zeroes the targets
+   * and writes them once before the next step, so the history starts as that zero frame
+   * and the lag schedule has taken its first step.
+   */
   reset(): void {
-    this.pushes = 0;
+    for (const frame of this.history) frame.fill(0);
     this.lag = 0;
     this.stepCount = 0;
     const { updatePeriod, perEnvPhase } = this.spec;
     this.phase = updatePeriod > 0 && perEnvPhase ? this.randint(0, updatePeriod - 1) : 0;
+    this.advance();
   }
 
   /** One physics step: push `values` at `spec.indices`, then replace them with the delayed ones. */
   apply(values: Float32Array): void {
-    const { indices, minLag, maxLag, holdProb, updatePeriod } = this.spec;
+    const { indices } = this.spec;
     const size = this.history.length;
     this.pointer = (this.pointer + 1) % size;
     const frame = this.history[this.pointer];
     for (let i = 0; i < indices.length; i++) frame[i] = values[indices[i]];
-    this.pushes += 1;
+    this.advance();
+    const source = this.history[(this.pointer - this.lag + size) % size];
+    for (let i = 0; i < indices.length; i++) values[indices[i]] = source[i];
+  }
 
-    // mjlab draws the candidate every step, redraw or not, so the stream stays aligned.
+  /** mjlab's `_update_lags`: one step of the redraw schedule. */
+  private advance(): void {
+    const { minLag, maxLag, holdProb, updatePeriod } = this.spec;
     let redraw = updatePeriod > 0 ? (this.stepCount + this.phase) % updatePeriod === 0 : true;
+    // mjlab draws the candidate every step, redraw or not, so the stream stays aligned.
     const candidate = this.randint(minLag, maxLag);
     if (holdProb > 0) redraw = this.rng.next() >= holdProb && redraw;
     if (redraw) this.lag = candidate;
     this.stepCount += 1;
-
-    const lag = Math.min(this.lag, Math.min(this.pushes, size) - 1);
-    const source = this.history[(this.pointer - lag + size) % size];
-    for (let i = 0; i < indices.length; i++) values[indices[i]] = source[i];
   }
 
   private randint(low: number, high: number): number {

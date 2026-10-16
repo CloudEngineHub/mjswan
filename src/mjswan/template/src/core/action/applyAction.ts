@@ -12,7 +12,7 @@
  * rollout-parity harness can drive them in Node.
  */
 
-import type { CommandDelay } from './commandDelay';
+import { CommandDelay, resolveDelays, type DelayConfigEntry, type DelayRng } from './commandDelay';
 
 type MjModel = import('mujoco').MjModel;
 type MjData = import('mujoco').MjData;
@@ -125,6 +125,30 @@ export function isTargetActuator(
   if (biasType !== bias.dcMotor) return false;
   const mode = model.actuator_gainprm[adr * MJ_NGAIN + DCMOTOR_INPUT_MODE];
   return mode === 1 || mode === 2;
+}
+
+/** What a manifest entry asks of the substeps (ADR 0009). */
+export interface SubstepConfig {
+  interpolate?: boolean;
+  hold_s?: number;
+  delay?: DelayConfigEntry[];
+}
+
+/** A term's per-substep options from its entry, with `targetNames` in target order. */
+export function substepOptions(
+  entry: SubstepConfig,
+  targetNames: readonly string[],
+  termKey: string,
+  rng: DelayRng,
+): Pick<ResolvedActionTerm, 'rampFrom' | 'holdS' | 'holding' | 'delays'> {
+  return {
+    rampFrom: entry.interpolate === true ? new Float32Array(targetNames.length) : null,
+    holdS: typeof entry.hold_s === 'number' ? entry.hold_s : null,
+    holding: false,
+    delays: resolveDelays(entry.delay, targetNames, termKey).map(
+      (spec) => new CommandDelay(spec, rng),
+    ),
+  };
 }
 
 /** What `processAction` reads besides the action: the episode clock a hold runs on. */
