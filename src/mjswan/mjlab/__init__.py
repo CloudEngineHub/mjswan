@@ -19,6 +19,7 @@ they stay where mjlab has them.
 from .action import (
     adapt_actions,
     resolve_action_scales,
+    resolve_actuator_delays,
     resolve_default_joint_vel,
     resolve_pd_gains,
     warn_unrun_actuator_fields,
@@ -47,6 +48,7 @@ __all__ = [
     "ensure_mjlab_extensions",
     "is_from_mjlab",
     "resolve_action_scales",
+    "resolve_actuator_delays",
     "resolve_default_joint_vel",
     "resolve_pd_gains",
     "resolve_runner_defaults",

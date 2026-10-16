@@ -14,6 +14,7 @@ from .record import _merge_narrowing, _RecordingSimData
 from .replay import _narrowed_field
 from .slot import (
     _ACTION_NS,
+    _ACTION_TERM_NS,
     _COMMAND_NS,
     _ENV_NS,
     _SENSOR_NS,
@@ -137,7 +138,14 @@ def _classify_slots(
         if not isinstance(value, torch.Tensor):
             continue  # non-tensor attribute access, not a graph slot
         namespace, field_name = key
-        live = namespace in (_SENSOR_NS, _COMMAND_NS, _SIM_NS, _ENV_NS, _ACTION_NS)
+        live = namespace in (
+            _SENSOR_NS,
+            _COMMAND_NS,
+            _SIM_NS,
+            _ENV_NS,
+            _ACTION_NS,
+            _ACTION_TERM_NS,
+        )
         if live or _is_dynamic_field(field_name):
             dynamic.setdefault(key, value)
             saw_dynamic = True

@@ -31,6 +31,7 @@ from .mjlab import (
     adapt_observations,
     adapt_terminations,
     resolve_action_scales,
+    resolve_actuator_delays,
     resolve_default_joint_vel,
     resolve_pd_gains,
     resolve_runner_defaults,
@@ -74,7 +75,8 @@ def _get_scene_model(scene_config: SceneConfig) -> mujoco.MjModel | None:
 def _resolve_command_joints(
     model: mujoco.MjModel | None, name: str, term: CommandJointPositionActionCfg
 ) -> list[str]:
-    """The joints *term* drives, resolved as mjlab resolves an action term's.
+    """The joints *term* drives, resolved as mjlab resolves an action term's: in model
+    order, or in pattern order with ``preserve_order``.
 
     Writes them back as exact ``actuator_names``, one per command column, so the build
     can check the command's width and the browser finds the same joints.
@@ -102,6 +104,11 @@ def _resolve_command_joints(
         if not any(regex.fullmatch(joint) for joint in actuated)
     ]
     joints = [j for j in actuated if any(r.fullmatch(j) for r in regexes)]
+    if term.preserve_order:
+        # Stable, so model order holds within a pattern.
+        joints.sort(
+            key=lambda j: next(i for i, r in enumerate(regexes) if r.fullmatch(j))
+        )
     if unmatched or not joints:
         raise ValueError(
             f"Action term {name!r} matches no actuated joint with {unmatched}."
@@ -626,6 +633,7 @@ class SceneHandle:
                     one = {name: term}
                     resolve_action_scales(one, joints)
                     resolve_pd_gains(one, joints, resolved_env_cfg)
+                    resolve_actuator_delays(one, joints, resolved_env_cfg)
                     resolve_default_joint_vel(one, joints, resolved_env_cfg)
             warn_unrun_actuator_fields(mdp.actions, resolved_env_cfg)
         mdp._adapted = True

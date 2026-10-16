@@ -8,8 +8,10 @@ A read that is neither a slot nor a forwarded constant raises
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import re
-from typing import Any, Collection, Sequence
+from typing import Any, Collection, Iterator, Mapping, Sequence
 
 import torch
 
@@ -47,6 +49,8 @@ def _is_dynamic_field(field_name: str) -> bool:
 #   (_ENV_NS, buffer)                -> env.<buffer> (an env-level counter)
 #   (_ACTION_NS, "action")           -> env.action_manager.action (the policy's last
 #                                       action; a term's `raw_action` slices it)
+#   (_ACTION_TERM_NS, "term.attr")   -> env.action_manager.get_term(term).<attr> (a traced
+#                                       term's state, or any term's processed action)
 #   (_MODEL_NS, field[".default"])   -> env.sim.model.<field> (or its compiled default),
 #                                       the rows of the elements an event read
 SlotKey = tuple[str, str]
@@ -65,7 +69,30 @@ _COMMAND_NS = "__command__"
 _SIM_NS = "__sim__"
 _ENV_NS = "__env__"
 _ACTION_NS = "__action__"
+_ACTION_TERM_NS = "__action_term__"
 _MODEL_NS = "__model__"
+
+
+#: Per traced action term of the MDP being built, its state fields: what an observation
+#: may read off it. A native term's only readable internal is its processed action.
+_TRACED_ACTION_STATE: contextvars.ContextVar[Mapping[str, frozenset[str]]] = (
+    contextvars.ContextVar("traced_action_state", default={})
+)
+
+
+@contextlib.contextmanager
+def traced_action_state(state: Mapping[str, Collection[str]]) -> Iterator[None]:
+    """Let an observation traced inside read each traced action term's *state*."""
+    token = _TRACED_ACTION_STATE.set({k: frozenset(v) for k, v in state.items()})
+    try:
+        yield
+    finally:
+        _TRACED_ACTION_STATE.reset(token)
+
+
+def traced_action_fields(term: str) -> frozenset[str] | None:
+    """*term*'s state fields if it is traced, else ``None``."""
+    return _TRACED_ACTION_STATE.get().get(term)
 
 
 #: Env-level buffers served as slots, with the dtype mjlab keeps each in. The browser
@@ -243,6 +270,8 @@ def _slot_input_name(key: SlotKey) -> str:
         return f"env__{name_part}"
     if namespace == _ACTION_NS:
         return f"action__{name_part}"
+    if namespace == _ACTION_TERM_NS:
+        return "action_term__" + re.sub(r"\W", "_", name_part)
     if namespace == _MODEL_NS:
         return "model__" + re.sub(r"\W", "_", name_part)
     return f"{namespace}__{name_part}"
@@ -261,6 +290,8 @@ def slot_label(key: SlotKey) -> str:
         return f"env:{name_part}"
     if namespace == _ACTION_NS:
         return f"action:{name_part}"
+    if namespace == _ACTION_TERM_NS:
+        return f"action_term:{name_part}"
     if namespace == _MODEL_NS:
         return f"model:{name_part}"
     return f"{namespace}.{name_part}"
@@ -274,12 +305,13 @@ def slot_to_json(
 ) -> dict[str, Any]:
     """Serialize one input slot for the manifest's MDP entry.
 
-    Seven shapes, told apart by which keys are present: ``{"entity", "field"}``,
+    Eight shapes, told apart by which keys are present: ``{"entity", "field"}``,
     ``{"sensor"}``, ``{"command", "field"}``, ``{"sim"}`` (a raw ``mjData`` field,
     whole, or the ``rows`` of its element axis the graph takes, in order), ``{"env"}``
     (an env-level counter the runtime keeps), ``{"action"}`` (the policy's last
-    action), or ``{"model", "element", "names"}`` (an ``mjModel`` field's rows for the
-    named elements, given as *extra*). All carry ``input`` (the graph input name) and
+    action), ``{"action_term", "field"}`` (an action term's state), or
+    ``{"model", "element", "names"}`` (an ``mjModel`` field's rows for the named
+    elements, given as *extra*). All carry ``input`` (the graph input name) and
     ``shape``: the runtime feeds a flat array and cannot recover the rank without it.
     """
     namespace, name_part = key
@@ -306,6 +338,9 @@ def slot_to_json(
         entry = {"env": name_part, "input": _slot_input_name(key)}
     elif namespace == _ACTION_NS:
         entry = {"action": name_part, "input": _slot_input_name(key)}
+    elif namespace == _ACTION_TERM_NS:
+        term, _, attr = name_part.partition(".")
+        entry = {"action_term": term, "field": attr, "input": _slot_input_name(key)}
     elif namespace == _MODEL_NS:
         entry = {**(extra or {}), "input": _slot_input_name(key)}
     else:
@@ -380,6 +415,9 @@ def read_slot(
         return getattr(env, name_part)
     if namespace == _ACTION_NS:
         return getattr(env.action_manager, name_part)
+    if namespace == _ACTION_TERM_NS:
+        term, _, attr = name_part.partition(".")
+        return getattr(env.action_manager.get_term(term), attr)
     if namespace == _MODEL_NS:
         from .model import read_model_slot
 

@@ -105,19 +105,40 @@ def _forward_action_attr(manager: Any, name: str) -> Any:
     return value
 
 
-def _action_term_proxy(real: Any, raw_action: Callable[[], torch.Tensor]) -> Any:
-    """An action-term stand-in serving ``raw_action`` from ``raw_action()``; any other
-    tensor it holds (``processed_actions``, say) raises, as the manager's do."""
+#: The processed action's backing field, which the browser serves for every term.
+_PROCESSED_FIELD = "_processed_actions"
+
+
+def _action_term_proxy(
+    real: Any,
+    raw_action: Callable[[], torch.Tensor],
+    read_state: Callable[[str, torch.Tensor], torch.Tensor],
+    traced: frozenset[str] | None,
+) -> Any:
+    """An action-term stand-in.
+
+    A native term (*traced* ``None``) serves ``raw_action`` from ``raw_action()`` and
+    its processed action through ``read_state``; any other tensor raises, as the
+    manager's do. A traced term serves its state fields (*traced*) through
+    ``read_state`` and bakes any other tensor, which neither of its bodies writes. A
+    property runs on the stand-in, so the fields it reads come back through here.
+    """
 
     def __getattribute__(self: Any, attr: str) -> Any:  # noqa: N807
-        if attr == "raw_action":
+        if attr == "raw_action" and traced is None:
             return raw_action()
+        if isinstance(getattr(type(real), attr, None), property):
+            return object.__getattribute__(self, attr)
         value = object.__getattribute__(self, attr)
-        if isinstance(value, torch.Tensor):
-            raise UnsupportedEnvRead(
-                f"action_manager.get_term(...).{attr}", _TERM_ENV_READS
-            )
-        return value
+        if not isinstance(value, torch.Tensor):
+            return value
+        if attr == _PROCESSED_FIELD or (traced is not None and attr in traced):
+            return read_state(attr, value)
+        if traced is not None:
+            return value
+        raise UnsupportedEnvRead(
+            f"action_manager.get_term(...).{attr}", _TERM_ENV_READS
+        )
 
     return _class_proxy(real, {"__getattribute__": __getattribute__})
 

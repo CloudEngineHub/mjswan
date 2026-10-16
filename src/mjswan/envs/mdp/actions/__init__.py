@@ -19,10 +19,12 @@ from .actions import (
     JointVelocityActionCfg,
     MuscleActivationActionCfg,
     ReferenceJointPositionActionCfg,
+    RelativeJointPositionActionCfg,
     SiteEffortActionCfg,
     TendonEffortActionCfg,
     TendonLengthActionCfg,
     TendonVelocityActionCfg,
+    TracedActionCfg,
 )
 
 __all__ = [
@@ -31,6 +33,7 @@ __all__ = [
     "JointPositionActionCfg",
     "JointVelocityActionCfg",
     "ReferenceJointPositionActionCfg",
+    "RelativeJointPositionActionCfg",
     "CommandJointPositionActionCfg",
     "JointEffortActionCfg",
     "MuscleActivationActionCfg",
@@ -38,4 +41,5 @@ __all__ = [
     "TendonVelocityActionCfg",
     "TendonEffortActionCfg",
     "SiteEffortActionCfg",
+    "TracedActionCfg",
 ]

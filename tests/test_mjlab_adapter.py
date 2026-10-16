@@ -32,6 +32,7 @@ from mjswan.mjlab import (
     adapt_observations,
     adapt_terminations,
     resolve_action_scales,
+    resolve_actuator_delays,
     resolve_pd_gains,
     resolve_runner_defaults,
     warn_unrun_actuator_fields,
@@ -793,6 +794,51 @@ class TestAdaptCommands:
         assert isinstance(action, JointEffortActionCfg)
         assert action.scale == 2.0
 
+    def test_a_buildable_action_class_mjswan_lacks_is_traced(self):
+        from mjswan.envs.mdp.actions import TracedActionCfg
+
+        cfg_cls = _make_mjlab_class(
+            "JointPositionDeltaActionCfg",
+            entity_name="robot",
+            actuator_names=("finger_.*", "thumb|palm"),
+        )
+        cfg_cls.build = lambda self, env: None
+        cfg = cfg_cls()
+
+        result = adapt_actions({"joint_pos": cfg})
+        assert result is not None
+        adapted = result["joint_pos"]
+        assert isinstance(adapted, TracedActionCfg)
+        assert adapted.mjlab_cfg is cfg
+        assert adapted.binding is None
+        assert adapted.actuator_names == ("robot/finger_.*", "robot/(?:thumb|palm)")
+
+    def test_a_registered_action_class_is_traced_with_its_binding(self):
+        """From outside the mjlab package too, as a task's own module is."""
+        from mjswan.managers.action_manager import (
+            ActionBinding,
+            _action_registry,
+            register_action,
+        )
+
+        @dataclass
+        class HeldJointPositionActionCfg:
+            entity_name: str = "robot"
+            hold_duration_s: float = 1.0
+
+            def build(self, env):
+                return None
+
+        binding = ActionBinding(hold_s=lambda cfg: cfg.hold_duration_s)
+        register_action("HeldJointPositionActionCfg", binding)
+        try:
+            result = adapt_actions({"joint_pos": HeldJointPositionActionCfg()})
+        finally:
+            _action_registry.pop("HeldJointPositionActionCfg", None)
+
+        assert result is not None
+        assert result["joint_pos"].binding is binding  # type: ignore[attr-defined]
+
     def test_mjlab_unknown_action_warns(self):
         FakeUnknown = _make_mjlab_class(
             "SomeWeirdActionCfg",
@@ -982,14 +1028,83 @@ class TestWarnUnrunActuatorFields:
                 self._two_terms_on_one_entity(), _env_cfg_with(cfg)
             )
 
-    def test_a_command_delay_warns(self, actuator):
+    def test_a_command_delay_does_not_warn(self, actuator):
+        # The browser runs it: resolve_actuator_delays hands it to the term.
         cfg = actuator.IdealPdActuatorCfg(
             target_names_expr=(".*",), stiffness=40.0, damping=2.0, delay_max_lag=3
         )
-        with pytest.warns(RuntimeWarning, match=r"sets delay_max_lag=3, which"):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
             warn_unrun_actuator_fields(
                 self._two_terms_on_one_entity(), _env_cfg_with(cfg)
             )
+
+
+def _delayed_actuator(patterns: tuple[str, ...], max_lag: int, **fields: Any) -> Any:
+    """An actuator cfg with mjlab's ``delay_*`` fields, at their defaults but *fields*."""
+    delay = {
+        "min_lag": 0,
+        "max_lag": max_lag,
+        "hold_prob": 0.0,
+        "update_period": 0,
+        "per_env_phase": True,
+        **fields,
+    }
+    return SimpleNamespace(
+        target_names_expr=patterns, **{f"delay_{k}": v for k, v in delay.items()}
+    )
+
+
+class TestResolveActuatorDelays:
+    """mjlab delays an actuator's command; the browser runs the delay per action term."""
+
+    JOINTS = TestResolvePdGains.JOINTS
+
+    def test_each_distinct_setting_lists_the_joints_it_delays(self):
+        from mjswan.envs.mdp.actions import JointPositionActionCfg
+
+        actions = {"joint_pos": JointPositionActionCfg()}
+        resolve_actuator_delays(
+            actions,
+            self.JOINTS,
+            _env_cfg_with(
+                _delayed_actuator(("left_knee_joint",), 2, min_lag=1),
+                _delayed_actuator(("waist_yaw_joint",), 0),
+                _delayed_actuator(("right_knee_joint",), 2, min_lag=1),
+            ),
+        )
+
+        delay = [
+            {
+                "joints": ["robot/left_knee_joint", "robot/right_knee_joint"],
+                "min_lag": 1,
+                "max_lag": 2,
+                "hold_prob": 0.0,
+                "update_period": 0,
+                "per_env_phase": True,
+            }
+        ]
+        assert actions["joint_pos"].delay == delay
+        assert actions["joint_pos"].to_dict()["delay"] == delay
+
+    def test_only_the_terms_own_joints_are_delayed(self):
+        from mjswan.envs.mdp.actions import JointPositionActionCfg
+
+        actions = {
+            "legs": JointPositionActionCfg(actuator_names=("robot/.*_knee_joint",)),
+            "waist": JointPositionActionCfg(actuator_names=("robot/waist_yaw_joint",)),
+        }
+        resolve_actuator_delays(
+            actions, self.JOINTS, _env_cfg_with(_delayed_actuator((".*knee.*",), 3))
+        )
+
+        assert actions["legs"].delay is not None
+        assert actions["legs"].delay[0]["joints"] == [
+            "robot/left_knee_joint",
+            "robot/right_knee_joint",
+        ]
+        assert actions["waist"].delay is None
+        assert "delay" not in actions["waist"].to_dict()
 
 
 # ===================================================================
