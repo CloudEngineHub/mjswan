@@ -101,3 +101,35 @@ describe('OnnxModule.dispose', () => {
     expect(warn).toHaveBeenCalled();
   });
 });
+
+describe('OnnxModule.initInput', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  /** A recurrent session whose `adapt_hx` input declares `shape`. */
+  async function recurrent(shape: Array<number | string>): Promise<OnnxModule> {
+    const session = {
+      inputNames: ['obs', 'hx'],
+      outputNames: ['action', 'next_hx'],
+      inputMetadata: [
+        { name: 'obs', isTensor: true, type: 'float32', shape: [1, 4] },
+        { name: 'hx', isTensor: true, type: 'float32', shape },
+      ],
+      release: async () => {},
+    };
+    vi.spyOn(ort.InferenceSession, 'create').mockResolvedValue(session as never);
+    const module = new OnnxModule(new ArrayBuffer(8), { in_keys: ['actor', 'adapt_hx'] });
+    await module.init();
+    return module;
+  }
+
+  it('starts the carry at the width the network declares', async () => {
+    // A carry seeded at 128 would fail every run of a 730-wide network.
+    const module = await recurrent([1, 730]);
+    expect(module.initInput().adapt_hx.dims).toEqual([1, 730]);
+  });
+
+  it('falls back to 128 where the width is dynamic', async () => {
+    const module = await recurrent(['batch', 'hidden']);
+    expect(module.initInput().adapt_hx.dims).toEqual([1, 128]);
+  });
+});

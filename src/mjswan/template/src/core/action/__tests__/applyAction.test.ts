@@ -1,5 +1,5 @@
 /**
- * Action is the one manager with no graph, so no traced-parity check reaches it — the
+ * A native action term has no graph, so no traced-parity check reaches it: the
  * arithmetic here is the implementation, and it decides what force reaches the sim.
  *
  * The sharp case is `encoder_bias`: without subtracting it from the target, every joint
@@ -8,13 +8,18 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
-  applyAction,
+  applyAction as applySubstep,
   clampActions,
+  inHold,
+  isTargetActuator,
+  processAction,
   readClipActions,
   resolveActionClip,
   stepPhysics,
+  type ProcessContext,
   type ResolvedActionTerm,
 } from '../applyAction';
+import { CommandDelay, resolveDelays, type DelaySpec } from '../commandDelay';
 
 type MjData = import('mujoco').MjData;
 
@@ -25,6 +30,19 @@ function fakeData(nu: number, qpos: number[] = [], qvel: number[] = []): MjData 
     qpos: Float64Array.from(qpos),
     qvel: Float64Array.from(qvel),
   } as unknown as MjData;
+}
+
+const CONTEXT: ProcessContext = { episodeLength: 0, stepDt: 0.02 };
+
+/** One control step of one substep: `process` every term, then `apply`. */
+function applyAction(
+  data: MjData,
+  terms: ResolvedActionTerm[],
+  actions: Float32Array,
+  context: ProcessContext = CONTEXT,
+): void {
+  for (const t of terms) processAction(t, actions, context);
+  applySubstep(data, terms);
 }
 
 function term(over: Partial<ResolvedActionTerm> = {}): ResolvedActionTerm {
@@ -48,6 +66,12 @@ function term(over: Partial<ResolvedActionTerm> = {}): ResolvedActionTerm {
     // Unbounded by default: `resolveActionClip` leaves ±Infinity for an unnamed target.
     clipLo: new Float32Array(n).fill(-Infinity),
     clipHi: new Float32Array(n).fill(Infinity),
+    processed: new Float32Array(n),
+    active: false,
+    rampFrom: null,
+    holdS: null,
+    holding: false,
+    delays: [],
     ...over,
   };
 }
@@ -344,7 +368,8 @@ describe('stepPhysics', () => {
       kp: Float32Array.from([1]),
       kd: new Float32Array(1),
     });
-    stepPhysics(mujoco as never, {} as never, data, [motor], Float32Array.from([0]), 3, () => {
+    processAction(motor, Float32Array.from([0]), CONTEXT);
+    stepPhysics(mujoco as never, {} as never, data, [motor], 3, () => {
       seen.push(data.ctrl[0]);
     });
 
@@ -506,5 +531,240 @@ describe('readClipActions / clampActions', () => {
     expect(readClipActions(-1)).toBeNull();
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Native per-substep options (ADR 0009): mjlab's relative target and command delay, and
+// the hold and ramp task terms add.
+// ---------------------------------------------------------------------------
+
+/** A one-joint position term on a position actuator, `override` on top. */
+function oneJoint(over: Partial<ResolvedActionTerm> = {}): ResolvedActionTerm {
+  return term({
+    ctrlAdr: [0],
+    qposAdr: [0],
+    qvelAdr: [0],
+    actionIndices: [0],
+    actionScale: Float32Array.from([1]),
+    actionOffset: new Float32Array(1),
+    defaultJointPos: new Float32Array(1),
+    encoderBias: new Float32Array(1),
+    positionActuator: [true],
+    ...over,
+  });
+}
+
+describe('applyAction — joint_position_relative', () => {
+  it('targets the measured position plus the scaled action, read live each substep', () => {
+    const data = fakeData(1, [0.3], [0]);
+    const t = oneJoint({
+      controlType: 'joint_position_relative',
+      actionScale: Float32Array.from([0.5]),
+      // mjlab's relative target ignores the encoder bias.
+      encoderBias: Float32Array.from([0.05]),
+    });
+    processAction(t, Float32Array.from([0.2]), CONTEXT);
+    applySubstep(data, [t]);
+    expect(data.ctrl[0]).toBeCloseTo(0.3 + 0.1, 6);
+    data.qpos[0] = 0.35;
+    applySubstep(data, [t], 1, 2);
+    expect(data.ctrl[0]).toBeCloseTo(0.35 + 0.1, 6);
+  });
+
+  it('clips the delta, not the target', () => {
+    const data = fakeData(1, [1.0], [0]);
+    const t = oneJoint({
+      controlType: 'joint_position_relative',
+      clipLo: Float32Array.from([-0.1]),
+      clipHi: Float32Array.from([0.1]),
+    });
+    applyAction(data, [t], Float32Array.from([5]));
+    expect(data.ctrl[0]).toBeCloseTo(1.1, 6);
+  });
+});
+
+describe('applyAction — hold_s', () => {
+  it('targets the measured position while the hold lasts, then the processed action', () => {
+    const data = fakeData(1, [0.7], [0]);
+    const t = oneJoint({
+      holdS: 1.0,
+      defaultJointPos: Float32Array.from([0.2]),
+      encoderBias: Float32Array.from([0.01]),
+    });
+    applyAction(data, [t], Float32Array.from([0.5]), { episodeLength: 49, stepDt: 0.02 });
+    expect(t.holding).toBe(true);
+    expect(data.ctrl[0]).toBeCloseTo(0.7, 6);
+    applyAction(data, [t], Float32Array.from([0.5]), { episodeLength: 50, stepDt: 0.02 });
+    expect(t.holding).toBe(false);
+    expect(data.ctrl[0]).toBeCloseTo(0.2 + 0.5 - 0.01, 6);
+  });
+
+  it('ends on the step mjlab ends it, in float32', () => {
+    // 50 * 0.02 is 1.0 in float32, so a 1 s hold at 50 Hz is 50 steps, not 51.
+    expect(inHold(1.0, { episodeLength: 49, stepDt: 0.02 })).toBe(true);
+    expect(inHold(1.0, { episodeLength: 50, stepDt: 0.02 })).toBe(false);
+    expect(inHold(null, { episodeLength: 0, stepDt: 0.02 })).toBe(false);
+  });
+
+  it('feeds the PD the measured position, so a motor holds without pushing', () => {
+    const data = fakeData(1, [0.4], [0.3]);
+    const t = oneJoint({
+      holdS: 0.5,
+      positionActuator: [false],
+      kp: Float32Array.from([20]),
+      kd: Float32Array.from([1]),
+    });
+    applyAction(data, [t], Float32Array.from([1]));
+    // Only damping remains: kp * (q - q) + kd * (0 - qvel).
+    expect(data.ctrl[0]).toBeCloseTo(-0.3, 6);
+  });
+});
+
+describe('applyAction — interpolate', () => {
+  it('ramps from the previous processed action, landing on the new one at the last substep', () => {
+    const data = fakeData(1);
+    const t = oneJoint({ rampFrom: new Float32Array(1), encoderBias: Float32Array.from([0.01]) });
+    processAction(t, Float32Array.from([0.3]), CONTEXT);
+    processAction(t, Float32Array.from([0.4]), CONTEXT);
+    expect(t.rampFrom?.[0]).toBeCloseTo(0.3, 6);
+    const seen: number[] = [];
+    for (let k = 0; k < 4; k++) {
+      applySubstep(data, [t], k, 4);
+      seen.push(data.ctrl[0] + 0.01);
+    }
+    // inhand's alpha = (k + 1) / decimation.
+    expect(seen.map((v) => Number(v.toFixed(4)))).toEqual([0.325, 0.35, 0.375, 0.4]);
+  });
+
+  it('applies the processed action at once without a ramp', () => {
+    const data = fakeData(1);
+    const t = oneJoint();
+    processAction(t, Float32Array.from([0.3]), CONTEXT);
+    processAction(t, Float32Array.from([0.4]), CONTEXT);
+    applySubstep(data, [t], 0, 4);
+    expect(data.ctrl[0]).toBeCloseTo(0.4, 6);
+  });
+});
+
+/** A stand-in for `SeededRng`: `next()` cycles through `values`. */
+function scriptedRng(values: number[]) {
+  let i = 0;
+  return { next: () => values[i++ % values.length] };
+}
+
+function delaySpec(over: Partial<DelaySpec> = {}): DelaySpec {
+  return {
+    indices: [0],
+    minLag: 2,
+    maxLag: 2,
+    holdProb: 0,
+    updatePeriod: 0,
+    perEnvPhase: false,
+    ...over,
+  };
+}
+
+describe('CommandDelay', () => {
+  it('serves the target `lag` steps old, never older than the reset', () => {
+    // mjlab's DelayBuffer: frame[t - min(lag, t)], so the first frame stands in early on.
+    const delay = new CommandDelay(delaySpec(), scriptedRng([0.5]));
+    const out: number[] = [];
+    for (let t = 0; t < 5; t++) {
+      const values = Float32Array.from([t]);
+      delay.apply(values);
+      out.push(values[0]);
+    }
+    expect(out).toEqual([0, 0, 0, 1, 2]);
+  });
+
+  it('starts over at a reset', () => {
+    const delay = new CommandDelay(delaySpec(), scriptedRng([0.5]));
+    for (let t = 0; t < 4; t++) delay.apply(Float32Array.from([t]));
+    delay.reset();
+    const values = Float32Array.from([10]);
+    delay.apply(values);
+    expect(values[0]).toBe(10);
+  });
+
+  it('draws the lag from [min, max] each step, and keeps it with hold_prob', () => {
+    // randint(0, 3) at next() = 0.99 is 3; with hold_prob 1 the draw is ignored.
+    const held = new CommandDelay(delaySpec({ minLag: 0, maxLag: 3, holdProb: 1 }), scriptedRng([0.99]));
+    const out: number[] = [];
+    for (let t = 0; t < 5; t++) {
+      const values = Float32Array.from([t]);
+      held.apply(values);
+      out.push(values[0]);
+    }
+    // The lag starts at 0 and is never redrawn.
+    expect(out).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  it('touches only the joints it covers', () => {
+    const delay = new CommandDelay(delaySpec({ indices: [1], minLag: 1, maxLag: 1 }), scriptedRng([0]));
+    const first = Float32Array.from([5, 6]);
+    delay.apply(first);
+    const second = Float32Array.from([7, 8]);
+    delay.apply(second);
+    expect(Array.from(second)).toEqual([7, 6]);
+  });
+
+  it('delays the target before the PD, which reads live state', () => {
+    const data = fakeData(1, [0], [0]);
+    const t = oneJoint({
+      positionActuator: [false],
+      kp: Float32Array.from([10]),
+      delays: [new CommandDelay(delaySpec({ minLag: 1, maxLag: 1 }), scriptedRng([0]))],
+    });
+    processAction(t, Float32Array.from([0.1]), CONTEXT);
+    applySubstep(data, [t], 0, 2);
+    processAction(t, Float32Array.from([0.5]), CONTEXT);
+    applySubstep(data, [t], 0, 2);
+    // The second step still acts on 0.1.
+    expect(data.ctrl[0]).toBeCloseTo(10 * 0.1, 6);
+  });
+});
+
+describe('resolveDelays', () => {
+  it('maps joints to target positions and drops what the term does not drive', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const specs = resolveDelays(
+      [
+        { joints: ['robot/b', 'robot/x'], min_lag: 1, max_lag: 3, hold_prob: 0.2 },
+        { joints: ['robot/y'], min_lag: 2 },
+      ],
+      ['robot/a', 'robot/b'],
+      'joint_pos',
+    );
+    expect(specs).toEqual([
+      { indices: [1], minLag: 1, maxLag: 3, holdProb: 0.2, updatePeriod: 0, perEnvPhase: true },
+    ]);
+    expect(warn).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
+  });
+});
+
+describe('isTargetActuator', () => {
+  const bias = { affine: 1, dcMotor: 3 };
+  /** One actuator per entry: its bias type and its `gainprm[8]`. */
+  function model(entries: Array<[number, number]>) {
+    const gainprm = new Float64Array(entries.length * 10);
+    entries.forEach(([, mode], i) => (gainprm[i * 10 + 8] = mode));
+    return {
+      actuator_biastype: Int32Array.from(entries.map(([b]) => b)),
+      actuator_gainprm: gainprm,
+    } as never;
+  }
+
+  it('takes a position or velocity actuator, and a dcmotor in position or velocity mode', () => {
+    const m = model([[1, 0], [0, 0], [3, 1], [3, 2], [3, 0]]);
+    expect([0, 1, 2, 3, 4].map((adr) => isTargetActuator(m, adr, bias))).toEqual([
+      true,
+      false,
+      true,
+      true,
+      false,
+    ]);
+    expect(isTargetActuator(m, -1, bias)).toBe(false);
   });
 });

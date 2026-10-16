@@ -49,12 +49,21 @@ import {
 } from './viewer_config';
 import {
   clampActions,
+  isTargetActuator,
   readClipActions,
   resolveActionClip,
   stepPhysics,
-  type ResolvedActionTerm,
+  type ControlType,
   type MuscleMode,
+  type ResolvedActionTerm,
 } from '../action/applyAction';
+import { ActionManager, type ManagedActionTerm } from '../action/ActionManager';
+import { CommandDelay, resolveDelays } from '../action/commandDelay';
+import {
+  OnnxActionProcess,
+  type OnnxActionGraphConfig,
+  type OnnxActionProcessConfig,
+} from '../action/OnnxActionProcess';
 import { applyResetTerms } from './resetChain';
 import { yieldToBrowser } from './yieldToBrowser';
 import { TerminationManager } from '../termination/TerminationManager';
@@ -62,7 +71,7 @@ import * as ort from 'onnxruntime-web/wasm';
 import { PolicyRunner } from '../policy/PolicyRunner';
 import { OnnxModule } from '../policy/OnnxModule';
 import { PolicyStateBuilder } from '../policy/PolicyStateBuilder';
-import type { PolicyConfig } from '../policy/types';
+import type { ActionConfigEntry, PolicyConfig } from '../policy/types';
 import { TrackingPolicy } from '../policy/modules/TrackingPolicy';
 import { LocomotionPolicy } from '../policy/modules/LocomotionPolicy';
 import { CommandManager, type CommandTermContext, type CommandsConfig } from '../command';
@@ -93,6 +102,16 @@ function expandSceneBounds(box: THREE.Box3, object: THREE.Object3D): void {
 const EMPTY_ACTIONS = new Float32Array(0);
 /** Only the `direct` muscle mode reads an actuator range; the rest carry none. */
 const EMPTY_CTRL_RANGE = new Float32Array(0);
+/** What `applyAction` implements; a term of any other type is skipped with a warning. */
+const SUPPORTED_CONTROL_TYPES: ReadonlySet<string> = new Set<ControlType>([
+  'joint_position',
+  'joint_position_reference',
+  'joint_position_command',
+  'joint_position_relative',
+  'joint_velocity',
+  'torque',
+  'muscle_activation',
+]);
 
 /** A muscle term's mode, falling back to the pre-`mode` `normalize` flag. */
 function readMuscleMode(term: Record<string, unknown>): MuscleMode {
@@ -274,11 +293,13 @@ export class mjswanRuntime {
   private policyStateBuilder: PolicyStateBuilder | null;
   private initialQpos: number[] | null;
   private initialQvel: number[] | null;
-  private policyControl: ResolvedActionTerm[] | null;
+  private actionManager: ActionManager | null;
   private onnxModule: OnnxModule | null;
   private onnxInputDict: Record<string, ort.Tensor> | null;
   private onnxInferencing: boolean;
   private onnxTimeStep: number;
+  /** The last inference error logged: one that repeats every frame is logged once. */
+  private lastInferenceError: string | null = null;
   /** Control steps since the last reset: mjlab's `episode_length_buf`, which graphs read. */
   private episodeLength = 0;
   private terminationManager: TerminationManager | null;
@@ -378,6 +399,7 @@ export class mjswanRuntime {
         commandManager: this.commandManager,
         episodeLength: this.episodeLength,
         lastActions,
+        actionTermField: (term, field) => this.actionManager?.getStateField(term, field) ?? null,
         modelDefaults: this.modelFieldDefaults,
       }),
       {
@@ -496,7 +518,7 @@ export class mjswanRuntime {
     this.policyStateBuilder = null;
     this.initialQpos = null;
     this.initialQvel = null;
-    this.policyControl = null;
+    this.actionManager = null;
     this.onnxModule = null;
     this.onnxInputDict = null;
     this.onnxInferencing = false;
@@ -1193,6 +1215,7 @@ export class mjswanRuntime {
           const state = this.policyStateBuilder.build();
           const obs = await this.policyRunner.collectObservationsByKey(state);
           await this.runOnnxInference(obs);
+          await this.processActions();
         }
         this.executeSimulationSteps();
         this.episodeLength += 1;
@@ -1254,11 +1277,12 @@ export class mjswanRuntime {
     this.policyPlugins = policy?.plugins ?? {};
     this.policyRunner = null;
     this.policyStateBuilder = null;
-    this.policyControl = null;
+    this.actionManager = null;
     this.onnxModule = null;
     this.onnxInputDict = null;
     this.onnxInferencing = false;
     this.onnxTimeStep = 0;
+    this.lastInferenceError = null;
     this.terminationManager = null;
     // The outgoing MDP's events go with it; `terrainData` stays, it is the scene's.
     this.eventManager = null;
@@ -1421,7 +1445,10 @@ export class mjswanRuntime {
 
       const state = this.policyStateBuilder.build();
       this.policyRunner.reset(state);
-      this.policyControl = this.buildPolicyControl(config, runner, this.policyStateBuilder);
+      const actions = this.buildActionManager(config, runner, this.policyStateBuilder);
+      // mjlab resets every env before its first step, the action terms included.
+      await actions?.reset();
+      this.actionManager = actions;
 
       // Initialize termination manager if termination config is present
       if (config.terminations && Object.keys(config.terminations).length > 0) {
@@ -1448,7 +1475,7 @@ export class mjswanRuntime {
       console.log('[PolicyRunner] config loaded', {
         obsSize: runner.getObservationSize(),
         obsLayout: runner.getObservationLayout(),
-        pdEnabled: this.policyControl !== null,
+        pdEnabled: this.actionManager !== null,
       });
     } catch (error) {
       // Everything above is load-bearing, so rethrow rather than report success, and
@@ -1456,7 +1483,7 @@ export class mjswanRuntime {
       await kept?.module?.dispose();
       this.policyRunner = null;
       this.policyStateBuilder = null;
-      this.policyControl = null;
+      this.actionManager = null;
       this.onnxModule = null;
       this.onnxInputDict = null;
       this.terminationManager = null;
@@ -1467,13 +1494,13 @@ export class mjswanRuntime {
     }
   }
 
-  private buildPolicyControl(
+  private buildActionManager(
     config: PolicyConfig,
     runner: PolicyRunner,
     stateBuilder: PolicyStateBuilder
-  ): ResolvedActionTerm[] | null {
+  ): ActionManager | null {
     const jointNames = runner.getPolicyJointNames();
-    const affineBiasValue = this.mujoco.mjtBias?.mjBIAS_AFFINE?.value ?? 1;
+    const targetActuator = this.targetActuatorTest();
 
     const buildEntry = (
       termKey: string,
@@ -1485,18 +1512,14 @@ export class mjswanRuntime {
         actionIndices: number[];
         jointNames?: string[];
       },
-      configScale: number[] | number | Record<string, number> | undefined,
-      configOffset: number[] | number | Record<string, number> | undefined,
-      configStiffness: number[] | number | Record<string, number> | undefined,
-      configDamping: number[] | number | Record<string, number> | undefined,
+      actionTerm: ActionConfigEntry,
       useDefaultOffset: boolean,
-      configClip?: Record<string, readonly number[]>
     ): ResolvedActionTerm => {
       const n = mapping.qposAdr.length;
       const subsetJointNames = mapping.jointNames ?? mapping.actionIndices.map((i) => jointNames[i]);
 
-      const actionScale = this.normalizeControlArray(configScale, n, 1.0, subsetJointNames);
-      const actionOffset = this.normalizeControlArray(configOffset, n, 0.0, subsetJointNames);
+      const actionScale = this.normalizeControlArray(actionTerm.scale, n, 1.0, subsetJointNames);
+      const actionOffset = this.normalizeControlArray(actionTerm.offset, n, 0.0, subsetJointNames);
 
       // Default pose and encoder bias are indexed by policy joint, not command joint.
       const defaultJointPos = new Float32Array(n);
@@ -1514,18 +1537,12 @@ export class mjswanRuntime {
         }
       }
 
-      const kp = this.normalizeControlArray(configStiffness, n, 0.0, subsetJointNames);
-      const kd = this.normalizeControlArray(configDamping, n, 0.0, subsetJointNames);
+      const kp = this.normalizeControlArray(actionTerm.stiffness, n, 0.0, subsetJointNames);
+      const kd = this.normalizeControlArray(actionTerm.damping, n, 0.0, subsetJointNames);
       // Pattern-keyed, unlike the exact-name siblings above.
-      const { clipLo, clipHi } = resolveActionClip(configClip, subsetJointNames, n);
+      const { clipLo, clipHi } = resolveActionClip(actionTerm.clip, subsetJointNames, n);
 
-      // Position and velocity actuators (biastype=affine) take a target MuJoCo tracks;
-      // motors (biastype=none) take a torque computed here.
-      const positionActuator: boolean[] = mapping.ctrlAdr.map((adr) => {
-        if (adr < 0 || !this.mjModel) return false;
-        return this.mjModel.actuator_biastype[adr] === affineBiasValue;
-      });
-
+      const positionActuator = mapping.ctrlAdr.map(targetActuator);
       const isPosition = positionActuator.some(Boolean);
       const isMotor = positionActuator.some((v) => !v);
       if (isPosition && isMotor) {
@@ -1562,6 +1579,14 @@ export class mjswanRuntime {
         muscleCtrlHi: EMPTY_CTRL_RANGE,
         clipLo,
         clipHi,
+        processed: new Float32Array(n),
+        active: false,
+        rampFrom: actionTerm.interpolate === true ? new Float32Array(n) : null,
+        holdS: typeof actionTerm.hold_s === 'number' ? actionTerm.hold_s : null,
+        holding: false,
+        delays: resolveDelays(actionTerm.delay, subsetJointNames, termKey).map(
+          (spec) => new CommandDelay(spec, this.termRng),
+        ),
       };
     };
 
@@ -1582,31 +1607,23 @@ export class mjswanRuntime {
         ...baseMapping,
         actionIndices: Array.from({ length: baseMapping.qposAdr.length }, (_, i) => i),
       };
-      return [buildEntry(
-        'legacy',
-        controlType,
-        mapping,
-        config.action_scale,
-        undefined,
-        config.stiffness,
-        config.damping,
-        true
-      )];
+      const legacy: ActionConfigEntry = {
+        type: controlType,
+        scale: config.action_scale,
+        stiffness: config.stiffness,
+        damping: config.damping,
+      };
+      return new ActionManager([
+        { name: 'legacy', term: buildEntry('legacy', controlType, mapping, legacy, true) },
+      ]);
     }
 
     // ── Multi-term path: iterate every entry in the `actions` block ─────────
-    const results: Array<ReturnType<typeof buildEntry>> = [];
+    const results: ManagedActionTerm[] = [];
 
     for (const [termKey, actionTerm] of Object.entries(actionsConfig)) {
       const controlType = actionTerm.type ?? 'joint_position';
-      if (
-        controlType !== 'joint_position' &&
-        controlType !== 'joint_position_reference' &&
-        controlType !== 'joint_position_command' &&
-        controlType !== 'joint_velocity' &&
-        controlType !== 'torque' &&
-        controlType !== 'muscle_activation'
-      ) {
+      if (!SUPPORTED_CONTROL_TYPES.has(controlType)) {
         console.warn(`[PolicyRunner] Action term "${termKey}": unsupported type "${controlType}", skipping.`);
         continue;
       }
@@ -1620,16 +1637,8 @@ export class mjswanRuntime {
           continue;
         }
         const n = muscleMapping.ctrlAdr.length;
-        const actionScale = this.normalizeControlArray(
-          actionTerm.scale as number[] | number | Record<string, number> | undefined,
-          n,
-          1.0
-        );
-        const actionOffset = this.normalizeControlArray(
-          actionTerm.offset as number[] | number | Record<string, number> | undefined,
-          n,
-          0.0
-        );
+        const actionScale = this.normalizeControlArray(actionTerm.scale, n, 1.0);
+        const actionOffset = this.normalizeControlArray(actionTerm.offset, n, 0.0);
         const muscleMode = readMuscleMode(actionTerm as Record<string, unknown>);
         // `direct` writes the raw action, so it needs each actuator's own range.
         const ctrlRange = this.mjModel?.actuator_ctrlrange;
@@ -1644,26 +1653,35 @@ export class mjswanRuntime {
           `[PolicyRunner] Action term "${termKey}" (muscle_activation): ${n} actuator(s), mode=${muscleMode}`
         );
         results.push({
-          controlType,
-          ctrlAdr: muscleMapping.ctrlAdr,
-          qposAdr: [],
-          qvelAdr: [],
-          actionIndices: muscleMapping.actionIndices,
-          actionScale,
-          actionOffset,
-          defaultJointPos: new Float32Array(n),
-          encoderBias: new Float32Array(n),
-          positionActuator: new Array(n).fill(false),
-          kp: new Float32Array(n),
-          kd: new Float32Array(n),
-          muscleMode,
-          muscleCtrlLo: ctrlLoRange,
-          muscleCtrlHi: ctrlHiRange,
-          ...resolveActionClip(
-            actionTerm.clip as Record<string, readonly number[]> | undefined,
-            muscleMapping.ctrlAdr.map((_, i) => patterns[i] ?? ''),
-            n
-          ),
+          name: termKey,
+          term: {
+            controlType,
+            ctrlAdr: muscleMapping.ctrlAdr,
+            qposAdr: [],
+            qvelAdr: [],
+            actionIndices: muscleMapping.actionIndices,
+            actionScale,
+            actionOffset,
+            defaultJointPos: new Float32Array(n),
+            encoderBias: new Float32Array(n),
+            positionActuator: new Array(n).fill(false),
+            kp: new Float32Array(n),
+            kd: new Float32Array(n),
+            muscleMode,
+            muscleCtrlLo: ctrlLoRange,
+            muscleCtrlHi: ctrlHiRange,
+            ...resolveActionClip(
+              actionTerm.clip,
+              muscleMapping.ctrlAdr.map((_, i) => patterns[i] ?? ''),
+              n
+            ),
+            processed: new Float32Array(n),
+            active: false,
+            rampFrom: null,
+            holdS: null,
+            holding: false,
+            delays: [],
+          },
         });
         continue;
       }
@@ -1674,7 +1692,7 @@ export class mjswanRuntime {
       let mapping: Parameters<typeof buildEntry>[2] | null;
 
       if (controlType === 'joint_position_command') {
-        mapping = stateBuilder.getModelControlMappingFor(patterns);
+        mapping = stateBuilder.getModelControlMappingFor(patterns, actionTerm.preserve_order === true);
         const commandName = String(actionTerm.command_name);
         const width = this.commandManager.getCommand(commandName).length;
         if (mapping && width !== mapping.qposAdr.length) {
@@ -1702,35 +1720,57 @@ export class mjswanRuntime {
         continue;
       }
 
-      // `joint_velocity`'s default offset is a velocity, already folded into `offset`.
+      // A velocity term's default offset is a velocity, already folded into `offset`; a
+      // reference term holds the default pose only until its clip loads.
       const useDefaultOffset = controlType === 'joint_velocity'
         ? false
-        : actionTerm.use_default_offset !== undefined
-          ? actionTerm.use_default_offset
-          : controlType === 'joint_position';
+        : controlType === 'joint_position_reference'
+          ? true
+          : actionTerm.use_default_offset !== undefined
+            ? actionTerm.use_default_offset
+            : controlType === 'joint_position';
 
-      const entry = buildEntry(
-        termKey,
-        controlType,
-        mapping,
-        actionTerm.scale as number[] | number | Record<string, number> | undefined,
-        actionTerm.offset as number[] | number | Record<string, number> | undefined,
-        actionTerm.stiffness as number[] | number | Record<string, number> | undefined,
-        actionTerm.damping as number[] | number | Record<string, number> | undefined,
-        useDefaultOffset,
-        actionTerm.clip as Record<string, readonly number[]> | undefined
-      );
+      const entry = buildEntry(termKey, controlType, mapping, actionTerm, useDefaultOffset);
       if (controlType === 'joint_position_reference' || controlType === 'joint_position_command') {
         entry.commandName = String(actionTerm.command_name ?? 'motion');
       }
-      results.push(entry);
+      const traced = actionTerm.process ? this.buildTracedProcess(termKey, actionTerm) : null;
+      if (actionTerm.process && !traced) continue;
+      results.push({ name: termKey, term: entry, traced });
     }
 
     if (results.length === 0) {
       console.warn('[PolicyRunner] No valid action terms found in config.actions.');
       return null;
     }
-    return results;
+    return new ActionManager(results);
+  }
+
+  /** `isTargetActuator` against the loaded model, with this MuJoCo build's bias values. */
+  private targetActuatorTest(): (adr: number) => boolean {
+    const bias = {
+      affine: this.mujoco.mjtBias?.mjBIAS_AFFINE?.value ?? 1,
+      dcMotor: this.mujoco.mjtBias?.mjBIAS_DCMOTOR?.value ?? 3,
+    };
+    return (adr) => (this.mjModel ? isTargetActuator(this.mjModel, adr, bias) : false);
+  }
+
+  /** A traced term's process (and reset) graph, or `null` with an error when one is missing. */
+  private buildTracedProcess(termKey: string, actionTerm: ActionConfigEntry): OnnxActionProcess | null {
+    const process = actionTerm.process as OnnxActionProcessConfig;
+    const reset = (actionTerm.reset as OnnxActionGraphConfig | undefined) ?? null;
+    const processSession = this.policyGraphs.get(process.onnx);
+    const resetSession = reset ? this.policyGraphs.get(reset.onnx) : null;
+    if (!processSession || (reset && !resetSession)) {
+      console.error(`[PolicyRunner] Action term "${termKey}": its traced graph did not load, skipping.`);
+      return null;
+    }
+    return new OnnxActionProcess(termKey, process, reset, {
+      process: processSession,
+      reset: resetSession,
+      rng: this.termRng,
+      readSlot: this.readOnnxSlot,
+    });
   }
 
   private normalizeControlArray(
@@ -1800,6 +1840,8 @@ export class mjswanRuntime {
     // With the sim state, as mjlab does: a force from before the reset would otherwise
     // keep an `illegal_contact` term firing.
     this.contactSensors.reset();
+    // mjlab's `scene.reset` resets the actuators' command delays with the entity.
+    this.actionManager?.resetActuators();
     // Reset with the sim state, not the terms: it reads nothing from the scene.
     if (this.onnxModule) {
       this.onnxInputDict = this.onnxModule.initInput();
@@ -1813,6 +1855,7 @@ export class mjswanRuntime {
     await applyResetTerms({
       events: this.eventManager,
       policy: this.policyRunner,
+      actions: this.actionManager,
       commands: this.commandManager,
       context: this.eventContext(),
       // A thunk so it reads state after the events land.
@@ -1834,13 +1877,11 @@ export class mjswanRuntime {
     this.interaction.preStep();
     if (this.modelHasHands) this.handMocap.update(this.mjModel, this.mjData);
 
-    this.refreshActionCommands();
     stepPhysics(
       this.mujoco,
       this.mjModel,
       this.mjData,
-      this.policyControl ?? [],
-      this.policyRunner?.getLastActions() ?? EMPTY_ACTIONS,
+      this.actionManager?.terms ?? [],
       this.decimation,
       undefined,
       // Per substep, not per control step, as mjlab rolls it from
@@ -1849,9 +1890,28 @@ export class mjswanRuntime {
     );
   }
 
-  /** Hands each command-reading term this step's value, so `applyAction` needs no command manager. */
-  private refreshActionCommands(): void {
-    for (const term of this.policyControl ?? []) {
+  /**
+   * mjlab's `action_manager.process_action`: every term's targets for this control step,
+   * from the action just stored, before the substeps apply them.
+   */
+  private async processActions(): Promise<void> {
+    // Held across the await: `setPolicy` can swap the manager mid-step.
+    const actions = this.actionManager;
+    if (!actions) return;
+    this.refreshActionCommands(actions);
+    try {
+      await actions.process(this.policyRunner?.getLastActions() ?? EMPTY_ACTIONS, {
+        episodeLength: this.episodeLength,
+        stepDt: this.timestep * this.decimation,
+      });
+    } catch (error) {
+      console.error('[ActionManager] processing the action failed:', error);
+    }
+  }
+
+  /** Hands each command-reading term this step's value, so `processAction` needs no command manager. */
+  private refreshActionCommands(actions: ActionManager): void {
+    for (const term of actions.terms) {
       if (term.commandName === undefined) continue;
       const command = this.commandManager.getTerm(term.commandName);
       if (term.controlType === 'joint_position_command') {
@@ -1919,7 +1979,7 @@ export class mjswanRuntime {
       const raw = actionTensor.data as Float32Array | number[];
       const action = ArrayBuffer.isView(raw) ? new Float32Array(raw) : Float32Array.from(raw);
       const expectedActionCount = this.policyRunner?.getNumActions() ?? 0;
-      if (this.policyControl && action.length !== expectedActionCount) {
+      if (this.actionManager && action.length !== expectedActionCount) {
         console.warn('[PolicyRunner] Action size mismatch:', {
           expected: expectedActionCount,
           got: action.length,
@@ -1932,7 +1992,12 @@ export class mjswanRuntime {
       clampActions(action, this.clipActions);
       this.policyRunner.setLastActions(action);
     } catch (error) {
-      console.warn('[PolicyRunner] ONNX inference failed:', error);
+      // An error, not a warning: until it clears, the policy acts no more.
+      const message = String(error);
+      if (message !== this.lastInferenceError) {
+        this.lastInferenceError = message;
+        console.error('[PolicyRunner] ONNX inference failed; the last action holds:', error);
+      }
     } finally {
       this.onnxInferencing = false;
     }

@@ -24,6 +24,9 @@ export type OnnxSlotTables = {
 const DEFAULT_IN_KEYS: readonly string[] = DEFAULT_SLOTS.in_keys;
 const DEFAULT_OUT_KEYS: readonly string[] = DEFAULT_SLOTS.out_keys;
 
+/** The recurrent carry's shape when the network leaves it dynamic: the exporters' usual one. */
+const DEFAULT_CARRY_SHAPE: readonly number[] = [1, 128];
+
 export class OnnxModule {
   private bytes: ArrayBuffer;
   private session: ort.InferenceSession | null;
@@ -57,13 +60,33 @@ export class OnnxModule {
   initInput(): Record<string, ort.Tensor> {
     const inputs: Record<string, ort.Tensor> = {};
     if (this.isRecurrent) {
+      const shape = this.carryShape();
       inputs.is_init = new ort.Tensor('bool', [true], [1]);
-      inputs.adapt_hx = new ort.Tensor('float32', new Float32Array(128), [1, 128]);
+      inputs.adapt_hx = new ort.Tensor(
+        'float32',
+        new Float32Array(shape.reduce((a, b) => a * b, 1)),
+        shape,
+      );
     }
     if (this.inKeys.includes('time_step')) {
       inputs.time_step = new ort.Tensor('float32', new Float32Array([0.0]), [1, 1]);
     }
     return inputs;
+  }
+
+  /**
+   * `adapt_hx`'s shape as the network declares it, a dynamic axis read as 1, so a carry
+   * wider than 128 starts at its own width rather than failing every run.
+   */
+  private carryShape(): number[] {
+    const index = this.inKeys.indexOf('adapt_hx');
+    const meta = index >= 0 ? this.session?.inputMetadata?.[index] : undefined;
+    if (!meta?.isTensor || meta.shape.length === 0) return [...DEFAULT_CARRY_SHAPE];
+    const dims = meta.shape.map((d) => (typeof d === 'number' && d > 0 ? d : 1));
+    // A dynamic width is no width at all: keep the usual one rather than a carry of 1.
+    const width = meta.shape[meta.shape.length - 1];
+    if (typeof width !== 'number' || width <= 0) dims[dims.length - 1] = DEFAULT_CARRY_SHAPE[1];
+    return dims;
   }
 
   async runInference(

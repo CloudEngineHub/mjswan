@@ -178,3 +178,19 @@ describe('getModelControlMappingFor', () => {
     expect(builder.getModelControlMappingFor(['elbow'])).toBeNull();
   });
 });
+
+describe('getModelControlMappingFor with preserveOrder', () => {
+  it('orders by pattern, as mjlab does for `preserve_order=True`', () => {
+    const { mujoco, mjModel, mjData } = makeModel([
+      { joint: 'hip', actuator: 'hip_act' },
+      { joint: 'shoulder', actuator: 'shoulder_act' },
+      { joint: 'elbow', actuator: 'elbow_act' },
+    ]);
+    const builder = new PolicyStateBuilder(mujoco, mjModel, mjData, ['hip']);
+
+    expect(builder.getModelControlMappingFor(['elbow', 'shoulder|hip'], true)).toMatchObject({
+      jointNames: ['elbow', 'hip', 'shoulder'],
+      ctrlAdr: [2, 0, 1],
+    });
+  });
+});

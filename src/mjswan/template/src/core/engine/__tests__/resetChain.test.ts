@@ -50,6 +50,21 @@ describe('applyResetTerms', () => {
     expect(order).toEqual(['event', 'policy', 'command']);
   });
 
+  it('resets the action terms between the policy and the commands, and waits for them', async () => {
+    const order: string[] = [];
+    await applyResetTerms(
+      chainRecording(order, {
+        actions: {
+          reset: async () => {
+            await settle();
+            order.push('action');
+          },
+        },
+      }),
+    );
+    expect(order).toEqual(['event', 'policy', 'action', 'command']);
+  });
+
   it('resets the command terms only after the reset events have landed', async () => {
     const order: string[] = [];
     await applyResetTerms(chainRecording(order, { policy: null }));

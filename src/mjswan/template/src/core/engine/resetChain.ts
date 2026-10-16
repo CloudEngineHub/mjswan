@@ -22,9 +22,14 @@ export interface ResetEventSource {
   onReset(context: EventContext): Promise<void>;
 }
 
-/** `PolicyRunner.reset`: mjlab's observation + action manager resets in one call. */
+/** `PolicyRunner.reset`: mjlab's observation reset, and the action manager's own state. */
 export interface ResetPolicySink {
   reset(state?: PolicyState): void;
+}
+
+/** The action terms' resets, which a traced term runs as a graph (`ActionManager`). */
+export interface ResetActionSink {
+  reset(): Promise<void>;
 }
 
 /** The command terms, reset last; awaited so a resample's writes precede the forward. */
@@ -35,6 +40,7 @@ export interface ResetCommandSink {
 export interface ResetChain {
   events?: ResetEventSource | null;
   policy?: ResetPolicySink | null;
+  actions?: ResetActionSink | null;
   commands: ResetCommandSink;
   context: EventContext;
   /** A thunk, since it has to be read after the reset events' writes land. */
@@ -42,11 +48,13 @@ export interface ResetChain {
 }
 
 /**
- * Fire `mode="reset"` events, wait for them, then reset the policy and the command terms.
- * Absent managers are skipped — `loadPolicyConfig` runs this before a `PolicyRunner` exists.
+ * Fire `mode="reset"` events, wait for them, then reset the policy, the action terms and
+ * the command terms. Absent managers are skipped: `loadPolicyConfig` runs this before a
+ * `PolicyRunner` exists.
  */
 export async function applyResetTerms(chain: ResetChain): Promise<void> {
   await chain.events?.onReset(chain.context);
   chain.policy?.reset(chain.buildState?.());
+  await chain.actions?.reset();
   await chain.commands.resetTerms();
 }

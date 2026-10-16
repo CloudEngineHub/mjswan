@@ -1,26 +1,35 @@
 /**
- * The one manager with no ONNX: a closed built-in set on the hottest loop, mirroring
- * mjlab's own `ActionTermCfg` kinds rather than tracing anything.
+ * Action terms in two halves, as mjlab splits them (ADR 0009):
  *
- * A free function over `mjData`, not a method on the DOM-bound runtime, so the
- * rollout-parity harness can drive it in Node.
+ * - `processAction`, once per control step: the policy's action, or a command's value,
+ *   into the term's `processed` targets. A traced term's graph does this instead
+ *   (`OnnxActionProcess`).
+ * - `applyAction`, once per physics substep: `processed` into `ctrl`, through the native
+ *   per-substep options (a ramp, a hold, a relative target, a command delay) and the PD a
+ *   motor needs. Synchronous, with no ONNX: it runs on the hottest loop.
+ *
+ * Free functions over `mjData`, not methods on the DOM-bound runtime, so the
+ * rollout-parity harness can drive them in Node.
  */
+
+import type { CommandDelay } from './commandDelay';
 
 type MjModel = import('mujoco').MjModel;
 type MjData = import('mujoco').MjData;
 
-/** mjlab's `ActionTermCfg` kinds this runtime implements. */
+/** mjlab's `ActionTermCfg` kinds this runtime implements, named by what `applyAction` does. */
 export type ControlType =
   | 'joint_position'
   | 'joint_position_reference'
   | 'joint_position_command'
+  | 'joint_position_relative'
   | 'joint_velocity'
   | 'torque'
   | 'muscle_activation';
 
 /**
  * How a muscle term maps its raw action, mirroring myosuite's `action_mode`.
- * `direct` clips to the actuator's own range instead of [0, 1] — a muscle model with
+ * `direct` clips to the actuator's own range instead of [0, 1]: a muscle model with
  * `ctrlrange="-1 1"` uses the negative half, and clamping it away degrades tracking.
  */
 export type MuscleMode = 'sigmoid' | 'direct' | 'excitation';
@@ -40,7 +49,7 @@ export interface ResolvedActionTerm {
   /**
    * `joint_position_reference` only: this step's reference pose in policy-joint order,
    * refreshed by the runtime. `null` before a clip loads, where the default pose
-   * stands in — a still robot rather than one folded into zeros.
+   * stands in: a still robot rather than one folded into zeros.
    */
   referenceJointPos?: Float32Array | null;
   /** Command term's raw input for this step; `null` skips the term. */
@@ -49,8 +58,9 @@ export interface ResolvedActionTerm {
   commandName?: string;
   encoderBias: Float32Array;
   /**
-   * Per-actuator: true = `biastype=affine` (position or velocity), so `ctrl` is a target
-   * MuJoCo tracks; false = motor, so `ctrl` is a torque computed here.
+   * Per-actuator: true when `ctrl` is a target MuJoCo tracks (a position or velocity
+   * actuator, or a `<dcmotor>` in position or velocity mode); false for a motor, whose
+   * `ctrl` is a torque computed here.
    */
   positionActuator: boolean[];
   kp: Float32Array;
@@ -63,55 +73,98 @@ export interface ResolvedActionTerm {
   /**
    * Per-target bounds on the *processed* action (`raw * scale + offset`), `±Infinity`
    * where unbounded. mjlab clamps there, before `joint_position` subtracts the encoder
-   * bias — clamping the other side would move every bound by the bias.
+   * bias: clamping the other side would move every bound by the bias.
    */
   clipLo: Float32Array;
   clipHi: Float32Array;
+  /** This control step's processed action, one per target: `process` writes it, `apply` reads it. */
+  processed: Float32Array;
+  /** False when `process` had nothing to write (a command with no value): `apply` skips the term. */
+  active: boolean;
+  /**
+   * Set when the target ramps across the substeps (inhand's `interpolate_decimation`):
+   * the processed action from before this control step, which the ramp starts from.
+   */
+  rampFrom: Float32Array | null;
+  /**
+   * Seconds from an episode's start during which every target is the joint's measured
+   * position (luwu's held action), or `null`.
+   */
+  holdS: number | null;
+  /** Whether this control step is inside `holdS`; `process` decides it. */
+  holding: boolean;
+  /** mjlab's actuator command delays, one per distinct setting among the term's joints. */
+  delays: CommandDelay[];
+}
+
+/** MuJoCo's `mjNGAIN`, the stride of `actuator_gainprm`. */
+const MJ_NGAIN = 10;
+/** Where `mjs_setToDCMotor` keeps a `<dcmotor>`'s input mode: 0 voltage, 1 position, 2 velocity. */
+const DCMOTOR_INPUT_MODE = 8;
+
+/** The `mjtBias` values `isTargetActuator` tells apart, from the loaded MuJoCo build. */
+export interface BiasTypes {
+  affine: number;
+  dcMotor: number;
 }
 
 /**
- * Write `mjData.ctrl` for one control step from the policy's action vector.
- *
- * Zeroes `ctrl` first, so an actuator no term claims stays at rest rather than
- * holding the previous step's value.
+ * Whether `ctrl` at actuator `adr` is a target MuJoCo tracks rather than a torque this
+ * runtime computes: a position or velocity actuator (`biastype=affine`), or a
+ * `<dcmotor>` whose input mode is a position or a velocity. A voltage-mode `<dcmotor>`,
+ * like a plain motor, takes what the term writes as is.
  */
-export function applyAction(
-  mjData: MjData,
-  terms: readonly ResolvedActionTerm[],
-  actions: Float32Array,
-): void {
-  const ctrl = mjData.ctrl;
-  ctrl.fill(0.0);
-  for (const term of terms) applyActionTerm(mjData, term, actions);
+export function isTargetActuator(
+  model: Pick<MjModel, 'actuator_biastype' | 'actuator_gainprm'>,
+  adr: number,
+  bias: BiasTypes,
+): boolean {
+  if (adr < 0) return false;
+  const biasType = model.actuator_biastype[adr];
+  if (biasType === bias.affine) return true;
+  if (biasType !== bias.dcMotor) return false;
+  const mode = model.actuator_gainprm[adr * MJ_NGAIN + DCMOTOR_INPUT_MODE];
+  return mode === 1 || mode === 2;
 }
 
-function applyActionTerm(
-  mjData: MjData,
+/** What `processAction` reads besides the action: the episode clock a hold runs on. */
+export interface ProcessContext {
+  /** Control steps since the last reset: mjlab's `episode_length_buf`. */
+  episodeLength: number;
+  /** Seconds per control step: mjlab's `step_dt`. */
+  stepDt: number;
+}
+
+/**
+ * Whether a control step falls inside a term's hold, in mjlab's float32 arithmetic
+ * (`episode_length_buf * step_dt < hold_s`), so the hold ends on the same step.
+ */
+export function inHold(holdS: number | null, context: ProcessContext): boolean {
+  if (holdS === null) return false;
+  const elapsed = Math.fround(Math.fround(context.episodeLength) * Math.fround(context.stepDt));
+  return elapsed < Math.fround(holdS);
+}
+
+/**
+ * One control step's `process`: the policy's action (a command term: its command) into
+ * `term.processed`, as mjlab's built-in `process_actions` computes it.
+ */
+export function processAction(
   term: ResolvedActionTerm,
   policyActions: Float32Array,
+  context: ProcessContext,
 ): void {
+  term.holding = inHold(term.holdS, context);
   const actions =
     term.controlType === 'joint_position_command' ? term.commandValue : policyActions;
+  term.active = Boolean(actions);
   if (!actions) return;
-  const {
-    controlType,
-    ctrlAdr,
-    qposAdr,
-    qvelAdr,
-    actionIndices,
-    actionScale,
-    actionOffset,
-    defaultJointPos,
-    encoderBias,
-    positionActuator,
-    kp,
-    kd,
-    muscleMode,
-    muscleCtrlLo,
-    muscleCtrlHi,
-  } = term;
-  const numJoints = ctrlAdr.length;
-  const ctrl = mjData.ctrl;
+  // Before the overwrite: the ramp starts from the previous step's processed action.
+  term.rampFrom?.set(term.processed);
+
+  const { controlType, actionIndices, actionScale, actionOffset, clipLo, clipHi, processed } =
+    term;
+  const n = processed.length;
 
   if (
     controlType === 'joint_position' ||
@@ -119,82 +172,136 @@ function applyActionTerm(
     controlType === 'joint_position_command'
   ) {
     const reference = term.referenceJointPos ?? null;
-    for (let i = 0; i < numJoints; i++) {
-      const ctrlIndex = ctrlAdr[i];
-      if (ctrlIndex < 0) continue;
-      const actionValue = actions[actionIndices[i]] ?? 0;
-      const base = reference ? (reference[actionIndices[i]] ?? 0) : defaultJointPos[i];
-      // Un-bias the target: the policy was trained against a biased reading.
-      const processed = clamp(
-        base + actionOffset[i] + actionScale[i] * actionValue,
-        term.clipLo[i],
-        term.clipHi[i],
+    for (let i = 0; i < n; i++) {
+      const base = reference ? (reference[actionIndices[i]] ?? 0) : term.defaultJointPos[i];
+      processed[i] = clamp(
+        base + actionOffset[i] + actionScale[i] * (actions[actionIndices[i]] ?? 0),
+        clipLo[i],
+        clipHi[i],
       );
-      const target = processed - encoderBias[i];
-
-      if (positionActuator[i]) {
-        ctrl[ctrlIndex] = target;
-      } else {
-        const qpos = mjData.qpos[qposAdr[i]];
-        const qvel = mjData.qvel[qvelAdr[i]];
-        ctrl[ctrlIndex] = kp[i] * (target - qpos) + kd[i] * (0 - qvel);
-      }
     }
     return;
   }
 
-  if (controlType === 'joint_velocity') {
-    for (let i = 0; i < numJoints; i++) {
-      const ctrlIndex = ctrlAdr[i];
-      if (ctrlIndex < 0) continue;
-      const target = clamp(
+  if (
+    controlType === 'joint_position_relative' ||
+    controlType === 'joint_velocity' ||
+    controlType === 'torque'
+  ) {
+    for (let i = 0; i < n; i++) {
+      // `+ offset`, as mjlab does: 0.0 on every reference task, so easily missed.
+      processed[i] = clamp(
         actionScale[i] * (actions[actionIndices[i]] ?? 0) + actionOffset[i],
-        term.clipLo[i],
-        term.clipHi[i],
+        clipLo[i],
+        clipHi[i],
       );
-      // A velocity actuator (`biastype=affine`) runs its own damping on `ctrl`.
-      ctrl[ctrlIndex] = positionActuator[i]
-        ? target
-        : kd[i] * (target - mjData.qvel[qvelAdr[i]]);
-    }
-    return;
-  }
-
-  if (controlType === 'torque') {
-    for (let i = 0; i < numJoints; i++) {
-      const ctrlIndex = ctrlAdr[i];
-      if (ctrlIndex >= 0) {
-        // `+ offset`, as mjlab does — 0.0 on every reference task, so easily missed.
-        ctrl[ctrlIndex] = clamp(
-          actionScale[i] * (actions[actionIndices[i]] ?? 0) + actionOffset[i],
-          term.clipLo[i],
-          term.clipHi[i],
-        );
-      }
     }
     return;
   }
 
   if (controlType === 'muscle_activation') {
-    // Shared pre-step: raw = scale * action + offset, then per `muscleMode`:
+    // Shared pre-step: raw = scale * action + offset, clipped, then per `muscleMode`:
     //   sigmoid:    MyoSuite-canonical σ(5 * (raw - 0.5)).
     //   direct:     clip to the actuator's own ctrlrange, written unchanged.
     //   excitation: clip(raw, 0, 1) for models that already output excitation.
-    for (let i = 0; i < numJoints; i++) {
-      const ctrlIndex = ctrlAdr[i];
-      if (ctrlIndex < 0) continue;
-      // The bounds apply before the activation mapping; [0, 1] is the actuator's range.
+    for (let i = 0; i < n; i++) {
       const raw = clamp(
         (actions[actionIndices[i]] ?? 0) * actionScale[i] + actionOffset[i],
-        term.clipLo[i],
-        term.clipHi[i],
+        clipLo[i],
+        clipHi[i],
       );
-      ctrl[ctrlIndex] =
-        muscleMode === 'sigmoid'
+      processed[i] =
+        term.muscleMode === 'sigmoid'
           ? 1 / (1 + Math.exp(-5 * (raw - 0.5)))
-          : muscleMode === 'direct'
-            ? clamp(raw, muscleCtrlLo[i] ?? -1, muscleCtrlHi[i] ?? 1)
+          : term.muscleMode === 'direct'
+            ? clamp(raw, term.muscleCtrlLo[i] ?? -1, term.muscleCtrlHi[i] ?? 1)
             : clamp01(raw);
+    }
+    return;
+  }
+
+  // A kind this runtime does not implement: the Python cfg raises for these, so an
+  // actuator at rest beats a garbage control.
+  term.active = false;
+}
+
+/**
+ * One physics substep's `apply`: every term's `processed` into `mjData.ctrl`.
+ *
+ * Zeroes `ctrl` first, so an actuator no term claims stays at rest rather than holding
+ * the previous step's value. `substep` counts from 0 within the control step, for a
+ * term that ramps across it.
+ */
+export function applyAction(
+  mjData: MjData,
+  terms: readonly ResolvedActionTerm[],
+  substep = 0,
+  decimation = 1,
+): void {
+  mjData.ctrl.fill(0.0);
+  for (const term of terms) {
+    if (term.active) applyActionTerm(mjData, term, substep, decimation);
+  }
+}
+
+/** Per-term scratch for the targets one substep computes, so `apply` allocates nothing. */
+const targetScratch = new WeakMap<ResolvedActionTerm, Float32Array>();
+
+function targetsOf(term: ResolvedActionTerm): Float32Array {
+  let targets = targetScratch.get(term);
+  if (!targets || targets.length !== term.processed.length) {
+    targets = new Float32Array(term.processed.length);
+    targetScratch.set(term, targets);
+  }
+  return targets;
+}
+
+function applyActionTerm(
+  mjData: MjData,
+  term: ResolvedActionTerm,
+  substep: number,
+  decimation: number,
+): void {
+  const { controlType, ctrlAdr, qposAdr, qvelAdr, processed, positionActuator, kp, kd } = term;
+  const ctrl = mjData.ctrl;
+  const n = processed.length;
+
+  if (controlType === 'muscle_activation') {
+    for (let i = 0; i < n; i++) if (ctrlAdr[i] >= 0) ctrl[ctrlAdr[i]] = processed[i];
+    return;
+  }
+
+  const targets = targetsOf(term);
+  const position = controlType !== 'joint_velocity' && controlType !== 'torque';
+  if (position) {
+    const ramp = term.rampFrom;
+    // mjlab's `(k + 1) / decimation`: the ramp lands on the new target at the last substep.
+    const alpha = ramp ? (substep + 1) / decimation : 1;
+    const relative = controlType === 'joint_position_relative';
+    for (let i = 0; i < n; i++) {
+      const value = ramp ? (1 - alpha) * ramp[i] + alpha * processed[i] : processed[i];
+      if (term.holding) targets[i] = mjData.qpos[qposAdr[i]];
+      else if (relative) targets[i] = mjData.qpos[qposAdr[i]] + value;
+      // Un-bias the target: the policy was trained against a biased reading.
+      else targets[i] = value - term.encoderBias[i];
+    }
+  } else {
+    targets.set(processed);
+  }
+  for (const delay of term.delays) delay.apply(targets);
+
+  for (let i = 0; i < n; i++) {
+    const ctrlIndex = ctrlAdr[i];
+    if (ctrlIndex < 0) continue;
+    if (controlType === 'torque' || positionActuator[i]) {
+      ctrl[ctrlIndex] = targets[i];
+    } else if (position) {
+      const qpos = mjData.qpos[qposAdr[i]];
+      const qvel = mjData.qvel[qvelAdr[i]];
+      ctrl[ctrlIndex] = kp[i] * (targets[i] - qpos) + kd[i] * (0 - qvel);
+    } else {
+      // A velocity actuator (`biastype=affine`) runs its own damping on `ctrl`.
+      ctrl[ctrlIndex] = kd[i] * (targets[i] - mjData.qvel[qvelAdr[i]]);
     }
   }
 }
@@ -244,7 +351,7 @@ export function resolveActionClip(
  * The policy's raw-action bound (`clip_actions`), or `null` for unbounded.
  *
  * From the *runner* config, bounding the policy's output symmetrically before any term
- * sees it — unlike `resolveActionClip`, which bounds `raw * scale + offset` per target.
+ * sees it, unlike `resolveActionClip`, which bounds `raw * scale + offset` per target.
  *
  * `0` is a legal bound (it pins every action to zero), so truthiness will not do here.
  * A negative one would invert the clamp, and is refused.
@@ -271,20 +378,19 @@ export function clampActions(action: Float32Array, bound: number | null): void {
   }
 }
 
-/** `decimation` substeps, re-applying the action each time: a motor's PD reads live state. */
+/** `decimation` substeps, re-applying the processed action each time: a motor's PD reads live state. */
 export function stepPhysics(
   mujoco: { mj_step(model: MjModel, data: MjData): void },
   mjModel: MjModel,
   mjData: MjData,
   terms: readonly ResolvedActionTerm[],
-  actions: Float32Array,
   decimation: number,
   onSubstep?: () => void,
   /** After the step, where mjlab's `scene.update(dt=physics_dt)` reads sensors. */
   onSubstepEnd?: () => void,
 ): void {
   for (let substep = 0; substep < decimation; substep++) {
-    applyAction(mjData, terms, actions);
+    applyAction(mjData, terms, substep, decimation);
     onSubstep?.();
     mujoco.mj_step(mjModel, mjData);
     onSubstepEnd?.();

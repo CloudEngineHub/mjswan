@@ -8,7 +8,7 @@
  */
 
 /** Sections of a policy config whose entries may carry a traced graph. */
-const POLICY_SECTIONS = ['observations', 'terminations', 'commands', 'events'] as const;
+const POLICY_SECTIONS = ['observations', 'actions', 'terminations', 'commands', 'events'] as const;
 
 function collectFrom(value: unknown, into: Set<string>): void {
   if (Array.isArray(value)) {

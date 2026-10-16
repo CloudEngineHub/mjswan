@@ -1,6 +1,8 @@
 import type { MainModule, MjData, MjModel } from 'mujoco';
 import type { Scene } from 'three';
 
+import type { DelayConfigEntry } from '../action/commandDelay';
+import type { OnnxActionGraphConfig, OnnxActionProcessConfig } from '../action/OnnxActionProcess';
 import type { CommandsConfig } from '../command';
 import type { CommandManager } from '../command/CommandManager';
 import type { DebugVisConfig } from '../debugViz/drawings';
@@ -47,6 +49,19 @@ export type ActionConfigEntry = {
   stiffness?: number | number[] | Record<string, number>;
   damping?: number | number[] | Record<string, number>;
   actuator_names?: string[];
+  clip?: Record<string, readonly number[]>;
+  /** A command term's joints in `actuator_names` order, not model order: mjlab's field. */
+  preserve_order?: boolean;
+  /** Ramp each target across the substeps, from the previous processed action (ADR 0009). */
+  interpolate?: boolean;
+  /** Seconds from an episode's start during which every target is the measured position. */
+  hold_s?: number;
+  /** mjlab's actuator command delays (`ActuatorCfg.delay_*`) on the term's joints. */
+  delay?: DelayConfigEntry[];
+  /** A traced term's `process_actions`, which replaces the native formula (ADR 0009). */
+  process?: OnnxActionProcessConfig;
+  /** A traced term's `reset`, present when it writes the term's state. */
+  reset?: OnnxActionGraphConfig;
   [key: string]: unknown;
 };
 

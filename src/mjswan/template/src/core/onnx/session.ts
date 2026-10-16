@@ -49,6 +49,8 @@ export interface OnnxInputSlot extends ModelElements {
   env?: string;
   /** The policy's last action: only `action`, mjlab's `env.action_manager.action`. */
   action?: string;
+  /** An action term's internals, `get_term(action_term).<field>`: a traced term's state field. */
+  action_term?: string;
   /** An `mjModel` field an event reads, for the elements `names` lists, in that order. */
   model?: string;
   /** For a `model` slot: the compiled value, mjlab's `get_default_field`, not the live one. */
