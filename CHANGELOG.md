@@ -14,6 +14,30 @@ shortcuts.
 
 ### Added
 
+- **A task's own action class runs in the browser** (ADR 0009, **document format 6**). An
+  mjlab action class mjswan has no class of its own for, such as in-hand rotation's
+  `JointPositionDeltaAction` or luwu's `HeldJointPositionAction`, was skipped with a
+  warning. The build now traces its `process_actions` and `reset` to ONNX, its state
+  carried between control steps as a traced command's is, and checks both graphs against
+  the term's own code before they ship. Its `apply_actions` stays native: one inherited
+  from mjlab's position, relative, velocity or effort action needs nothing, and one that
+  overrides it is named with `mjswan.register_action(cfg_name, mjswan.ActionBinding(...))`:
+  a target kind, a ramp across the substeps (`interpolate`) or a hold of the measured pose
+  after a reset (`hold_s`). A body a graph cannot reproduce, such as a Python counter or a
+  sim write, fails the build with the fix in the message.
+
+- **`RelativeJointPositionActionCfg`** (`joint_position_relative`): the target is the
+  measured joint position plus `scale * a`, read every substep, as mjlab's
+  `RelativeJointPositionAction` does.
+
+- **mjlab's actuator command delay runs in the browser**, for every kind of term. The
+  build reads `delay_min_lag`, `delay_max_lag`, `delay_hold_prob`, `delay_update_period`
+  and `delay_per_env_phase` off the actuator configs, and no longer warns about them.
+
+- **An observation can read an action term's internals**, `get_term(name).<field>`: a
+  traced term's state, or any term's `_processed_actions`, through the new
+  `{action_term, field}` input slot.
+
 - **`mjswan version` and `mjswan --version`** print the installed mjswan version.
 
 - **`CommandJointPositionActionCfg` drives joints from a command** (`joint_position_command`).
@@ -289,6 +313,14 @@ shortcuts.
 - The `mjlab-to-mjswan` agent skill ([skills/mjlab-to-mjswan/](skills/mjlab-to-mjswan/)), published from this repo as the `mjswan` Claude Code plugin (`/mjswan:mjlab-to-mjswan`): it ports one mjlab task from any repo into a browser app.
 
 ### Changed
+
+- **The browser runs an action term in two halves, as mjlab does**: `process` once per
+  control step, after the policy, and `apply` once per physics substep. It recomputed the
+  whole term every substep.
+
+- **`compile.run_parity` fails where the build would**: an observation it cannot trace
+  passes only when it reads nothing (the build bakes it), and an untraceable event only
+  when it is one the build knows has nothing to write. Both used to pass.
 
 - **mjlab's `last_action` is traced like any other observation**
   ([#155](https://github.com/ttktjmt/mjswan/issues/155)). Its body reads
@@ -732,6 +764,19 @@ shortcuts.
   the registries held `ts_src` terms described the design they replaced.
 
 ### Fixed
+
+- **A tracking task's `ReferenceJointPositionActionCfg` holds the default pose until its
+  clip loads.** It targeted 0 rad on every joint.
+
+- **A `<dcmotor>` in position or velocity mode is driven by its target.** The browser
+  took it for a motor and wrote a PD torque from zero gains.
+
+- **A recurrent policy's carry starts at the width its network declares**, not always
+  128, and a failing inference is logged as an error rather than stopping the robot
+  silently.
+
+- **`CommandJointPositionActionCfg(preserve_order=True)` orders its joints by pattern**,
+  as mjlab does. The flag was accepted and ignored.
 
 - **An mjlab setting the browser does not run warns at build time** instead of being
   dropped silently ([#165](https://github.com/ttktjmt/mjswan/issues/165)). An action term

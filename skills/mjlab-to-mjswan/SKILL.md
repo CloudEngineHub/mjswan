@@ -63,192 +63,34 @@ for name, term in (adapt_actions(cfg.actions) or {}).items():
 PY
 ```
 
-An action term with a non-`None` `unsupported_reason`, or one `adapt_actions` warns it is **skipping**, makes the task unportable as configured. The action layer is permanently native in mjswan, so the term cannot be registered from the author's side. Report the reason verbatim, then go to step 8, which decides whether mjswan should learn it; a task-specific term can still port by wrapping the policy (below). Never hardcode which action classes those are; the `unsupported_reason` field is the source of truth.
-
-A warning that a term **sets** fields mjswan's class does not have, or that an actuator sets what the browser does not run (anything past PD within the effort limit: a torque-speed curve, friction, a command delay), names settings the browser drops while the term itself ports. Each is a behaviour gap: report it verbatim beside the skipped terms. A generic one goes to step 8 like a skipped term; one the model can carry instead, such as an actuator's friction as the joint's `frictionloss`, moves there.
-
-Two shapes still port. One is a skipped term that takes no column of the policy's output (`action_dim == 0`) and writes joint targets of its own, such as an arm-motion generator beside a locomotion policy. Drop it, and the terms that read it, from the env config. Then pass a `CommandJointPositionActionCfg` for its joints, and the command it reads, to `add_policy(actions=..., commands=...)`, never to the env config, whose terms mjlab builds itself. The command can be a `ui_command` of sliders, or a traced command that reproduces the dropped term's motion.
-
-The other is a term the target repo defines whose state follows from what the policy observes and outputs: a filter on the targets, a residual on a reference, a gate that latches, an accumulator. Fold it into the policy:
-
-1. Write a wrapper ONNX around the checkpoint that computes what the term's `process_actions` computes, from the policy's output and slices of its observation, and outputs the action a native term then applies. Replace the term in `env_cfg.actions` with that native term, usually a plain `JointPositionActionCfg`.
-2. Keep the term's state in the recurrent carry: the wrapper takes `is_init` (bool, `[1]`) and `adapt_hx` (float, `[1, carry]`) beside the observation and returns `next_adapt_hx` beside the action, and the policy is added with `in_keys=["actor", "is_init", "adapt_hx"]` and `out_keys=["action", ["next", "adapt_hx"]]`. The runtime opens every episode with `is_init` true and a `[1, 128]` zero carry, so the state fits in 128 values and the wrapper resets it while `is_init` holds, as the term's `reset` does.
-3. The observation's previous action reads the wrapper's output. When the term observes another value, such as the raw action before a filter, carry that value and splice it into the observation inside the wrapper.
-4. Stamp the wrapper with the keys mjswan stamps on the graphs it traces, so a viewer can show the term the policy now holds: `metadata_props` `mjswan.kind` = `action`, `mjswan.term` = the term's key in `env_cfg.actions`, `mjswan.func` = its cfg class as `module:Class`.
-5. Before parity, run the target's env with its own term in mjlab and feed the wrapper the same observations each step: the actions match exactly, or the wrapper is wrong.
-
-A term that reads state the observation does not carry, or that acts per physics substep, cannot be wrapped: report it and stop.
-
-## 4. Get the policy into ONNX
-
-- **W&B run path** → nothing to do here. `add_policy_wandb(run_path)` converts every `model_*.pt` itself and passes the metadata below on its own. Needs the `wandb` and `mjlab` extras.
-- **Hugging Face repo** → `add_policy_hf(repo_id)`. The fetch needs the `hf` extra and neither mjlab nor torch: a Hub repo holds the published artifact, so this path downloads the `.onnx` and reads what mjlab baked into it. The scene and its traced terms still need mjlab.
-- **Local `model_*.pt`** → copy `export_policy.py` (next to this file) into `<repo>/mjswan_app/` and run it. It writes one `<stem>.onnx` per checkpoint plus `policy_meta.json`.
-- **Pre-exported `.onnx` on disk** → usable directly, but plain `add_policy` reads nothing out of the file; see below.
-
-`policy_meta.json` carries `policy_joint_names`, `default_joint_pos` and `encoder_bias`, which `add_policy` needs to resolve action scales and the browser's external PD gains. **A port that omits them builds fine and moves wrongly.** An mjlab export does carry the first two in its `metadata_props`, rounded to three decimals, but only `add_policy_hf` reads that block, and `encoder_bias` is never in the file. So always pass all three on the local path, and say so explicitly if a pre-exported `.onnx` left you without them.
-
-## 5. Generate the port
-
-In the target repo:
-
-```
-mjswan_app/
-  main.py           builder wiring; the only entry point
-  terms.py          upstream MDP terms, re-implemented traceably (only what step 6 needs)
-  export_policy.py  the copied converter        (local .pt only)
-  model_*.onnx      converted checkpoints       (local .pt only)
-  policy_meta.json  checkpoint order + metadata (local .pt only)
-  README.md         source URL, prerequisites, run command
-```
-
-The directory is `mjswan_app/`, **not** `mjswan/`: a `mjswan/` in the repo root shadows the installed package for every `python` invoked from there.
-
-`terms.py` is the one place an MDP term gets rewritten. When a term will not trace, its re-implementation in a form `torch.onnx.export` accepts, and its `register_*` call, both go here, whichever kind it is: observation, termination, event or command. Such a re-implementation restates the upstream function's math and changes none of it, as the ground rules demand; what it drops is only what the exporter cannot follow, such as data-dependent control flow, `.item()`, Python RNG and per-env indexing. Write **only** the terms that actually failed: every function here is a second copy of upstream code that can silently drift from it, which is why a term mjlab already exports cleanly stays untouched and why step 7 checks each rewrite numerically.
-
-`main.py`, the shortest thing that works. `your_repo.tasks` stands for the registration module found in step 2, and `TASK_ID` is a real constant: substitute the value, never the name.
+A task's own action class, one mjswan has no class of its own for, is traced (ADR 0009): `adapt_actions` returns a `TracedActionCfg` for it, and the build traces its `process_actions` and `reset` against the trace env and checks both graphs against the term's own code. Its `apply_actions` runs natively in the browser. A class that inherits it from mjlab's position, relative, velocity or effort action needs nothing more; one that overrides it is refused until the port names what it does, reading the options off the task's cfg rather than restating them:
 
 ```python
-"""Browser app for one mjlab task, built with mjswan."""
-
-from __future__ import annotations
-
-import json
-import pathlib
-
-import your_repo.tasks  # noqa: F401 - populates the mjlab task registry
-import onnx
-
-import mjswan
-
-HERE = pathlib.Path(__file__).parent
-TASK_ID = "Mjlab-Velocity-Flat-Unitree-G1"  # the task chosen in step 2
-
-
-def setup_builder() -> mjswan.Builder:
-    builder = mjswan.Builder()
-    project = builder.add_project(name="G1 Velocity")
-    scene = project.add_scene_mjlab(TASK_ID)
-
-    meta = json.loads((HERE / "policy_meta.json").read_text())
-    mdp = mjswan.MdpConfig()  # one MDP, traced once, shared by every checkpoint
-    for name in meta.pop("checkpoints"):
-        scene.add_policy(
-            pathlib.Path(name).stem, onnx.load(HERE / name), mdp=mdp, **meta
-        )
-    return builder
-
-
-def main() -> None:
-    app = setup_builder().build()
-    app.launch()
-
-
-if __name__ == "__main__":
-    main()
-```
-
-Canonical run command, from the repo root: `python -m mjswan_app.main`.
-
-`build()` writes `mjswan_app/dist/`: the engine, plus the simulation document it serves — `manifest.json` and one `<project-id>/<scene-id>/` per scene holding `scene.mjz`, `mdp/<mdp-id>/{obs,term,command,event}/*.onnx` and `policy/<policy-id>.onnx`. `app.save_document()` packs that document alone as `dist.swn`, engine excluded, and `mjswan serve` / `info` / `publish` each take either form. Keep the `app` the build returns rather than chaining off it, so the document is one call away.
-
-- W&B or the Hub instead of local checkpoints: replace the loop with `scene.add_policy_wandb("entity/project/run_id")` or `scene.add_policy_hf("owner/repo")` and drop the meta plumbing. When that is the whole app, `builder.add_project_mjlab(TASK_ID, run_path=..., hf_repo_id=...)` is the same project-plus-scene-plus-policies wiring in one call.
-- `add_policy` accepts the five MDP term sets — `observations=` / `actions=` / `terminations=` / `commands=` / `events=` — or one `mdp=mjswan.MdpConfig(...)` carrying all five, shared by every policy handed the same object. Leave them all out: `add_scene_mjlab` supplies `control_dt` and the trace env, each term set already defaults to the scene's env config (events included), and `add_policy_wandb` builds one `MdpConfig` per call so a run's checkpoints share one traced MDP. When looping over local checkpoints as above, build one `MdpConfig()` before the loop and pass `mdp=` to each `add_policy` for the same effect. To change a term set, mutate `env_cfg` instead (step 6) and pass `env_cfg=` to `add_scene_mjlab` *before* any policy is added, because a scene built first never sees the mutation.
-- A single-input network — every mjlab export — needs no `in_keys`: its one observation group lands under the default slot, `actor`. A network with several inputs declares `in_keys=` on `add_policy`, and the build refuses one that does not. `out_keys=` is the same table for the *outputs*, and a network with several of them needs it whenever the action is not the first: the runtime drives the actuators from `out_keys`' `action`, defaulting to output 0. The build warns; a checkpoint whose exporter sidecar lists `out_keys` is telling you what to pass.
-- When `terms.py` exists, import it in `main.py` for its side effects: `from mjswan_app import terms  # noqa: F401`.
-- No `ViewerConfig`. The default `OriginType.AUTO` tracks the first non-world body.
-
-## 6. Build, then fix what fails
-
-```sh
-python -m mjswan_app.main
-```
-
-The build fails loudly by design and names the ways out. For each failure: read the exception, read the module it came from, then classify.
-
-- **Missing env-derived params**: mjlab's function needs a constant the config does not carry (terrain limits, a clip path, a threshold). Load `env_cfg` yourself, write the value into `env_cfg.<terms>[name].params`, and pass `env_cfg=` to `add_scene_mjlab`. This is the most common fix and needs no `terms.py` at all.
-- **Untraceable body**: the function draws with an untraceable RNG, indexes per-env tensors, or reads state the browser has no equivalent for, so `torch.onnx.export` refuses it. Re-implement it traceably in `terms.py` and register it:
-
-  ```python
-  # register_termination / register_event take the same two arguments.
-  mjswan.register_observation("mjlab_func_name", my_traceable_func)
-  ```
-
-  Resolution goes by the mjlab function's `__name__` first, then the term's dict key, so a closure can only be reached by its key. The annotations on `register_event` / `register_termination` say `*Binding`, but the adapter accepts a plain traceable callable, which is what you want here; a `*Binding` means TypeScript and is out of scope.
-- **Unbound command cfg class**: `mjswan.register_command("CfgClassName", CommandBinding(...))`, keyed by the *class* name, not a function name. Read `managers/command_manager.py` in the installed package for which shape applies (traced `state_fields` / `command_field`, versus native `ts_name` + `serializer`). mjswan binds only the classes mjlab's task families share (`UniformVelocityCommandCfg`, `MotionCommandCfg`); a class only one task uses is the port's to register, as `examples/demo/main.py` does for `LiftingCommandCfg`.
-- **Missing asset or credential**: stop and hand the user the exact command (`wandb login`, `hf auth login`, a licence to accept, an env var to set).
-
-Rebuild after each fix. A term skipped because mjswan cannot express it, rather than because the task is unusual, goes to step 8.
-
-When it finally builds, read the document it wrote before spending minutes on parity:
-
-```sh
-mjswan info mjswan_app/dist
-```
-
-One line per project, scene, MDP and policy. Three things to check, none of which a successful build says out loud: **one MDP per shared `MdpConfig`** (one per `add_policy_wandb` or `add_policy_hf` call, one for the whole local-checkpoint loop; more than that means a policy was handed its own config and the same terms were traced once per checkpoint); a **non-zero graph count** on each MDP (zero means every term ended up native or skipped); and **every checkpoint present** as a policy. The same command reads a `dist.swn`, so it is also how you inspect a document someone hands you.
-
-## 7. Parity gate
-
-A successful build only proves every term *traced*. It does not prove the graph computes what mjlab computes. Run the numeric gate, the same harness mjswan's own CI runs over its reference tasks:
-
-```sh
-MUJOCO_GL=disable python - <<'PY'
-from mjlab.tasks.registry import load_env_cfg
-from mjswan.mjlab import resolve_runner_defaults
-from mjswan.compile import run_parity
-from mjswan.mjlab.env import build_mjlab_env
-import your_repo.tasks
-import mjswan_app.terms  # only if terms.py exists
-
-TASK_ID = "Mjlab-Velocity-Flat-Unitree-G1"
-cfg = load_env_cfg(TASK_ID, play=True)
-cfg.scene.num_envs = 1
-obs_groups = resolve_runner_defaults(TASK_ID).obs_groups or {}
-groups = obs_groups.get("actor")
-report = run_parity(
-    build_mjlab_env(cfg),
-    obs_group=groups[0] if groups else "actor",
-    n_steps=16,
+mjswan.register_action(
+    "JointPositionDeltaActionCfg",
+    mjswan.ActionBinding(
+        apply="joint_position", interpolate=lambda cfg: cfg.interpolate_decimation
+    ),
 )
-print(report.summary())
-raise SystemExit(0 if report.passed else 1)
-PY
 ```
 
-A failing term is a real defect: the exported graph disagrees numerically with mjlab's own function. Treat it exactly like a build failure. A term reported as `native` with a note is **not** a failure; it has no graph by design.
+`ActionBinding` covers a position, relative, velocity or torque target, a ramp across the substeps (`interpolate`) and a hold of the measured pose after a reset (`hold_s`). An apply outside that, a trace the build refuses (its message names the cause, such as a Python counter or a sim write), or a term with a non-`None` `unsupported_reason` makes the task unportable as configured. A refused body can sometimes port through `ActionBinding(trace_override=...)`, which swaps a trace-friendly body onto the built term; otherwise report the reason verbatim, then go to step 8, which decides whether mjswan should learn it. Never hardcode which action classes those are; the build's messages and the `unsupported_reason` field are the source of truth.
 
-## 8. When the gap is mjswan's, open a PR
+A warning that a term **sets** fields mjswan's class does not have, or that an actuator sets what the browser does not run (anything past PD within the effort limit and the command delay: a torque-speed curve, friction), names settings the browser drops while the term itself ports. Each is a behaviour gap: report it verbatim beside the skipped terms. A generic one goes to step 8 like a skipped term; one the model can carry instead, such as an actuator's friction as the joint's `frictionloss`, moves there. A lag an event sets through `Actuator.set_lags` (older mjlab's `sync_actuator_delays`) does not trace: drop the event, and give the actuator cfg the lag range itself when the delay matters.
 
-Steps 3, 6 and 7 each end in a block the target repo cannot route around. Some of those blocks are mjswan's gap rather than the task's, and then the fix is a pull request against mjswan.
-
-### Only generic capabilities go in
-
-A capability earns a place in mjswan only if another task would hit the same gap. Decide it mechanically by finding where the thing that failed is defined:
-
-```sh
-python -c "
-import your_repo.tasks
-from mjlab.tasks.registry import load_env_cfg
-cfg = load_env_cfg('Mjlab-Velocity-Flat-Unitree-G1', play=True)
-print(type(cfg.actions['TERM_NAME']).__module__)
-"
-```
-
-- Defined in `mjlab`, `myosuite`, or another published package → generic. Open the PR.
-- Defined in the target repo → task-specific. It does **not** go into mjswan. Use the author-side escape hatch: `terms.py` for an observation, termination, event or command, a policy wrapper (step 3) for an action term; if that cannot work either, report it and stop.
+One shape still ports by hand: a term that takes no column of the policy's output (`action_dim == 0`) and writes joint targets of its own, such as an arm-motion generator beside a locomotion policy. Drop it, and the terms that read it, from the env config. Then pass a `CommandJointPositionActionCfg` for its joints, and the command it reads, to `add_policy(actions=..., commands=...)`, never to the env config, whose terms mjlab builds itself. The command can be a `ui_command` of sliders, or a traced command that reproduces the dropped term's motion.
 
 ### Take the configuration from mjlab
 
 A feature that makes the author restate what mjlab already declares is the wrong design. mjlab's config is the source; mjswan reads it.
 
-- A new action term: name the mjswan cfg class exactly as mjlab names its own, or add the mapping to `_ACTION_CLASS_ALIASES` in `mjlab/action.py`. `_adapt_action_cfg` then copies every matching dataclass field by itself and the port needs no extra argument.
+- A new mjlab action class: name the mjswan cfg class exactly as mjlab names its own, or add the mapping to `_ACTION_CLASS_ALIASES` in `mjlab/action.py`. `_adapt_action_cfg` then copies every matching dataclass field by itself and the port needs no extra argument. A task's own class needs neither: it is traced.
 - Anything the task's env config or runner config already carries (`env_cfg`, `resolve_runner_defaults`) is read from there, never restated at the call site.
 - A keyword argument the author has to pass by hand is the last resort, not the first.
 
 ### Where the change goes
 
-Find the neighbouring case in the mjswan tree first: each already carries a worked example of the thing being added. An unsupported action term is the one exception to the no-TypeScript rule at the top of this file, because action is permanently native (ADR 0005 §7) and needs an engine-side `controlType` branch as well as a cfg class; that prohibition covers per-port `ts_src`, not mjswan's own engine.
+Find the neighbouring case in the mjswan tree first: each already carries a worked example of the thing being added. An action apply `ActionBinding` cannot name is the one exception to the no-TypeScript rule at the top of this file, because apply runs natively every physics substep (ADR 0009) and needs an engine-side branch in `applyAction.ts` as well as a binding field or cfg class; that prohibition covers per-port `ts_src`, not mjswan's own engine.
 
 ### Change discipline
 
