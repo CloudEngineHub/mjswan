@@ -79,7 +79,10 @@ export interface ResolvedActionTerm {
   clipHi: Float32Array;
   /** This control step's processed action, one per target: `process` writes it, `apply` reads it. */
   processed: Float32Array;
-  /** False when `process` had nothing to write (a command with no value): `apply` skips the term. */
+  /**
+   * False while there is nothing to apply (a command with no value, a traced term whose
+   * graph has yet to run): `apply` skips the term.
+   */
   active: boolean;
   /**
    * Set when the target ramps across the substeps (inhand's `interpolate_decimation`):
@@ -249,6 +252,8 @@ export function processAction(
   term.active = false;
 }
 
+type DataViews = Pick<MjData, 'ctrl' | 'qpos' | 'qvel'>;
+
 /**
  * One physics substep's `apply`: every term's `processed` into `mjData.ctrl`.
  *
@@ -262,9 +267,11 @@ export function applyAction(
   substep = 0,
   decimation = 1,
 ): void {
-  mjData.ctrl.fill(0.0);
+  // Read once: each embind getter allocates a new view.
+  const views: DataViews = { ctrl: mjData.ctrl, qpos: mjData.qpos, qvel: mjData.qvel };
+  views.ctrl.fill(0.0);
   for (const term of terms) {
-    if (term.active) applyActionTerm(mjData, term, substep, decimation);
+    if (term.active) applyActionTerm(views, term, substep, decimation);
   }
 }
 
@@ -281,13 +288,12 @@ function targetsOf(term: ResolvedActionTerm): Float32Array {
 }
 
 function applyActionTerm(
-  mjData: MjData,
+  { ctrl, qpos, qvel }: DataViews,
   term: ResolvedActionTerm,
   substep: number,
   decimation: number,
 ): void {
   const { controlType, ctrlAdr, qposAdr, qvelAdr, processed, positionActuator, kp, kd } = term;
-  const ctrl = mjData.ctrl;
   const n = processed.length;
 
   if (controlType === 'muscle_activation') {
@@ -304,8 +310,8 @@ function applyActionTerm(
     const relative = controlType === 'joint_position_relative';
     for (let i = 0; i < n; i++) {
       const value = ramp ? (1 - alpha) * ramp[i] + alpha * processed[i] : processed[i];
-      if (term.holding) targets[i] = mjData.qpos[qposAdr[i]];
-      else if (relative) targets[i] = mjData.qpos[qposAdr[i]] + value;
+      if (term.holding) targets[i] = qpos[qposAdr[i]];
+      else if (relative) targets[i] = qpos[qposAdr[i]] + value;
       // Un-bias the target: the policy was trained against a biased reading.
       else targets[i] = value - term.encoderBias[i];
     }
@@ -320,12 +326,10 @@ function applyActionTerm(
     if (controlType === 'torque' || positionActuator[i]) {
       ctrl[ctrlIndex] = targets[i];
     } else if (position) {
-      const qpos = mjData.qpos[qposAdr[i]];
-      const qvel = mjData.qvel[qvelAdr[i]];
-      ctrl[ctrlIndex] = kp[i] * (targets[i] - qpos) + kd[i] * (0 - qvel);
+      ctrl[ctrlIndex] = kp[i] * (targets[i] - qpos[qposAdr[i]]) + kd[i] * (0 - qvel[qvelAdr[i]]);
     } else {
       // A velocity actuator (`biastype=affine`) runs its own damping on `ctrl`.
-      ctrl[ctrlIndex] = kd[i] * (targets[i] - mjData.qvel[qvelAdr[i]]);
+      ctrl[ctrlIndex] = kd[i] * (targets[i] - qvel[qvelAdr[i]]);
     }
   }
 }

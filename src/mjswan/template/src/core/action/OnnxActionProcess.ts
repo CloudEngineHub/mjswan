@@ -25,8 +25,6 @@ export interface OnnxActionGraphConfig {
 
 export interface OnnxActionProcessConfig extends OnnxActionGraphConfig {
   state_fields: OnnxStateFieldSpec[];
-  /** The graph also outputs `processed_from`, the processed action before this step. */
-  ramp_from?: boolean;
 }
 
 export interface OnnxActionProcessDeps {
@@ -39,6 +37,8 @@ export interface OnnxActionProcessDeps {
 
 export class OnnxActionProcess {
   private state = new Map<string, OnnxTensorLike>();
+  /** The last run queued, which the next waits for (see `run`). */
+  private queue: Promise<unknown> = Promise.resolve();
 
   constructor(
     private readonly name: string,
@@ -52,7 +52,7 @@ export class OnnxActionProcess {
   /**
    * One control step: `raw`, the term's slice of the policy's action, into `processed`
    * (and the ramp's start into `rampFrom`, when there is one). False when a slot could
-   * not be read, leaving the previous step's targets in place.
+   * not be read or the graph gave no `processed`: the previous step's targets stay.
    */
   async process(
     raw: Float32Array,
@@ -86,8 +86,22 @@ export class OnnxActionProcess {
     return tensor ? Float32Array.from(toFloat32(tensor.data)) : null;
   }
 
+  /**
+   * In call order, each run after the last: a run reads the state the one before it
+   * writes, and a UI reset starts without waiting for the step's process.
+   */
+  private run(
+    session: OnnxSession,
+    graph: OnnxActionGraphConfig,
+    extra: Record<string, OnnxTensorLike>,
+  ): Promise<Record<string, OnnxTensorLike> | null> {
+    const pending = this.queue.then(() => this.runNow(session, graph, extra));
+    this.queue = pending.catch(() => {});
+    return pending;
+  }
+
   /** Feed slots, state and `rand`; adopt the next state. Null when a slot is missing. */
-  private async run(
+  private async runNow(
     session: OnnxSession,
     graph: OnnxActionGraphConfig,
     extra: Record<string, OnnxTensorLike>,

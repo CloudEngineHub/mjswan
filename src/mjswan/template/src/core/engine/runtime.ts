@@ -1188,7 +1188,7 @@ export class mjswanRuntime {
   }
 
   /**
-   * Caught, or an escaping throw leaves `loopPromise` rejected for good — `startLoop`
+   * Caught, or an escaping throw leaves `loopPromise` rejected for good: `startLoop`
    * returns it instead of restarting and `stop()` re-throws it, wedging `loadScene` too.
    * Stops rather than skips: what reaches here is config, identical next frame.
    */
@@ -1214,8 +1214,8 @@ export class mjswanRuntime {
         if (this.policyRunner && this.policyStateBuilder) {
           const state = this.policyStateBuilder.build();
           const obs = await this.policyRunner.collectObservationsByKey(state);
-          await this.runOnnxInference(obs);
-          await this.processActions();
+          const fresh = await this.runOnnxInference(obs);
+          await this.processActions(fresh);
         }
         this.executeSimulationSteps();
         this.episodeLength += 1;
@@ -1315,7 +1315,7 @@ export class mjswanRuntime {
     }
 
     if (!this.mjModel || !this.mjData) {
-      // A caller-ordering mistake, not a bad bundle — unreachable from the app.
+      // A caller-ordering mistake, not a bad bundle: unreachable from the app.
       console.warn('Policy config loaded before MuJoCo model is ready.');
       return;
     }
@@ -1374,7 +1374,7 @@ export class mjswanRuntime {
       }
       this.initialQpos = Array.isArray(config.initial_qpos) ? (config.initial_qpos as number[]) : null;
       this.initialQvel = Array.isArray(config.initial_qvel) ? (config.initial_qvel as number[]) : null;
-      // Does its own forward; awaited so the reset terms precede the rebuild below.
+      // The first reset's sim reset and events; its term resets follow once the terms exist.
       await this.resetSimulationState();
 
       // Initialize commands from policy config if present
@@ -1392,7 +1392,6 @@ export class mjswanRuntime {
           onnxSessions: this.policyGraphs,
           readOnnxSlot: this.readOnnxSlot,
         });
-        await this.commandManager.resetTerms();
         const motionTerm = this.commandManager.getTerm('motion');
         if (isMotionCommandTerm(motionTerm)) {
           await motionTerm.setSelectedMotion(
@@ -1443,12 +1442,16 @@ export class mjswanRuntime {
         runner.getPolicyJointNames()
       );
 
+      // The rest of the first reset, in mjlab's order: observations, actions, then commands.
       const state = this.policyStateBuilder.build();
       this.policyRunner.reset(state);
       const actions = this.buildActionManager(config, runner, this.policyStateBuilder);
-      // mjlab resets every env before its first step, the action terms included.
       await actions?.reset();
+      // Before the commands' reset, which can read an action term.
       this.actionManager = actions;
+      await this.commandManager.resetTerms();
+      this.mujoco.mj_forward(this.mjModel, this.mjData);
+      this.updateCachedState();
 
       // Initialize termination manager if termination config is present
       if (config.terminations && Object.keys(config.terminations).length > 0) {
@@ -1687,7 +1690,7 @@ export class mjswanRuntime {
       let mapping: Parameters<typeof buildEntry>[2] | null;
 
       if (controlType === 'joint_position_command') {
-        mapping = stateBuilder.getModelControlMappingFor(patterns, actionTerm.preserve_order === true);
+        mapping = stateBuilder.getModelControlMappingFor(patterns);
         const commandName = String(actionTerm.command_name);
         const width = this.commandManager.getCommand(commandName).length;
         if (mapping && width !== mapping.qposAdr.length) {
@@ -1801,8 +1804,9 @@ export class mjswanRuntime {
   }
 
   /**
-   * Put the sim back to its initial state, fire `mode="reset"` events, then reset
-   * the command terms — mjlab's order (see `resetChain`).
+   * Put the sim back to its initial state, fire `mode="reset"` events, then reset the
+   * observations, the action terms and the command terms, in mjlab's order (see
+   * `resetChain`).
    *
    * The sim state resets synchronously, before the first `await`, so a caller that
    * cannot await still gets an immediately-reset sim. Pass `forward: false` when the
@@ -1843,7 +1847,8 @@ export class mjswanRuntime {
     }
     this.onnxTimeStep = 0;
     // Before the reset terms, not after as in mjlab: the loop may step while a UI reset's
-    // terms run, and zeroing after them would drop that step. No reset term reads it.
+    // terms run, and zeroing after them would drop that step. No reset term reads it: the
+    // build refuses a traced action reset that does.
     this.episodeLength = 0;
     this.lastSimState.bodies.clear();
 
@@ -1887,18 +1892,20 @@ export class mjswanRuntime {
 
   /**
    * mjlab's `action_manager.process_action`: every term's targets for this control step,
-   * from the action just stored, before the substeps apply them.
+   * from the action just stored, before the substeps apply them. `fresh` is false when
+   * inference stored no new action this step.
    */
-  private async processActions(): Promise<void> {
+  private async processActions(fresh: boolean): Promise<void> {
     // Held across the await: `setPolicy` can swap the manager mid-step.
     const actions = this.actionManager;
     if (!actions) return;
     this.refreshActionCommands(actions);
     try {
-      await actions.process(this.policyRunner?.getLastActions() ?? EMPTY_ACTIONS, {
-        episodeLength: this.episodeLength,
-        stepDt: this.timestep * this.decimation,
-      });
+      await actions.process(
+        this.policyRunner?.getLastActions() ?? EMPTY_ACTIONS,
+        { episodeLength: this.episodeLength, stepDt: this.timestep * this.decimation },
+        { fresh },
+      );
     } catch (error) {
       console.error('[ActionManager] processing the action failed:', error);
     }
@@ -1925,10 +1932,11 @@ export class mjswanRuntime {
     );
   }
 
-  private async runOnnxInference(obs: Record<string, Float32Array>): Promise<void> {
+  /** Run the policy and store its action; true only when this step stored a new one. */
+  private async runOnnxInference(obs: Record<string, Float32Array>): Promise<boolean> {
     const module = this.onnxModule;
     if (!module || !this.policyRunner || this.onnxInferencing) {
-      return;
+      return false;
     }
 
     this.onnxInferencing = true;
@@ -1949,14 +1957,14 @@ export class mjswanRuntime {
             key,
             available: Object.keys(input),
           });
-          return;
+          return false;
         }
       }
 
       const [result, carry] = await module.runInference(input);
       // `setPolicy` swapped the policy mid-run: this output is the old one's.
       if (this.onnxModule !== module) {
-        return;
+        return false;
       }
       if (Object.keys(carry).length > 0) {
         this.onnxInputDict = { ...this.onnxInputDict, ...carry };
@@ -1968,7 +1976,7 @@ export class mjswanRuntime {
       const outKey = module.outKeys[0];
       const actionTensor = result.action ?? (outKey ? result[outKey] : null) ?? result.policy ?? null;
       if (!actionTensor) {
-        return;
+        return false;
       }
 
       const raw = actionTensor.data as Float32Array | number[];
@@ -1979,13 +1987,16 @@ export class mjswanRuntime {
           expected: expectedActionCount,
           got: action.length,
         });
-        return;
+        return false;
       }
       // Before `setLastActions`, which is what both the action terms and the
       // `action` observation slot read, mirroring rsl-rl, where the clamp lands
       // ahead of `env.step` and so ahead of the action manager recording the action.
       clampActions(action, this.clipActions);
       this.policyRunner.setLastActions(action);
+      // So the same error, recurring after a recovery, is logged again.
+      this.lastInferenceError = null;
+      return true;
     } catch (error) {
       // An error, not a warning: until it clears, the policy acts no more.
       const message = String(error);
@@ -1993,6 +2004,7 @@ export class mjswanRuntime {
         this.lastInferenceError = message;
         console.error('[PolicyRunner] ONNX inference failed; the last action holds:', error);
       }
+      return false;
     } finally {
       this.onnxInferencing = false;
     }
@@ -2221,7 +2233,7 @@ export class mjswanRuntime {
   /**
    * Capture the current view as a JPEG Blob. Renders one frame and immediately
    * copies it into a 2D canvas in the same synchronous turn, so it works without
-   * `preserveDrawingBuffer` — the WebGL drawing buffer is still intact before the
+   * `preserveDrawingBuffer`: the WebGL drawing buffer is still intact before the
    * browser composites. Used by the upload preview's "Scan thumbnail" (ADR 0005).
    */
   async captureThumbnail(options: { maxDim?: number; quality?: number } = {}): Promise<Blob> {

@@ -76,7 +76,7 @@ function term(over: Partial<ResolvedActionTerm> = {}): ResolvedActionTerm {
   };
 }
 
-describe('applyAction — joint_position', () => {
+describe('applyAction: joint_position', () => {
   it('is default + offset + scale * action, with the encoder bias removed', () => {
     const data = fakeData(2);
     applyAction(
@@ -203,7 +203,7 @@ describe('applyAction — joint_position', () => {
   });
 });
 
-describe('applyAction — joint_velocity', () => {
+describe('applyAction: joint_velocity', () => {
   it('writes offset + scale * action as the target of a velocity actuator', () => {
     const data = fakeData(2, [0, 0], [3, -3]);
     applyAction(
@@ -271,7 +271,7 @@ describe('applyAction — joint_velocity', () => {
   });
 });
 
-describe('applyAction — other kinds', () => {
+describe('applyAction: other kinds', () => {
   it('scales straight to torque', () => {
     const data = fakeData(2);
     applyAction(
@@ -383,7 +383,7 @@ describe('stepPhysics', () => {
 // `clip` (mjlab's `BaseActionCfg.clip`), which no reference task sets.
 // ---------------------------------------------------------------------------
 
-describe('applyAction — clip', () => {
+describe('applyAction: clip', () => {
   it('bounds the processed action *before* the encoder bias is removed', () => {
     // The distinguishing case: mjlab clamps before `apply_actions` subtracts the bias, so
     // the final ctrl sits outside the bound by it. Clamping the target would pin it to 0.5.
@@ -555,7 +555,7 @@ function oneJoint(over: Partial<ResolvedActionTerm> = {}): ResolvedActionTerm {
   });
 }
 
-describe('applyAction — joint_position_relative', () => {
+describe('applyAction: joint_position_relative', () => {
   it('targets the measured position plus the scaled action, read live each substep', () => {
     const data = fakeData(1, [0.3], [0]);
     const t = oneJoint({
@@ -584,7 +584,7 @@ describe('applyAction — joint_position_relative', () => {
   });
 });
 
-describe('applyAction — hold_s', () => {
+describe('applyAction: hold_s', () => {
   it('targets the measured position while the hold lasts, then the processed action', () => {
     const data = fakeData(1, [0.7], [0]);
     const t = oneJoint({
@@ -621,7 +621,7 @@ describe('applyAction — hold_s', () => {
   });
 });
 
-describe('applyAction — interpolate', () => {
+describe('applyAction: interpolate', () => {
   it('ramps from the previous processed action, landing on the new one at the last substep', () => {
     const data = fakeData(1);
     const t = oneJoint({ rampFrom: new Float32Array(1), encoderBias: Float32Array.from([0.01]) });

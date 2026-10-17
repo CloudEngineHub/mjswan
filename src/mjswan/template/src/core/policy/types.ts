@@ -50,8 +50,6 @@ export type ActionConfigEntry = {
   damping?: number | number[] | Record<string, number>;
   actuator_names?: string[];
   clip?: Record<string, readonly number[]>;
-  /** A command term's joints in `actuator_names` order, not model order: mjlab's field. */
-  preserve_order?: boolean;
   /** Ramp each target across the substeps, from the previous processed action (ADR 0009). */
   interpolate?: boolean;
   /** Seconds from an episode's start during which every target is the measured position. */
@@ -84,7 +82,7 @@ export type PolicyConfig = {
   /**
    * Symmetric bound on the raw policy output, mirroring rsl-rl's
    * `RslRlVecEnvWrapper`. It clamps before `env.step`, so the clamped vector is what
-   * the action terms and any `last_action` observation see — not `ActionConfigEntry.clip`,
+   * the action terms and any `last_action` observation see. Not `ActionConfigEntry.clip`,
    * which bounds `raw * scale + offset` per target.
    */
   clip_actions?: number;

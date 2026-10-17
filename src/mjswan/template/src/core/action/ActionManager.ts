@@ -16,29 +16,54 @@ export interface ManagedActionTerm {
   traced?: OnnxActionProcess | null;
 }
 
-/** The processed action's field, and the property some mjlab versions read it through. */
-const PROCESSED_FIELDS = new Set(['processed_actions', '_processed_actions']);
-
 export class ActionManager {
   readonly terms: ResolvedActionTerm[];
   private readonly byName: Map<string, ManagedActionTerm>;
+  /** Each traced term's last logged failure: one that repeats every step is logged once. */
+  private readonly lastError = new Map<string, string>();
 
   constructor(private readonly entries: readonly ManagedActionTerm[]) {
     this.terms = entries.map((entry) => entry.term);
     this.byName = new Map(entries.map((entry) => [entry.name, entry]));
   }
 
-  /** Once per control step, after the policy: every term's `processed`, in config order. */
-  async process(actions: Float32Array, context: ProcessContext): Promise<void> {
-    for (const { term, traced } of this.entries) {
+  /**
+   * Once per control step, after the policy: every term's `processed`, in config order.
+   *
+   * Without a `fresh` action (the policy produced none this step), a traced term keeps its
+   * targets rather than integrate the held action again; a native term recomputes the same
+   * targets from it, and a command term goes on following its command. A traced term that
+   * fails keeps its targets too.
+   */
+  async process(
+    actions: Float32Array,
+    context: ProcessContext,
+    { fresh = true }: { fresh?: boolean } = {},
+  ): Promise<void> {
+    for (const { name, term, traced } of this.entries) {
       if (!traced) {
         processAction(term, actions, context);
         continue;
       }
       term.holding = inHold(term.holdS, context);
+      // Kept targets hold flat rather than replay the last step's ramp; a run that
+      // succeeds sets the ramp's start itself.
+      term.rampFrom?.set(term.processed);
+      if (!fresh) continue;
       const raw = new Float32Array(term.actionIndices.length);
       for (let i = 0; i < raw.length; i++) raw[i] = actions[term.actionIndices[i]] ?? 0;
-      term.active = await traced.process(raw, term.processed, term.rampFrom);
+      try {
+        if (await traced.process(raw, term.processed, term.rampFrom)) {
+          term.active = true;
+          this.lastError.delete(name);
+        }
+      } catch (error) {
+        const message = String(error);
+        if (this.lastError.get(name) !== message) {
+          this.lastError.set(name, message);
+          console.error(`[ActionManager] Action term "${name}" failed; its targets hold:`, error);
+        }
+      }
     }
   }
 
@@ -61,6 +86,6 @@ export class ActionManager {
     if (!entry) return null;
     const state = entry.traced?.getStateField(field);
     if (state) return state;
-    return PROCESSED_FIELDS.has(field) ? Float32Array.from(entry.term.processed) : null;
+    return field === '_processed_actions' ? Float32Array.from(entry.term.processed) : null;
   }
 }
