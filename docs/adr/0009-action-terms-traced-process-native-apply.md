@@ -46,9 +46,10 @@ computes; a traced term's is a graph, awaited once per control step.
 
 ### 2. A task's own class: `process_actions` and `reset` traced
 
-The adapter turns any buildable mjlab action cfg mjswan has no class for into a
-`TracedActionCfg`. The build constructs the term on the scene's trace env and traces
-both bodies, the term's state promoted to explicit I/O as a stateful command's is:
+The adapter turns a task's own buildable action cfg mjswan has no class for into a
+`TracedActionCfg`; one of mjlab's own classes without one (differential IK) is skipped
+with a warning, as before. The build constructs the term on the scene's trace env and
+traces both bodies, the term's state promoted to explicit I/O as a stateful command's is:
 
 ```
 process(raw, slots..., prev_<f>..., [rand]) -> (next_<f>..., processed, [processed_from])
@@ -56,14 +57,19 @@ reset(slots..., prev_<f>..., [rand])        -> (next_<f>...)
 ```
 
 - **State** is every tensor attribute either body writes, found by identity and
-  in-place version; its initial value is what `cfg.build(env)` leaves. A reset that
-  writes nothing has no graph.
+  in-place version, with each tensor held so a freed one's id cannot pass for a new
+  one's; its initial value is what `cfg.build(env)` leaves. A reset that writes nothing
+  has no graph.
 - **Env reads** become slots as for any traced term: the joint positions a reset
   restarts from, the episode clock a hold reads.
 - **Refused**, with the fix in the message: a body that changes Python state (a
-  counter), creates a tensor attribute, writes the sim, or reads a live mjlab object
-  other than its entity cached at init; a term whose action width differs from the
-  joints it drives.
+  counter, an attribute it creates, a deque of past actions), writes the sim (through
+  any entity, or into an entity's buffers), or reads a live mjlab object other than its
+  entity cached at init (its data, the scene, the sim, the env, a sensor); two state
+  fields that share one tensor, which the browser would carry apart; a slot the
+  browser's reader does not serve; a reset that reads the episode clock, which the
+  browser zeroes before its reset terms and mjlab after them; a term whose action width
+  differs from the joints it drives, or that names no joints.
 - **Verified before it ships**: both graphs run against the term's own bodies over
   random actions, resets and episode clocks, and a disagreement fails the build. A
   boolean-mask row write (`x[mask] = ...`) traces as a `where`, so it keeps working
@@ -79,13 +85,16 @@ what it does, from a small vocabulary the browser implements:
 | `type` | `joint_position` (target minus encoder bias), `joint_position_relative` (measured position plus the action, mjlab's `RelativeJointPositionAction`), `joint_velocity`, `torque`, and the existing reference, command and muscle kinds | the class |
 | `interpolate` | ramps from `processed_from` (the processed action before this step) to `processed`, `alpha = (k + 1) / decimation` | in-hand rotation |
 | `hold_s` | while `float32(episode_length * step_dt) < hold_s`, the target is the joint's measured position | luwu |
-| `delay` | each distinct actuator delay setting: mjlab's `DelayBuffer`, lag in `[min_lag, max_lag]` physics steps with `hold_prob`, `update_period`, `per_env_phase` | the actuator cfgs |
+| `delay` | per mjlab delay buffer (one actuator class and delay setting): its `DelayBuffer`, lag in `[min_lag, max_lag]` physics steps with `hold_prob`, `update_period`, `per_env_phase` | the actuator cfgs |
 
 A class that inherits `apply_actions` from mjlab's position, relative, velocity or
 effort action gets that kind with no binding. One that overrides it needs
 `mjswan.register_action(cfg_name, ActionBinding(apply=..., hold_s=..., interpolate=...))`,
 and the build refuses it without one. The binding's fields may be callables of the
-task's cfg, so `hold_s=lambda cfg: cfg.hold_duration_s` follows the task.
+task's cfg, so `hold_s=lambda cfg: cfg.hold_duration_s` follows the task. `interpolate`
+and `hold_s` act on a position target, so the build refuses them on a velocity or
+torque apply. The build looks the binding up itself, so it may be registered before or
+after `add_policy`.
 
 ### 4. Command delays for every term
 
@@ -97,14 +106,16 @@ browser starts each delay's history from that zero frame.
 ### 5. Observations that read a term's internals
 
 An observation may read `get_term(name).<field>`: a traced term's state field, or any
-term's `_processed_actions`. It is served as a new slot, `{action_term, field}`. The
-build serializes the actions before the observations, so it knows which fields a
+term's `_processed_actions`. It is served as a new slot, `{action_term, field}`, fed as
+float32 whatever the field's dtype. Any other internal raises, as does a property that
+reads the term's entity: the browser holds no copy of either, so its value would bake.
+The build serializes the actions before the observations, so it knows which fields a
 traced term carries.
 
 ### 6. Document format 6
 
-An action entry may carry `interpolate`, `hold_s`, `delay`, `process`, `reset` and
-`preserve_order`, and `type` may be `joint_position_relative`; an input slot may be
+An action entry may carry `interpolate`, `hold_s`, `delay`, `process` and `reset`, and
+`type` may be `joint_position_relative`; an input slot may be
 `{action_term, field}`. A format-5 engine would run such a term as a plain position
 term, so `DOCUMENT_FORMAT` is 6.
 
@@ -131,6 +142,8 @@ term, so `DOCUMENT_FORMAT` is 6.
   mjswan change.
 - A traced term costs one awaited graph run per control step.
 - Randomized delay lags are drawn from the browser's seeded RNG: mjlab's distribution,
-  not its stream. Lags an event sets through `Actuator.set_lags` are not run.
+  not its stream. The browser keeps one delay per action term, so joints of two terms
+  behind one mjlab delay buffer draw their lags apart; the build warns when that lag is
+  random. Lags an event sets through `Actuator.set_lags` are not run.
 - ADR 0005 §3's stateful *event* terms remain unimplemented: an event's trace carries
   no state.

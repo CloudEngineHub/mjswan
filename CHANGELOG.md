@@ -23,8 +23,15 @@ shortcuts.
   from mjlab's position, relative, velocity or effort action needs nothing, and one that
   overrides it is named with `mjswan.register_action(cfg_name, mjswan.ActionBinding(...))`:
   a target kind, a ramp across the substeps (`interpolate`) or a hold of the measured pose
-  after a reset (`hold_s`). A body a graph cannot reproduce, such as a Python counter or a
-  sim write, fails the build with the fix in the message.
+  after a reset (`hold_s`), both of a position target. The build looks the binding up, so
+  `register_action` may come before or after `add_policy`, or again after it. A body a
+  graph cannot reproduce fails the build with the fix in the message: Python state (a
+  counter, an attribute made in the body, a deque of past actions), a write to the sim or
+  to an entity's buffers, two state fields that share one tensor, a live mjlab object
+  cached at init (the entity's data, the scene, the sim), a field the browser's slot
+  reader does not serve, or a reset that reads the episode clock. One of mjlab's own
+  classes mjswan has none of, such as `DifferentialIKActionCfg`, is still skipped with a
+  warning.
 
 - **`RelativeJointPositionActionCfg`** (`joint_position_relative`): the target is the
   measured joint position plus `scale * a`, read every substep, as mjlab's
@@ -32,11 +39,16 @@ shortcuts.
 
 - **mjlab's actuator command delay runs in the browser**, for every kind of term. The
   build reads `delay_min_lag`, `delay_max_lag`, `delay_hold_prob`, `delay_update_period`
-  and `delay_per_env_phase` off the actuator configs, and no longer warns about them.
+  and `delay_per_env_phase` off the actuator configs, and no longer warns about them. A
+  term's joints share one lag where mjlab fuses their actuators behind one delay buffer
+  (same class and setting); a term's own `delay` is left as set. A random lag on joints
+  of two action terms warns: mjlab draws one lag for them, the browser one per term.
 
 - **An observation can read an action term's internals**, `get_term(name).<field>`: a
   traced term's state, or any term's `_processed_actions`, through the new
-  `{action_term, field}` input slot.
+  `{action_term, field}` input slot, which the browser feeds as float32. Any other
+  internal, or a property that reads the term's entity, fails the build, since the
+  browser holds no copy of it.
 
 - **`mjswan version` and `mjswan --version`** print the installed mjswan version.
 
@@ -316,11 +328,21 @@ shortcuts.
 
 - **The browser runs an action term in two halves, as mjlab does**: `process` once per
   control step, after the policy, and `apply` once per physics substep. It recomputed the
-  whole term every substep.
+  whole term every substep. A traced term's process and reset run one at a time, so a
+  reset started mid-step is not lost; one that fails holds its targets, and the terms
+  after it still run.
+
+- **A scene's first reset runs in mjlab's order**: observations, then action terms, then
+  command terms, as every later reset does. The commands reset first. With uniform
+  sampling, a tracking motion's start frame for a given seed changes.
 
 - **`compile.run_parity` fails where the build would**: an observation it cannot trace
   passes only when it reads nothing (the build bakes it), and an untraceable event only
-  when it is one the build knows has nothing to write. Both used to pass.
+  when it is one the build knows has nothing to write. Both used to pass. It traces an
+  author's registered replacement, as the build does, checking it against mjlab's own
+  term, and leaves one bound to a TS class unchecked. It reports a task's own action
+  terms, traced as the build traces them, and serves their state to the observations
+  that read it.
 
 - **mjlab's `last_action` is traced like any other observation**
   ([#155](https://github.com/ttktjmt/mjswan/issues/155)). Its body reads
@@ -773,10 +795,8 @@ shortcuts.
 
 - **A recurrent policy's carry starts at the width its network declares**, not always
   128, and a failing inference is logged as an error rather than stopping the robot
-  silently.
-
-- **`CommandJointPositionActionCfg(preserve_order=True)` orders its joints by pattern**,
-  as mjlab does. The flag was accepted and ignored.
+  silently. While it fails, a traced action term holds its targets rather than integrate
+  the last action again, and the same error recurring after a recovery is logged again.
 
 - **An mjlab setting the browser does not run warns at build time** instead of being
   dropped silently ([#165](https://github.com/ttktjmt/mjswan/issues/165)). An action term

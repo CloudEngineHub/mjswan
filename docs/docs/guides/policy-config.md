@@ -301,8 +301,10 @@ An action class mjswan has no class of its own for (a task's `JointPositionDelta
 `process_actions` and `reset` are traced to ONNX with the term's state carried between
 steps, as a traced command's is ([ADR 0009](https://github.com/ttktjmt/mjswan/blob/main/docs/adr/0009-action-terms-traced-process-native-apply.md)).
 Each graph is checked against the term's own code before it ships. The build refuses a
-body a graph cannot reproduce, such as one that keeps a Python counter or writes the sim,
-and says how to rewrite it.
+body a graph cannot reproduce, such as one that keeps a Python counter, writes the sim,
+caches the entity's data in `__init__` or keeps two names for one tensor, and says how to
+rewrite it. One of mjlab's own classes mjswan has none of, such as
+`DifferentialIKActionCfg`, is skipped with a warning instead.
 
 Its `apply_actions` is not traced. A class that inherits it from mjlab's
 `JointPositionAction`, `RelativeJointPositionAction`, `JointVelocityAction` or
@@ -335,8 +337,11 @@ mjswan.register_action(
 | `hold_s` | While `episode_length * step_dt < hold_s`, holds each joint at its measured position. |
 | `trace_override` | Called with the built term before tracing, to swap in a trace-friendly body. |
 
-`hold_s` and `interpolate` take a value or a function of the task's cfg. An observation
-that reads the term's internals (`get_term("joint_pos")._target`) reads the traced state.
+`hold_s` and `interpolate` take a value or a function of the task's cfg, and act on a
+position target only. The build looks the binding up itself, so `register_action` may come
+before or after `add_policy`, and a second call replaces the first. An observation that
+reads the term's internals (`get_term("joint_pos")._target`) reads the traced state; it
+may read the state fields and `_processed_actions`, nothing else.
 
 ### Joints a command drives
 
