@@ -7,9 +7,8 @@ import contextlib
 import io
 import traceback
 import warnings
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Iterator, Protocol, Sequence
+from typing import Any, Callable, Collection, Iterator, Protocol, Sequence
 from unittest import mock
 
 import numpy as np
@@ -227,25 +226,24 @@ class _Graph(Protocol):
     output_names: list[str]
 
 
-@dataclass
-class _ExportedGraph:
-    onnx_bytes: bytes
-    output_names: list[str]
-
-
 def reference_runner(graph: _Graph) -> GraphRunner:
     """*graph*, run by ONNX's reference evaluator, which needs no runtime."""
     import onnx
+
+    return _runner(onnx.load_from_string(graph.onnx_bytes), graph.output_names)
+
+
+def _runner(model: Any, output_names: Sequence[str]) -> GraphRunner:
     from onnx.reference import ReferenceEvaluator
 
-    evaluator = ReferenceEvaluator(onnx.load_from_string(graph.onnx_bytes))
+    evaluator = ReferenceEvaluator(model)
     declared = set(evaluator.input_names)
 
     def run(feeds: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
         outs = evaluator.run(
-            graph.output_names, {k: v for k, v in feeds.items() if k in declared}
+            list(output_names), {k: v for k, v in feeds.items() if k in declared}
         )
-        return {n: np.asarray(o) for n, o in zip(graph.output_names, outs)}
+        return {n: np.asarray(o) for n, o in zip(output_names, outs)}
 
     return run
 
@@ -254,10 +252,10 @@ class DivergentGraph(ValueError):
     """A traced graph that would not compute what its term computes in mjlab."""
 
 
+_REPLACE = "register a trace-friendly replacement with the matching mjswan.register_* function."
 _FIX = (
     "Compute it with tensor operations (`torch.where` for a branch), pass a fixed value "
-    "in the term's params, or register a trace-friendly replacement with the matching "
-    "mjswan.register_* function."
+    f"in the term's params, or {_REPLACE}"
 )
 
 
@@ -273,13 +271,24 @@ def no_hidden_reads(what: str) -> Iterator[None]:
             "it (a `getattr` default, `hasattr` or `except AttributeError`). mjlab's env "
             "has it, so the graph would follow a path the term does not take in mjlab. "
             "Read the value through what the tracer serves, pass it in the term's "
-            "params, or register a trace-friendly replacement with the matching "
-            "mjswan.register_* function."
+            f"params, or {_REPLACE}"
         )
 
 
 #: Input sets per check, the trace inputs first; seeded, so a verdict is reproducible.
 _CHECK_SAMPLES = 8
+
+#: Ops that draw: such a graph draws apart from its body, so it is not compared.
+_RANDOM_OPS = frozenset(
+    {
+        "Bernoulli",
+        "Multinomial",
+        "RandomNormal",
+        "RandomNormalLike",
+        "RandomUniform",
+        "RandomUniformLike",
+    }
+)
 
 #: Tracer warnings a single-env trace raises on sound code (see
 #: :func:`_prepare_single_env_export`), left out of a disagreement's hints.
@@ -299,6 +308,7 @@ def check_against_module(
     what: str,
     columns: Sequence[tuple[str, int]] = (),
     rand_ranges: Sequence[Sequence[float]] | None = None,
+    fixed: Collection[str] = (),
 ) -> None:
     """Refuse a graph that disagrees with the module it was exported from.
 
@@ -306,49 +316,64 @@ def check_against_module(
     (``.item()``, an ``if`` on a tensor, a counter) is fixed at its trace-time value. The
     module, run as Python on the trace inputs and on perturbed ones, decides anew.
     *columns* names the term behind each span of the first output's last axis, for a
-    fused group; *rand_ranges* bounds a trailing ``rand`` input.
+    fused group; *rand_ranges* bounds a trailing ``rand`` input; *fixed* names inputs held
+    at their trace values: an event's model rows, which its body may check in Python, as
+    mjlab's ``dr.geom_size`` checks its geom types.
     """
-    run = reference_runner(_ExportedGraph(onnx_bytes, list(output_names)))
+    import onnx
+
+    model = onnx.load_from_string(onnx_bytes)
+    if any(node.op_type in _RANDOM_OPS for node in model.graph.node):
+        return
+    run = _runner(model, output_names)
+    held = [name in fixed for name in input_names]
     generator = torch.Generator().manual_seed(0)
     for sample in range(_CHECK_SAMPLES):
         inputs = (
             example
             if sample == 0
-            else _perturbed(example, sample, generator, rand_ranges)
+            else _perturbed(example, sample, generator, rand_ranges, held)
         )
         where = "on its trace inputs" if sample == 0 else "on perturbed inputs"
         feeds = {n: x.detach().cpu().numpy() for n, x in zip(input_names, inputs)}
         try:
+            with np.errstate(all="ignore"), warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                outputs = run(feeds)
+        except Exception:
+            continue  # inputs the graph cannot run on leave nothing to compare
+        try:
             with torch.no_grad(), warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 produced = module(*(x.clone() for x in inputs))
-        except AttributeError as exc:
-            # A read discovery never saw: the body's reads follow its inputs.
+        except Exception as exc:
+            # The graph ran, so the body failed on a read its trace never saw.
             raise DivergentGraph(
                 f"{what} traced to a graph that disagrees with its own body {where}: "
-                f"{exc} {_FIX}"
+                f"the body raised {type(exc).__name__}: {exc} {_FIX}"
             ) from exc
-        except Exception:
-            continue  # inputs the body cannot run on leave nothing to compare
-        try:
-            outputs = run(feeds)
-        except Exception:
-            continue
         expected = produced if isinstance(produced, tuple) else (produced,)
-        for i, (name, want) in enumerate(zip(output_names, expected)):
-            detail = _apart(outputs[name], want, columns if i == 0 else ())
-            if detail is None:
-                continue
-            hints = _tracer_hints(module, example)
-            raise DivergentGraph(
-                f"{what} traced to a graph that disagrees with its own body {where} "
-                f"({detail}). The export records tensor operations only, so a value the "
-                "body works out in Python is fixed at its trace-time value: `.item()`, "
-                "`float()` or `bool()` of a tensor, an `if` on a tensor, a counter or "
-                "other state kept between calls."
-                + (f" The tracer flagged {'; '.join(hints)}." if hints else "")
-                + f" {_FIX}"
-            )
+        details = (
+            [f"the body gives {len(expected)} outputs, the graph {len(output_names)}"]
+            if len(expected) != len(output_names)
+            else [
+                _apart(outputs[name], want, columns if i == 0 else ())
+                for i, (name, want) in enumerate(zip(output_names, expected))
+            ]
+        )
+        detail = next((d for d in details if d is not None), None)
+        if detail is None:
+            continue
+        hints = _tracer_hints(module, example)
+        raise DivergentGraph(
+            f"{what} traced to a graph that disagrees with its own body {where} "
+            f"({detail}). The export records tensor operations only, so a value the "
+            "body works out in Python is fixed at its trace-time value: `.item()`, "
+            "`float()` or `bool()` of a tensor, an `if` on a tensor, a counter or "
+            "other state kept between calls."
+            + (f" The tracer flagged {'; '.join(hints)}." if hints else "")
+            + f" {_FIX}"
+        )
 
 
 def _perturbed(
@@ -356,12 +381,13 @@ def _perturbed(
     sample: int,
     generator: torch.Generator,
     rand_ranges: Sequence[Sequence[float]] | None,
+    held: Sequence[bool],
 ) -> tuple[torch.Tensor, ...]:
     """*example* redrawn for *sample* (1 on): a float negated, then scaled by a random
     factor of either sign; a bool flipped, then drawn; a draw at the low end of its range,
     just under the high end, then inside it, so a branch on it goes both ways. A float of
     whole numbers at least zero (a count, a flag) stays one: the export of ``any`` casts
-    to an integer, exact only there."""
+    to an integer, exact only there. An integer, or an input *held*, is kept."""
     inputs = []
     for i, value in enumerate(example):
         drawn: torch.Tensor
@@ -380,24 +406,30 @@ def _perturbed(
                 if sample == 1
                 else torch.rand(value.shape, generator=generator) < 0.5
             )
-        elif value.is_floating_point() and not _whole_counts(value):
+        elif held[i] or not value.is_floating_point():
+            drawn = value.clone()
+        elif not _whole_counts(value):
             x = value.detach().cpu().to(torch.float32)
             if sample == 1:
                 drawn = -x
             else:
-                spread = float(x.abs().mean()) + 0.1 if x.numel() else 0.1
+                finite = x[x.isfinite()]
+                spread = float(finite.abs().mean()) + 0.1 if finite.numel() else 0.1
                 factor = torch.rand(x.shape, generator=generator) * 4 - 2
                 noise = torch.randn(x.shape, generator=generator) * spread / 2
                 drawn = x * factor + noise
         else:
-            top = 2 * int(value.abs().max()) + 50 if value.numel() else 1
-            drawn = torch.randint(0, top, value.shape, generator=generator)
+            top = 2 * float(value.double().abs().max()) + 50 if value.numel() else 1
+            drawn = torch.randint(
+                0, int(min(top, 2**30)), value.shape, generator=generator
+            )
         inputs.append(drawn.to(value.dtype).reshape(value.shape))
     return tuple(inputs)
 
 
 def _whole_counts(value: torch.Tensor) -> bool:
-    return bool(value.numel()) and bool(((value >= 0) & (value == value.round())).all())
+    whole = (value >= 0) & (value == value.round()) & value.isfinite()
+    return bool(value.numel()) and bool(whole.all())
 
 
 def _apart(

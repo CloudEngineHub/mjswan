@@ -189,6 +189,7 @@ def trace_event_term(
         output_names=output_names,
         what=f"Event term {name!r}",
         rand_ranges=rand_ranges,
+        fixed=[n for k, n in zip(dynamic_keys, dyn_input_names) if k[0] == _MODEL_NS],
     )
 
     # The write says which entity it landed on; `asset_cfg` is the fallback.

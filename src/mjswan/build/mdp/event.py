@@ -35,6 +35,7 @@ def serialize_event(
         )
     from ...compile import trace_event_term
     from ...compile.event import event_writes_nothing_reason
+    from ...compile.export import DivergentGraph
     from ...compile.slot import UnsupportedEnvRead, slots_json
 
     func = term_cfg.func
@@ -53,6 +54,8 @@ def serialize_event(
             mode=term_cfg.mode,
             is_global_time=getattr(term_cfg, "is_global_time", False),
         )
+    except DivergentGraph:
+        raise
     except (ValueError, UnsupportedEnvRead) as exc:
         nothing_to_write = event_writes_nothing_reason(func, env, resolved)
         if nothing_to_write is not None:

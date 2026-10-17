@@ -171,3 +171,77 @@ def test_an_event_branching_on_its_draw_fails_the_trace():
 
     with pytest.raises(DivergentGraph, match="Event term 'push'"):
         trace_event_term(push_when_drawn_forward, {}, _env(), name="push", mode="reset")
+
+
+def test_a_graph_that_draws_is_not_compared():
+    """Its graph draws apart from its body, so the two cannot agree value for value."""
+    export = trace_term(
+        lambda env: _pos(env) + 0.01 * torch.randn_like(_pos(env)), {}, _env(), name="n"
+    )
+    assert export.input_slots == [("robot", "root_link_pos_w")]
+
+
+def push_only_when_drawn_forward(env, env_ids):
+    push = torch.empty(len(env_ids), 6).uniform_(-0.3, 0.3)
+    if push[0, 0] > 0:
+        env.scene["robot"].write_root_link_velocity_to_sim(push, env_ids=env_ids)
+
+
+def test_an_event_writing_on_some_draws_only_fails_the_trace():
+    from mjswan.compile import trace_event_term
+
+    torch.manual_seed(1)  # a forward draw, so the trace sees the write
+    with pytest.raises(DivergentGraph, match="the body gives 0 outputs, the graph 1"):
+        trace_event_term(
+            push_only_when_drawn_forward, {}, _env(), name="push", mode="reset"
+        )
+
+
+def push_twice_when_low(env, env_ids):
+    asset = env.scene["robot"]
+    count = 1 if bool(asset.data.root_link_pos_w[0, 2] > 0) else 2
+    push = torch.empty(count, 6).uniform_(-0.3, 0.3)
+    asset.write_root_link_velocity_to_sim(push[:1], env_ids=env_ids)
+
+
+def test_a_body_failing_where_its_graph_runs_fails_the_trace():
+    """Lower, the body draws twice: more than the trace recorded."""
+    from mjswan.compile import trace_event_term
+
+    with pytest.raises(DivergentGraph, match="the body raised"):
+        trace_event_term(push_twice_when_low, {}, _env(), name="push", mode="reset")
+
+
+def test_an_infinite_input_traces():
+    env = _env()
+    env.scene["robot"].data.time_to_contact = torch.tensor([[float("inf"), 0.0, 2.0]])
+
+    def capped(env):
+        return torch.clamp(env.scene["robot"].data.time_to_contact, max=5.0)
+
+    export = trace_term(capped, {}, env, name="capped")
+    assert export.input_slots == [("robot", "time_to_contact")]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        lambda env: getattr(env, "unwrapped", env).scene["robot"].data.root_link_pos_w,
+        lambda env: env.unwrapped.scene["robot"].data.root_link_pos_w,
+    ],
+    ids=["getattr", "attribute"],
+)
+def test_unwrapped_is_the_env(body):
+    env = _env()
+    env.unwrapped = env
+    export = trace_term(body, {}, env, name="pos")
+    assert export.input_slots == [("robot", "root_link_pos_w")]
+
+
+def test_an_event_build_keeps_the_error(tmp_path):
+    from mjswan.build.mdp.event import serialize_event
+    from mjswan.managers.event_manager import EventTermCfg
+
+    term = EventTermCfg(func=push_when_drawn_forward, mode="reset")
+    with pytest.raises(DivergentGraph, match="^Event term 'push' traced"):
+        serialize_event("push", term, _env(), tmp_path)

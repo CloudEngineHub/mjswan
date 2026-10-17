@@ -333,8 +333,10 @@ shortcuts.
   succeeded. The build now runs the term's own code on the trace inputs and on perturbed
   ones, and fails where the graph disagrees, naming the term and, where the tracer warned,
   the line. A refused read that a `getattr` default or `hasattr` swallowed fails it too,
-  when mjlab's env has the attribute. A port that built before may now fail on a term whose
-  browser value was wrong.
+  when mjlab's env has the attribute. A graph that draws its own random numbers
+  (`torch.rand` in a body) is not compared, and `env.unwrapped` is the env itself while
+  tracing, as in mjlab. A port that built before may now fail on a term whose browser value
+  was wrong.
 
 - **The browser runs an action term in two halves, as mjlab does**: `process` once per
   control step, after the policy, and `apply` once per physics substep. It recomputed the

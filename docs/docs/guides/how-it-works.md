@@ -302,7 +302,8 @@ ships, the build runs the term's own code on the trace inputs and on perturbed o
 fails where the graph disagrees: a value the body works out in Python (`.item()`, `bool()`
 of a tensor, an `if` on a tensor, a counter) is fixed in the graph. The error names the
 term and, where the tracer warned, the line. A read the tracer refuses fails the build even
-behind a `getattr` default or `hasattr`, when mjlab's env has the attribute.
+behind a `getattr` default or `hasattr`, when mjlab's env has the attribute. A graph that
+draws its own random numbers (`torch.rand` in a body) is not compared.
 
 In practice tracing failures are rare, because mjlab must run thousands of parallel
 environments on a GPU. That forces term bodies to avoid per-environment Python
