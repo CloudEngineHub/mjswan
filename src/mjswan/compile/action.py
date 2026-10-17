@@ -15,15 +15,27 @@ actions, resets and episode clocks.
 
 from __future__ import annotations
 
+import collections
 import contextlib
+import enum
+import functools
+import math
+import types
 from dataclasses import dataclass, field
-from typing import Any, Callable, Collection, Literal
+from typing import Any, Collection, Literal
 
 import numpy as np
 import torch
 from torch import nn
 
-from .command import _restore_state, _snapshot_state
+from .command import (
+    GraphRunner,
+    _mismatch,
+    _restore_state,
+    _snapshot_state,
+    _state_spec,
+    reference_runner,
+)
 from .export import (
     _classify_slots,
     _const_values,
@@ -35,10 +47,19 @@ from .export import (
     _register_consts,
 )
 from .gate import GatedIndexing, MaskedRows
+from .proxy import _is_live_object, _is_sensor
 from .record import _RecordingEnv
 from .replay import _ReplayEnv
 from .rng import DrawRecorder, ReplayRng
-from .slot import READER_FIELDS, SlotKey, _slot_input_name, read_slot
+from .slot import (
+    _ENV_NS,
+    READER_FIELDS,
+    SlotKey,
+    _sim_tensor,
+    _slot_input_name,
+    read_slot,
+    unserved_fields,
+)
 
 Body = Literal["reset", "process"]
 
@@ -51,12 +72,38 @@ _SCALARS = (bool, int, float, str, type(None))
 #: State dtypes the runtime holds natively; any other crosses as float32.
 _NATIVE_STATE_DTYPES = (torch.float32, torch.bool)
 
+#: Entity calls that change the sim, which only ``apply_actions`` may make.
+_SIM_CALL_PREFIXES = ("write_", "set_", "clear_")
+_SIM_CALLS = frozenset({"reset", "update"})
+
+#: Raw sim fields a body could write in place, compared around each discovery pass.
+_SIM_FIELDS = (
+    "qpos",
+    "qvel",
+    "act",
+    "ctrl",
+    "qfrc_applied",
+    "xfrc_applied",
+    "mocap_pos",
+    "mocap_quat",
+)
+
+#: Values compared by identity alone: their contents are code, not state.
+_OPAQUE = (
+    types.FunctionType,
+    types.MethodType,
+    types.BuiltinFunctionType,
+    types.ModuleType,
+    type,
+    functools.partial,
+)
+
 
 class UntraceableAction(ValueError):
     """An action term whose body the tracer cannot turn into a graph that matches it."""
 
 
-def _bodies(term: Any) -> tuple[Callable[..., Any], ...]:
+def _bodies(term: Any) -> tuple[Any, ...]:
     """Each class's own ``process_actions`` and ``reset``: a ``super()`` call runs in
     the base's module, whose globals a draw is looked up in too."""
     return tuple(
@@ -67,22 +114,138 @@ def _bodies(term: Any) -> tuple[Callable[..., Any], ...]:
     )
 
 
-def _tensor_versions(term: Any) -> dict[str, tuple[int, int]]:
-    """Each tensor attribute's identity and in-place version: a write changes one."""
+def _tensor_versions(obj: Any) -> dict[str, tuple[torch.Tensor, int]]:
+    """Each tensor attribute and its in-place version. The tensor is kept, so a freed
+    one's id cannot pass for a new one's when a body rebinds an attribute twice."""
     return {
-        k: (id(v), v._version)
-        for k, v in vars(term).items()
-        if isinstance(v, torch.Tensor)
+        k: (v, v._version) for k, v in vars(obj).items() if isinstance(v, torch.Tensor)
     }
 
 
-def _scalars(term: Any) -> dict[str, Any]:
-    return {k: v for k, v in vars(term).items() if isinstance(v, _SCALARS)}
+def _rewritten(
+    before: dict[str, tuple[torch.Tensor, int]],
+    after: dict[str, tuple[torch.Tensor, int]],
+) -> set[str]:
+    """The attributes rebound or written in place between the two."""
+    return {
+        k
+        for k, (v, version) in after.items()
+        if k not in before or before[k][0] is not v or before[k][1] != version
+    }
+
+
+def _views(term: Any) -> list[list[str]]:
+    """Tensor attributes that share memory, each group in attribute order."""
+    groups: dict[int, list[str]] = {}
+    for k, v in vars(term).items():
+        if isinstance(v, torch.Tensor) and v.numel():
+            groups.setdefault(v.untyped_storage().data_ptr(), []).append(k)
+    return [names for names in groups.values() if len(names) > 1]
+
+
+class _Same:
+    """A value compared by identity."""
+
+    __slots__ = ("value",)
+
+    def __init__(self, value: Any):
+        self.value = value
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, _Same) and other.value is self.value
+
+    __hash__ = None  # type: ignore[assignment]
+
+
+def _freeze(value: Any, depth: int = 0) -> Any:
+    """*value* as it stands, to compare after a body runs: containers and plain objects
+    by content, tensors and arrays by value, live objects and code by identity."""
+    if isinstance(value, torch.Tensor):
+        return value.detach().clone()
+    if isinstance(value, np.ndarray):
+        return value.copy()
+    if isinstance(value, (*_SCALARS, complex, bytes, enum.Enum, np.generic)):
+        return value
+    if depth > 3 or isinstance(value, _OPAQUE) or _is_live_object(value):
+        return _Same(value)
+    if isinstance(value, dict):
+        return (dict, {k: _freeze(v, depth + 1) for k, v in value.items()})
+    if isinstance(value, (list, tuple, set, frozenset, collections.deque)):
+        return (type(value), [_freeze(v, depth + 1) for v in value])
+    if isinstance(state := getattr(value, "__dict__", None), dict):
+        return (type(value), {k: _freeze(v, depth + 1) for k, v in state.items()})
+    return _Same(value)
+
+
+def _same(a: Any, b: Any) -> bool:
+    """Whether two :func:`_freeze` results agree, NaN equal to NaN."""
+    if isinstance(a, torch.Tensor) or isinstance(b, torch.Tensor):
+        if not (isinstance(a, torch.Tensor) and isinstance(b, torch.Tensor)):
+            return False
+        if a.shape != b.shape or a.dtype != b.dtype:
+            return False
+        if torch.equal(a, b):
+            return True
+        return a.is_floating_point() and bool(
+            ((a == b) | (a.isnan() & b.isnan())).all()
+        )
+    if isinstance(a, np.ndarray) or isinstance(b, np.ndarray):
+        if not (isinstance(a, np.ndarray) and isinstance(b, np.ndarray)):
+            return False
+        nan = a.dtype.kind in "fc" and b.dtype.kind in "fc"
+        return a.shape == b.shape and np.array_equal(a, b, equal_nan=nan)
+    if (
+        isinstance(a, (float, np.floating))
+        and isinstance(b, (float, np.floating))
+        and math.isnan(a)
+        and math.isnan(b)
+    ):
+        return True
+    if isinstance(a, (tuple, list)) and isinstance(b, (tuple, list)):
+        return (
+            type(a) is type(b)
+            and len(a) == len(b)
+            and all(_same(x, y) for x, y in zip(a, b))
+        )
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(_same(a[k], b[k]) for k in a)
+    try:
+        return bool(a == b)
+    except Exception:  # noqa: BLE001 (an object without a usable `==`)
+        return a is b
+
+
+def _python_state(term: Any, skip: Collection[str]) -> dict[str, Any]:
+    """Every attribute but the tensors and *skip*, frozen to compare after a body."""
+    return {
+        k: _freeze(v)
+        for k, v in vars(term).items()
+        if k not in skip and not isinstance(v, torch.Tensor)
+    }
+
+
+def _sim_values(env: Any) -> dict[str, torch.Tensor]:
+    """The raw sim fields a body could write in place, copied."""
+    data = getattr(getattr(env, "sim", None), "data", None)
+    values = {}
+    for name in _SIM_FIELDS:
+        value = _sim_tensor(getattr(data, name, None))
+        if isinstance(value, torch.Tensor):
+            values[name] = value.detach().clone()
+    return values
+
+
+def _refuse_sim_write(term_name: str, what: str, body: str) -> UntraceableAction:
+    return UntraceableAction(
+        f"Action term {term_name!r} {what} in {body}. Targets reach the sim through "
+        "apply_actions, which the browser runs natively; a body that writes the sim "
+        "cannot be traced."
+    )
 
 
 class _GuardedEntity:
-    """``self._entity`` for a body: data reads go to *data_source*, other attributes to
-    the real entity, and a call that would change the sim is refused."""
+    """An entity for a body: data reads go to *data_source*, other attributes to the
+    real entity, and a call that would change the sim is refused."""
 
     def __init__(self, data_source: Any, real: Any, term_name: str):
         object.__setattr__(self, "_source", data_source)
@@ -92,13 +255,39 @@ class _GuardedEntity:
     def __getattr__(self, name: str) -> Any:
         if name == "data":
             return self._source.data
-        if name.startswith(("write_", "set_")) or name in ("reset", "update"):
-            raise UntraceableAction(
-                f"Action term {self._term!r} calls entity.{name}() in process_actions "
-                "or reset. Targets reach the sim through apply_actions, which the "
-                "browser runs natively; a body that writes the sim cannot be traced."
+        if name.startswith(_SIM_CALL_PREFIXES) or name in _SIM_CALLS:
+            raise _refuse_sim_write(
+                self._term, f"calls entity.{name}()", "process_actions or reset"
             )
         return getattr(self._real, name)
+
+
+class _GuardedScene:
+    """``env.scene`` for a body: each entity in it guarded like the term's own."""
+
+    def __init__(self, scene: Any, real: Any, term_name: str):
+        self._scene = scene
+        self._real = real
+        self._term = term_name
+
+    def __getitem__(self, name: str) -> Any:
+        item = self._scene[name]
+        if _is_sensor(self._real, name):
+            return item
+        return _GuardedEntity(item, self._real[name], self._term)
+
+
+class _GuardedEnv:
+    """``self._env`` for a body: the pass's env, with its scene guarded."""
+
+    def __init__(self, env: Any, real: Any, term_name: str):
+        object.__setattr__(self, "_env", env)
+        object.__setattr__(
+            self, "scene", _GuardedScene(env.scene, real.scene, term_name)
+        )
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._env, name)
 
 
 class _Swap:
@@ -121,11 +310,24 @@ class _Swap:
             setattr(self._term, a, v)
 
 
+def joint_targets(term: Any, name: str) -> list[str]:
+    """The joints *term* drives, entity-prefixed, in the order ``processed`` lists them."""
+    names = getattr(term, "target_names", None)
+    if names is None:
+        raise UntraceableAction(
+            f"Action term {name!r} ({type(term).__name__}) names no joints it drives "
+            "(`target_names`). The browser applies joint targets only, so it cannot "
+            "run this term."
+        )
+    return [f"{term.cfg.entity_name}/{n}" for n in names]
+
+
 def _entity_attrs(term: Any, name: str) -> tuple[str, list[str]]:
     """The entity the term drives, and every attribute holding it.
 
-    Refuses an attribute holding another entity or a manager's term: the term cached it
-    at init, so its reads would bypass the tracer and bake as constants.
+    Refuses an attribute holding another live object (the entity's data, another
+    entity, the scene, the sim, the env, a sensor or a manager's term): the term cached
+    it at init, so its reads would bypass the tracer and bake as constants.
     """
     env = term._env
     entity_name = term.cfg.entity_name
@@ -142,25 +344,10 @@ def _entity_attrs(term: Any, name: str) -> tuple[str, list[str]]:
             f"Action term {name!r} keeps {foreign}, a live mjlab object other than its "
             f"entity {entity_name!r}, from its __init__. Its reads would bypass the "
             "tracer and freeze at their build-time values; read it through self._env "
-            "in the body instead, via mjswan.register_action(..., ActionBinding("
-            "trace_override=...))."
+            "or the entity in the body instead, via mjswan.register_action(..., "
+            "ActionBinding(trace_override=...))."
         )
     return entity_name, attrs
-
-
-def _is_live_object(value: Any) -> bool:
-    """An entity, sensor or manager term: something whose state changes under the term."""
-    if isinstance(value, (torch.Tensor, *_SCALARS, list, tuple, dict)):
-        return False
-    try:
-        from mjlab.managers.manager_base import ManagerTermBase
-    except ImportError:
-        ManagerTermBase = ()  # noqa: N806
-    if isinstance(value, ManagerTermBase):
-        return True
-    return hasattr(value, "data") and (
-        hasattr(value, "write_joint_state_to_sim") or hasattr(value, "update")
-    )
 
 
 @dataclass
@@ -184,38 +371,62 @@ def _discover(
     readers: Collection[str],
 ) -> _Pass:
     """Run *body* against recording proxies, every draw at its range's low end."""
-    recorder = _RecordingEnv(term._env, readers)
+    real_env = term._env
+    real_data = real_env.scene[entity_name].data
+    recorder = _RecordingEnv(real_env, readers)
     entity = _GuardedEntity(
-        recorder.scene[entity_name], term._env.scene[entity_name], name
+        recorder.scene[entity_name], real_env.scene[entity_name], name
     )
-    tensors, scalars = _tensor_versions(term), _scalars(term)
+    env = _GuardedEnv(recorder, real_env, name)
+    attrs = set(vars(term))
+    tensors = _tensor_versions(term)
+    python = _python_state(term, {"_env", "cfg", *entity_attrs})
+    buffers = _tensor_versions(real_data)
+    sim = _sim_values(real_env)
     with (
-        _Swap(term, recorder, entity, entity_attrs),
+        _Swap(term, env, entity, entity_attrs),
         DrawRecorder(*_bodies(term), at_lower_bounds=True) as draws,
         GatedIndexing(),
-        MaskedRows(),
+        MaskedRows(term.num_envs),
     ):
         _run_body(term, body, raw)
-    after = _tensor_versions(term)
-    if created := sorted(set(after) - set(tensors)):
+    where = _body_name(body)
+    if created := sorted(set(vars(term)) - attrs):
         raise UntraceableAction(
-            f"Action term {name!r} creates {created} in {_body_name(body)}. Create its "
-            "state in __init__, so the build knows its starting value."
+            f"Action term {name!r} creates {created} in {where}. Create its state in "
+            "__init__, as a tensor, so the build knows its starting value."
         )
-    changed = sorted(
+    current = vars(term)
+    if changed := sorted(
         k
-        for k, v in _scalars(term).items()
-        if k not in entity_attrs and scalars.get(k, v) != v
-    )
-    if changed:
+        for k, v in python.items()
+        if k not in current or not _same(v, _freeze(current[k]))
+    ):
         raise UntraceableAction(
-            f"Action term {name!r} changes {changed} in {_body_name(body)}: Python "
-            "state a graph cannot carry, so the browser would keep its build-time "
-            "value. Keep it in a tensor instead, via mjswan.register_action(..., "
+            f"Action term {name!r} changes {changed} in {where}: Python state a graph "
+            "cannot carry, so the browser would keep its build-time value. Keep it in "
+            "a tensor instead, via mjswan.register_action(..., "
             "ActionBinding(trace_override=...))."
         )
-    written = {k for k, v in after.items() if tensors.get(k) != v}
-    return _Pass(list(recorder._log), recorder, written, draws)  # noqa: SLF001
+    sim_data = real_env.sim.data if sim else None
+    if written := [
+        *(
+            f"entity.data.{k}"
+            for k in sorted(_rewritten(buffers, _tensor_versions(real_data)))
+        ),
+        *(
+            f"sim.data.{k}"
+            for k, v in sim.items()
+            if not _same(v, _sim_tensor(getattr(sim_data, k)))
+        ),
+    ]:
+        raise _refuse_sim_write(name, f"writes {written}", where)
+    return _Pass(
+        list(recorder._log),  # noqa: SLF001
+        recorder,
+        _rewritten(tensors, _tensor_versions(term)),
+        draws,
+    )
 
 
 def _body_name(body: Body) -> str:
@@ -251,6 +462,7 @@ class _ActionModule(nn.Module):
     def __init__(
         self,
         term: Any,
+        name: str,
         body: Body,
         *,
         state_fields: list[str],
@@ -268,6 +480,7 @@ class _ActionModule(nn.Module):
     ):
         super().__init__()
         self._term = term
+        self._name = name
         self._body: Body = body
         self._state_fields = state_fields
         self._state_dtypes = state_dtypes
@@ -303,9 +516,10 @@ class _ActionModule(nn.Module):
         entity = _GuardedEntity(
             env.scene[self._entity_name],
             self._real_env.scene[self._entity_name],
-            self._entity_name,
+            self._name,
         )
-        with _Swap(self._term, env, entity, self._entity_attrs):
+        guarded = _GuardedEnv(env, self._real_env, self._name)
+        with _Swap(self._term, guarded, entity, self._entity_attrs):
             for name, dtype, value in zip(
                 self._state_fields, self._state_dtypes, state
             ):
@@ -315,7 +529,7 @@ class _ActionModule(nn.Module):
                 if rand is not None
                 else contextlib.nullcontext()
             )
-            with draws, GatedIndexing(), MaskedRows():
+            with draws, GatedIndexing(), MaskedRows(self._term.num_envs):
                 start = (
                     _processed(self._term).clone()
                     if self._body == "process" and self._ramp_from
@@ -378,6 +592,13 @@ def _export_body(
     dynamic: dict[SlotKey, torch.Tensor] = {}
     constants: dict[SlotKey, torch.Tensor] = {}
     _classify_slots(found.log, dynamic, constants)
+    if unserved := unserved_fields(dynamic):
+        raise UntraceableAction(
+            f"Action term {name!r} reads {unserved} in {_body_name(body)}, which the "
+            "browser's slot reader does not serve, so the graph could never run. Read "
+            "a field it serves (READER_FIELDS) instead, via mjswan.register_action(..., "
+            "ActionBinding(trace_override=...))."
+        )
     sim_rows = _narrow_inputs(dynamic, [found.recorder._sim])  # noqa: SLF001
     dynamic_keys = sorted(dynamic)
     input_names = [_slot_input_name(k) for k in dynamic_keys]
@@ -386,6 +607,7 @@ def _export_body(
 
     module = _ActionModule(
         term,
+        name,
         body,
         state_fields=state_fields,
         state_dtypes=[v.dtype for v in state_values],
@@ -457,14 +679,15 @@ def trace_action_term(
     """
     _prepare_single_env_export(term.num_envs)
     readers = READER_FIELDS if reader_fields is None else frozenset(reader_fields)
+    targets = joint_targets(term, name)
     entity_name, entity_attrs = _entity_attrs(term, name)
-    targets = [f"{entity_name}/{n}" for n in term.target_names]
     if term.action_dim != len(targets):
         raise UntraceableAction(
             f"Action term {name!r} takes {term.action_dim} action value(s) but drives "
             f"{len(targets)} joint(s). The browser feeds a traced term one action per "
             "joint it drives."
         )
+    views = _views(term)
 
     generator = torch.Generator().manual_seed(0)
     raw = torch.rand((term.num_envs, term.action_dim), generator=generator) * 2 - 1
@@ -485,6 +708,13 @@ def trace_action_term(
     finally:
         _restore_state(term, snapshot)
     state_fields = sorted(passes["reset"].written | passes["process"].written)
+    if shared := [names for names in views if set(names) & set(state_fields)]:
+        raise UntraceableAction(
+            f"Action term {name!r} keeps {shared[0]} as views of one tensor. The "
+            "browser carries each state field as a tensor of its own, so a write "
+            "through one would not reach the other; give each its own tensor "
+            "(`.clone()`)."
+        )
 
     graphs = {
         body: _export_body(
@@ -504,50 +734,25 @@ def trace_action_term(
         # A reset that writes no state is mjlab's no-op for this term: no graph.
         if body == "process" or passes["reset"].written
     }
+    reset = graphs.get("reset")
+    if reset is not None and (_ENV_NS, "episode_length_buf") in reset.input_slots:
+        raise UntraceableAction(
+            f"Action term {name!r} reads env.episode_length_buf in reset. mjlab zeroes "
+            "the clock after its reset terms and the browser before them, so the reset "
+            "would see a different value; read it in process_actions instead."
+        )
     export = ActionExport(
         name=name,
         process=graphs["process"],
-        reset=graphs.get("reset"),
-        state_fields=[_state_spec(term, f) for f in state_fields],
+        reset=reset,
+        state_fields=[
+            _state_spec(f, _state_example(getattr(term, f))) for f in state_fields
+        ],
         target_names=targets,
         ramp_from=ramp_from,
     )
     _verify(export, term)
     return export
-
-
-def _state_spec(term: Any, name: str) -> dict[str, Any]:
-    """``{name, shape, dtype, init}``, with ``init`` as plain JSON values."""
-    value = _state_example(getattr(term, name)).detach()
-    return {
-        "name": name,
-        "shape": list(value.shape),
-        "dtype": str(value.dtype).replace("torch.", ""),
-        "init": [
-            bool(v) if value.dtype == torch.bool else v
-            for v in value.reshape(-1).tolist()
-        ],
-    }
-
-
-GraphRunner = Callable[[dict[str, np.ndarray]], dict[str, np.ndarray]]
-
-
-def reference_runner(graph: ActionGraph) -> GraphRunner:
-    """*graph* run by ONNX's reference evaluator, which needs no runtime."""
-    import onnx
-    from onnx.reference import ReferenceEvaluator
-
-    evaluator = ReferenceEvaluator(onnx.load_from_string(graph.onnx_bytes))
-    declared = set(evaluator.input_names)
-
-    def run(feeds: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
-        outs = evaluator.run(
-            graph.output_names, {k: v for k, v in feeds.items() if k in declared}
-        )
-        return {n: np.asarray(o) for n, o in zip(graph.output_names, outs)}
-
-    return run
 
 
 def compare_body(
@@ -593,11 +798,7 @@ def compare_body(
         _run_body(term, body, raw)
 
     def differs(label: str, got: np.ndarray, want: torch.Tensor) -> str | None:
-        expected = _state_example(want).detach().cpu().numpy().astype(np.float32)
-        actual = np.asarray(got, dtype=np.float32).reshape(expected.shape)
-        if np.allclose(actual, expected, atol=atol, rtol=rtol):
-            return None
-        return f"{label}: graph {actual.tolist()}, mjlab {expected.tolist()}"
+        return _mismatch(label, got, _state_example(want), atol=atol, rtol=rtol)[1]
 
     for spec in export.state_fields:
         note = differs(
@@ -631,7 +832,7 @@ def _verify(export: ActionExport, term: Any) -> None:
     Runs reset, then a process step at each of :data:`_EPISODE_STEPS`, then a reset and
     a few more steps, chaining state through mjlab's bodies, with random actions in
     [-1.5, 1.5] and draws inside their ranges. A branch the trace took one way and the
-    body takes another (a Python ``if`` on a tensor, a counter) shows up here.
+    body takes another (a Python ``if`` on a tensor) shows up here.
     """
     env = term._env
     process = reference_runner(export.process)
@@ -659,7 +860,7 @@ def _verify(export: ActionExport, term: Any) -> None:
         return compare_body(term, export, "reset", reset, rand=rand)
 
     try:
-        plan: list[tuple[str, Callable[[], str | None]]] = [("reset", restart)]
+        plan: list[tuple[str, Any]] = [("reset", restart)]
         plan += [(f"process at step {s}", lambda s=s: step(s)) for s in _EPISODE_STEPS]
         plan += [("reset", restart)]
         plan += [(f"process at step {s}", lambda s=s: step(s)) for s in (0, 1, 2)]
@@ -668,8 +869,8 @@ def _verify(export: ActionExport, term: Any) -> None:
                 raise UntraceableAction(
                     f"Action term {export.name!r} traced to a graph that disagrees with "
                     f"its own body ({label}: {note}). A branch the trace cannot follow, "
-                    "a Python `if` on a tensor or a counter, is the likely cause; supply "
-                    "a trace-friendly body via mjswan.register_action(..., "
+                    "such as a Python `if` on a tensor, is the likely cause; supply a "
+                    "trace-friendly body via mjswan.register_action(..., "
                     "ActionBinding(trace_override=...))."
                 )
     finally:
@@ -681,8 +882,10 @@ def _verify(export: ActionExport, term: Any) -> None:
 __all__ = [
     "ActionExport",
     "ActionGraph",
+    "GraphRunner",
     "UntraceableAction",
     "compare_body",
+    "joint_targets",
     "reference_runner",
     "trace_action_term",
 ]

@@ -19,7 +19,7 @@ each selection both ways.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, Callable, Protocol
 from unittest import mock
 
 import numpy as np
@@ -369,26 +369,10 @@ def trace_command_term(
     )
     _restore_state(term, snap)
 
-    # Initial values, as `cfg.build(env)` left them. Without them the runtime
-    # zero-fills, which starts a counter or a held previous value wrong.
-    state_specs = [
-        {
-            "name": f,
-            "shape": list(getattr(term, f).shape),
-            "dtype": str(getattr(term, f).dtype).replace("torch.", ""),
-            "init": [
-                # Plain JSON values; the reader rebuilds the typed array from `dtype`.
-                bool(v) if getattr(term, f).dtype == torch.bool else v
-                for v in getattr(term, f).detach().reshape(-1).tolist()
-            ],
-        }
-        for f in state_fields
-    ]
-
     export = CommandExport(
         name=name,
         onnx_bytes=onnx_bytes,
-        state_fields=state_specs,
+        state_fields=[_state_spec(f, getattr(term, f)) for f in state_fields],
         command_field=command_field,
         input_slots=dynamic_keys,
         input_names=dyn_names,
@@ -404,6 +388,41 @@ def trace_command_term(
 
 
 GraphRunner = Callable[[dict[str, np.ndarray]], dict[str, np.ndarray]]
+
+
+class _Graph(Protocol):
+    onnx_bytes: bytes
+    output_names: list[str]
+
+
+def _state_spec(name: str, value: torch.Tensor) -> dict[str, Any]:
+    """``{name, shape, dtype, init}`` for one state field, as the build left it.
+
+    Without ``init`` the runtime zero-fills, which starts a counter or a held previous
+    value wrong. Plain JSON values; the reader rebuilds the typed array from ``dtype``.
+    """
+    value = value.detach()
+    return {
+        "name": name,
+        "shape": list(value.shape),
+        "dtype": str(value.dtype).replace("torch.", ""),
+        "init": [
+            bool(v) if value.dtype == torch.bool else v
+            for v in value.reshape(-1).tolist()
+        ],
+    }
+
+
+def _mismatch(
+    label: str, got: np.ndarray, want: torch.Tensor, *, atol: float, rtol: float
+) -> tuple[float, str | None]:
+    """The largest gap between a graph output and mjlab's value, and what disagreed."""
+    expected = np.asarray(want.detach().cpu().numpy(), dtype=np.float32)
+    actual = np.asarray(got, dtype=np.float32).reshape(expected.shape)
+    gap = float(np.max(np.abs(actual - expected))) if expected.size else 0.0
+    if np.allclose(actual, expected, atol=atol, rtol=rtol):
+        return gap, None
+    return gap, f"{label}: graph {actual.tolist()}, mjlab {expected.tolist()}"
 
 
 def live_slot_values(term: Any, export: CommandExport) -> dict[str, np.ndarray]:
@@ -465,12 +484,9 @@ def compare_step(
 
     def differs(label: str, got: np.ndarray, want: Any) -> str | None:
         nonlocal worst
-        want = np.asarray(want.detach().cpu().numpy(), dtype=np.float32)
-        got = np.asarray(got, dtype=np.float32).reshape(want.shape)
-        worst = max(worst, float(np.max(np.abs(got - want))) if want.size else 0.0)
-        if np.allclose(got, want, atol=atol, rtol=rtol):
-            return None
-        return f"{label}: graph {got.tolist()}, mjlab {want.tolist()}"
+        gap, note = _mismatch(label, got, want, atol=atol, rtol=rtol)
+        worst = max(worst, gap)
+        return note
 
     for f in state_fields:
         note = differs(f, outputs[f"next_{f}"], getattr(term, f))
@@ -511,19 +527,19 @@ def _probe_draws(
     ]
 
 
-def reference_runner(export: CommandExport) -> GraphRunner:
-    """*export*'s graph, run by ONNX's reference evaluator, which needs no runtime."""
+def reference_runner(graph: _Graph) -> GraphRunner:
+    """*graph*, run by ONNX's reference evaluator, which needs no runtime."""
     import onnx
     from onnx.reference import ReferenceEvaluator
 
-    evaluator = ReferenceEvaluator(onnx.load_from_string(export.onnx_bytes))
+    evaluator = ReferenceEvaluator(onnx.load_from_string(graph.onnx_bytes))
     declared = set(evaluator.input_names)
 
     def run(feeds: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
         outs = evaluator.run(
-            export.output_names, {k: v for k, v in feeds.items() if k in declared}
+            graph.output_names, {k: v for k, v in feeds.items() if k in declared}
         )
-        return {n: np.asarray(o) for n, o in zip(export.output_names, outs)}
+        return {n: np.asarray(o) for n, o in zip(graph.output_names, outs)}
 
     return run
 

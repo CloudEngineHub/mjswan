@@ -48,9 +48,8 @@ class BaseActionCfg(ActionTermCfg):
     """Action offset added after scaling."""
 
     preserve_order: bool = False
-    """Order the targets by ``actuator_names`` rather than by the model, as mjlab does.
-    A policy term's order is its ``policy_joint_names``, which the build takes from
-    mjlab's own resolution, so only a command term reads this."""
+    """Accepted for mjlab compatibility; ignored, as mjlab 1.6.0 ignores it for joint
+    actions: targets follow the model's joint order."""
 
     delay: list[dict[str, Any]] | None = None
     """mjswan-specific: mjlab's actuator command delays (``ActuatorCfg.delay_*``) on this
@@ -191,8 +190,6 @@ class CommandJointPositionActionCfg(BaseActionCfg):
             entry["offset"] = self.offset
         entry["actuator_names"] = list(self.actuator_names)
         entry["command_name"] = self.command_name
-        if self.preserve_order:
-            entry["preserve_order"] = True
         if self.stiffness is not None:
             entry["stiffness"] = self.stiffness
         if self.damping is not None:

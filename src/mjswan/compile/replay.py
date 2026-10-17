@@ -263,7 +263,7 @@ class _ReplayActionManager:
     def get_term(self, name: str) -> Any:
         offset, dim = action_term_window(self._real, name)
 
-        def read_state(attr: str, _value: torch.Tensor) -> torch.Tensor:
+        def read_state(attr: str, real: torch.Tensor) -> torch.Tensor:
             value = self._slots.get((_ACTION_TERM_NS, f"{name}.{attr}"))
             if value is None:
                 raise AttributeError(
@@ -271,7 +271,7 @@ class _ReplayActionManager:
                     "discovery pass never saw: the term's control flow is "
                     "input-dependent, which is not traceable (ADR 0005 §Consequences)."
                 )
-            return value
+            return value.to(real.dtype)
 
         return _action_term_proxy(
             self._real.get_term(name),

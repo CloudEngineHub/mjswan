@@ -11,7 +11,7 @@ from __future__ import annotations
 import contextlib
 import contextvars
 import re
-from typing import Any, Collection, Iterator, Mapping, Sequence
+from typing import Any, Collection, Iterable, Iterator, Mapping, Sequence
 
 import torch
 
@@ -236,6 +236,23 @@ READER_FIELDS: frozenset[str] = frozenset(
         "heading_w",
     }
 )
+
+
+#: Slot namespaces that are not an entity's ``data``.
+_NON_ENTITY_NS = frozenset(
+    {_SENSOR_NS, _COMMAND_NS, _SIM_NS, _ENV_NS, _ACTION_NS, _ACTION_TERM_NS, _MODEL_NS}
+)
+
+
+def unserved_fields(keys: Iterable[SlotKey]) -> list[str]:
+    """``entity.field`` for each entity-data slot the browser's reader cannot serve."""
+    return sorted(
+        {
+            f"{namespace}.{name}"
+            for namespace, name in keys
+            if namespace not in _NON_ENTITY_NS and name not in READER_FIELDS
+        }
+    )
 
 
 def _reader_fields(fields: Collection[str] | None) -> frozenset[str]:

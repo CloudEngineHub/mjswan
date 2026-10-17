@@ -360,7 +360,9 @@ class _RecordingActionManager:
             return real.raw_action
 
         def read_state(attr: str, value: torch.Tensor) -> torch.Tensor:
-            self._log.append(((_ACTION_TERM_NS, f"{name}.{attr}"), value))
+            # Logged as the float32 the browser feeds; replay casts back to its dtype.
+            key = (_ACTION_TERM_NS, f"{name}.{attr}")
+            self._log.append((key, value.to(torch.float32)))
             return value
 
         return _action_term_proxy(

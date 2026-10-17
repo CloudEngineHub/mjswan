@@ -802,6 +802,8 @@ class TestAdaptCommands:
             entity_name="robot",
             actuator_names=("finger_.*", "thumb|palm"),
         )
+        # A task's own class lives in the task's package, not mjlab's.
+        cfg_cls.__module__ = "in_hand_rotation.tasks.actions"
         cfg_cls.build = lambda self, env: None
         cfg = cfg_cls()
 
@@ -813,8 +815,10 @@ class TestAdaptCommands:
         assert adapted.binding is None
         assert adapted.actuator_names == ("robot/finger_.*", "robot/(?:thumb|palm)")
 
-    def test_a_registered_action_class_is_traced_with_its_binding(self):
-        """From outside the mjlab package too, as a task's own module is."""
+    def test_a_task_action_class_is_traced_and_its_binding_left_to_the_build(self):
+        """From outside the mjlab package too, as a task's own module is. The build
+        looks the binding up, so one registered again later still counts."""
+        from mjswan.envs.mdp.actions import TracedActionCfg
         from mjswan.managers.action_manager import (
             ActionBinding,
             _action_registry,
@@ -837,7 +841,8 @@ class TestAdaptCommands:
             _action_registry.pop("HeldJointPositionActionCfg", None)
 
         assert result is not None
-        assert result["joint_pos"].binding is binding  # type: ignore[attr-defined]
+        assert isinstance(result["joint_pos"], TracedActionCfg)
+        assert result["joint_pos"].binding is None
 
     def test_mjlab_unknown_action_warns(self):
         FakeUnknown = _make_mjlab_class(
@@ -1106,6 +1111,64 @@ class TestResolveActuatorDelays:
         assert actions["waist"].delay is None
         assert "delay" not in actions["waist"].to_dict()
 
+    def test_an_authors_delay_is_left_alone(self):
+        from mjswan.envs.mdp.actions import JointPositionActionCfg
+
+        own = [{"joints": ["robot/left_knee_joint"], "min_lag": 4, "max_lag": 4}]
+        actions = {"joint_pos": JointPositionActionCfg(delay=own)}
+        resolve_actuator_delays(
+            actions, self.JOINTS, _env_cfg_with(_delayed_actuator((".*",), 2))
+        )
+        assert actions["joint_pos"].delay == own
+
+    def test_actuators_of_two_classes_draw_their_own_lags(self):
+        # mjlab fuses a delay buffer per actuator class, not per setting alone.
+        from mjswan.envs.mdp.actions import JointPositionActionCfg
+
+        class OtherActuatorCfg(SimpleNamespace):
+            pass
+
+        knee = _delayed_actuator((".*knee.*",), 2)
+        waist = OtherActuatorCfg(**vars(_delayed_actuator(("waist_yaw_joint",), 2)))
+        actions = {"joint_pos": JointPositionActionCfg()}
+        resolve_actuator_delays(actions, self.JOINTS, _env_cfg_with(knee, waist))
+        assert [entry["joints"] for entry in actions["joint_pos"].delay] == [
+            ["robot/left_knee_joint", "robot/right_knee_joint"],
+            ["robot/waist_yaw_joint"],
+        ]
+
+    def test_two_terms_behind_one_random_lag_warn(self):
+        from mjswan.envs.mdp.actions import JointPositionActionCfg
+        from mjswan.mjlab import warn_split_delays
+
+        actions = {
+            "legs": JointPositionActionCfg(actuator_names=("robot/.*_knee_joint",)),
+            "waist": JointPositionActionCfg(actuator_names=("robot/waist_yaw_joint",)),
+        }
+        joints = {name: self.JOINTS for name in actions}
+        random = _env_cfg_with(_delayed_actuator((".*",), 3, min_lag=1))
+        with pytest.warns(RuntimeWarning, match=r"\['legs', 'waist'\].*random lag"):
+            warn_split_delays(actions, joints, random)
+        fixed = _env_cfg_with(_delayed_actuator((".*",), 3, min_lag=3))
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            warn_split_delays(actions, joints, fixed)
+
+
+class TestUnsupportedMjlabActions:
+    """One of mjlab's own action classes mjswan has none of is skipped, not traced."""
+
+    def test_differential_ik_is_skipped_with_a_warning(self):
+        pytest.importorskip("mjlab")
+        from mjlab.envs.mdp.actions.differential_ik import DifferentialIKActionCfg
+
+        ik = DifferentialIKActionCfg(
+            entity_name="robot", actuator_names=(".*",), frame_name="hand"
+        )
+        with pytest.warns(RuntimeWarning, match="DifferentialIKActionCfg.*skipped"):
+            adapted = adapt_actions({"ik": ik})
+        assert adapted == {}
+
 
 # ===================================================================
 # Tests: End-to-end serialization after adaptation
@@ -1246,7 +1309,7 @@ class TestMuscleActionAdaptation:
         assert result["muscles"].offset == 0.0
 
     def test_class_name_alias_dispatch(self):
-        # The adapter looks up the source class name in _ACTION_CLASS_ALIASES. If the source
+        # The adapter looks up the source class name in envs/mdp/actions' _ALIASES. If the source
         # class is renamed upstream, this test would catch the break by failing dispatch.
         mjlab_cfg = FakeMyoMuscleActivationActionCfg()
         assert type(mjlab_cfg).__name__ == "MyoMuscleActivationActionCfg"

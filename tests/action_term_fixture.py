@@ -8,6 +8,7 @@ rule the tracer enforces.
 
 from __future__ import annotations
 
+import collections
 import contextlib
 import io
 from dataclasses import dataclass
@@ -195,12 +196,197 @@ class WritingAction(JointPositionAction):
         self._entity.set_joint_position_target(self._processed_actions)
 
 
+@dataclass(kw_only=True)
+class AliasActionCfg(JointPositionActionCfg):
+    def build(self, env):
+        return AliasAction(self, env)
+
+
+class AliasAction(JointPositionAction):
+    """Writes its target through an alias of the processed action made in __init__."""
+
+    def __init__(self, cfg, env):
+        super().__init__(cfg, env)
+        self._target = self._processed_actions
+
+    def process_actions(self, actions):
+        self._raw_actions[:] = actions
+        self._target[:] = self._raw_actions * self._scale + self._offset
+
+
+@dataclass(kw_only=True)
+class CachedDataActionCfg(DeltaActionCfg):
+    def build(self, env):
+        return CachedDataAction(self, env)
+
+
+class CachedDataAction(DeltaAction):
+    """Restarts from a measured pose read off ``entity.data`` cached at init."""
+
+    def __init__(self, cfg, env):
+        self._data = env.scene[cfg.entity_name].data
+        super().__init__(cfg, env)
+
+    def _initialize_target(self, env_ids):
+        current = self._data.joint_pos[env_ids][:, self._target_ids]
+        self._target[env_ids] = self._clamp(current, env_ids)
+        self._processed_actions[env_ids] = self._target[env_ids]
+        self._prev_target[env_ids] = self._target[env_ids]
+
+
+@dataclass(kw_only=True)
+class SceneWritingActionCfg(JointPositionActionCfg):
+    def build(self, env):
+        return SceneWritingAction(self, env)
+
+
+class SceneWritingAction(JointPositionAction):
+    """Moves the robot home in reset, through the scene rather than its entity."""
+
+    def reset(self, env_ids=None):
+        super().reset(env_ids)
+        robot = self._env.scene[self.cfg.entity_name]
+        robot.write_joint_state_to_sim(
+            robot.data.default_joint_pos, robot.data.default_joint_vel
+        )
+
+
+@dataclass(kw_only=True)
+class BufferWritingActionCfg(JointPositionActionCfg):
+    def build(self, env):
+        return BufferWritingAction(self, env)
+
+
+class BufferWritingAction(JointPositionAction):
+    """Writes the entity's position target buffer in process_actions."""
+
+    def process_actions(self, actions):
+        super().process_actions(actions)
+        self._entity.data.joint_pos_target[:, self._target_ids] = (
+            self._processed_actions
+        )
+
+
+@dataclass(kw_only=True)
+class LazyCounterActionCfg(JointPositionActionCfg):
+    def build(self, env):
+        return LazyCounterAction(self, env)
+
+
+class LazyCounterAction(JointPositionAction):
+    """Holds the default pose for a warm-up counted in an attribute made on first use."""
+
+    def process_actions(self, actions):
+        if not hasattr(self, "_calls"):
+            self._calls = 0
+        self._calls += 1
+        if self._calls <= 50:
+            actions = torch.zeros_like(actions)
+        super().process_actions(actions)
+
+
+@dataclass(kw_only=True)
+class QueueLagActionCfg(JointPositionActionCfg):
+    lag: int = 12
+
+    def build(self, env):
+        return QueueLagAction(self, env)
+
+
+class QueueLagAction(JointPositionAction):
+    """Applies the action from ``lag`` steps ago, kept in a deque."""
+
+    def __init__(self, cfg, env):
+        super().__init__(cfg, env)
+        self._queue = collections.deque(
+            [torch.zeros_like(self._raw_actions)] * cfg.lag, maxlen=cfg.lag
+        )
+
+    def process_actions(self, actions):
+        self._queue.append(actions.clone())
+        super().process_actions(self._queue[0])
+
+
+@dataclass(kw_only=True)
+class NanFieldActionCfg(JointPositionActionCfg):
+    def build(self, env):
+        return NanFieldAction(self, env)
+
+
+class NanFieldAction(JointPositionAction):
+    """Keeps a NaN it never changes."""
+
+    def __init__(self, cfg, env):
+        super().__init__(cfg, env)
+        self._unset_gain = float("nan")
+
+
+@dataclass(kw_only=True)
+class ClockResetActionCfg(JointPositionActionCfg):
+    def build(self, env):
+        return ClockResetAction(self, env)
+
+
+class ClockResetAction(JointPositionAction):
+    """Remembers how long the finished episode ran."""
+
+    def __init__(self, cfg, env):
+        super().__init__(cfg, env)
+        self._last_length = torch.zeros(self.num_envs)
+
+    def reset(self, env_ids=None):
+        super().reset(env_ids)
+        self._last_length[:] = self._env.episode_length_buf.float()
+
+
+@dataclass(kw_only=True)
+class BiasReadingActionCfg(JointPositionActionCfg):
+    def build(self, env):
+        return BiasReadingAction(self, env)
+
+
+class BiasReadingAction(JointPositionAction):
+    """Unbiases its target in process_actions, reading the encoder bias field."""
+
+    def process_actions(self, actions):
+        super().process_actions(actions)
+        bias = self._entity.data.encoder_bias[:, self._target_ids]
+        self._processed_actions = self._processed_actions - bias
+
+
+@dataclass(kw_only=True)
+class StepCountActionCfg(JointPositionActionCfg):
+    def build(self, env):
+        return StepCountAction(self, env)
+
+
+class StepCountAction(JointPositionAction):
+    """Counts steps in a long tensor, which a graph carries."""
+
+    def __init__(self, cfg, env):
+        super().__init__(cfg, env)
+        self._steps = torch.zeros(self.num_envs, dtype=torch.long)
+
+    def process_actions(self, actions):
+        super().process_actions(actions)
+        self._steps += 1
+
+    def reset(self, env_ids=None):
+        super().reset(env_ids)
+        self._steps[env_ids] = 0
+
+
 def arm_env(
-    actions: dict, *, decimation: int = 4, delay_lag: int = 0
+    actions: dict,
+    *,
+    decimation: int = 4,
+    delay_lag: int = 0,
+    observations: dict | None = None,
 ) -> ManagerBasedRlEnv:
     """The arm on position actuators at 200 Hz, its terms *actions*, reset once.
 
-    *delay_lag* delays every actuator's command by that many physics steps.
+    *delay_lag* delays every actuator's command by that many physics steps;
+    *observations* are the env's observation groups.
     """
     entity = EntityCfg(
         spec_fn=lambda: mujoco.MjSpec.from_string(ARM),
@@ -223,6 +409,7 @@ def arm_env(
         decimation=decimation,
         scene=SceneCfg(num_envs=1, entities={"robot": entity}),
         actions=actions,
+        observations=observations or {},
         episode_length_s=20.0,
     )
     cfg.sim.mujoco.timestep = 0.005

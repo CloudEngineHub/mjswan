@@ -8,11 +8,12 @@ from __future__ import annotations
 
 import dataclasses
 import warnings
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from typing import Any
 
 from ..document.manifest import DEFAULT_IN_KEYS
 from ..envs.mdp.observations import ObservationBinding, _custom_registry
+from ..envs.mdp.registry import resolve
 from ..managers.observation_manager import (
     ObservationGroupCfg as MjswanObservationGroupCfg,
 )
@@ -20,20 +21,6 @@ from ..managers.observation_manager import (
     ObservationTermCfg as MjswanObservationTermCfg,
 )
 from .detect import differs, field_default, is_from_mjlab
-
-
-def _adapt_obs_func(
-    func: Any, term_name: str | None = None
-) -> ObservationBinding | Callable[..., Any]:
-    """Resolve the function an observation term's ONNX graph is traced from."""
-    if isinstance(func, ObservationBinding):
-        return func
-    name = getattr(func, "__name__", None)
-    if name and name in _custom_registry:
-        return _custom_registry[name]
-    if term_name and term_name in _custom_registry:
-        return _custom_registry[term_name]
-    return func
 
 
 def _sanitize_obs_params(params: dict[str, Any]) -> dict[str, Any]:
@@ -149,7 +136,7 @@ def _adapt_obs_term(
         has_history=group_history is None and bool(getattr(term, "history_length", 0)),
     )
     raw_params = dict(getattr(term, "params", None) or {})
-    func = _adapt_obs_func(term.func, term_name=term_name)
+    func = resolve(term.func, term_name, _custom_registry, ObservationBinding)
     params = (
         _sanitize_obs_params(raw_params)
         if isinstance(func, ObservationBinding)

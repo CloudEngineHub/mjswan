@@ -144,13 +144,86 @@ def test_a_term_overriding_apply_needs_a_binding_to_say_what_it_does(env):
     ("cfg", "match"),
     [
         (fx.on_arm(fx.CountingActionCfg), r"changes \['_steps'\]"),
+        (fx.on_arm(fx.LazyCounterActionCfg), r"creates \['_calls'\]"),
+        (fx.on_arm(fx.QueueLagActionCfg), r"changes \['_queue'\]"),
         (fx.on_arm(fx.WritingActionCfg), r"set_joint_position_target"),
+        (fx.on_arm(fx.SceneWritingActionCfg), r"write_joint_state_to_sim"),
+        (fx.on_arm(fx.BufferWritingActionCfg), r"entity\.data\.joint_pos_target"),
+        (fx.on_arm(fx.AliasActionCfg), r"views of one tensor"),
+        (fx.on_arm(fx.CachedDataActionCfg), r"keeps \['_data'\]"),
+        (fx.on_arm(fx.ClockResetActionCfg), r"episode_length_buf in reset"),
+        (fx.on_arm(fx.BiasReadingActionCfg), r"robot\.encoder_bias"),
     ],
-    ids=["python-counter", "writes-the-sim"],
+    ids=[
+        "python-counter",
+        "attribute-made-in-the-body",
+        "state-in-a-deque",
+        "writes-the-sim",
+        "writes-the-sim-through-the-scene",
+        "writes-an-entity-buffer",
+        "aliased-state",
+        "cached-entity-data",
+        "reset-reads-the-episode-clock",
+        "reads-a-field-the-browser-does-not-serve",
+    ],
 )
 def test_what_a_graph_cannot_carry_is_refused(env, cfg, match):
     with pytest.raises(UntraceableAction, match=match):
         trace_action_term(cfg.build(env), name="joint_pos")
+
+
+def test_a_scene_write_leaves_the_trace_env_alone(env):
+    qpos = env.sim.data.qpos.clone()
+    with pytest.raises(UntraceableAction):
+        trace_action_term(fx.on_arm(fx.SceneWritingActionCfg).build(env), name="a")
+    assert torch.equal(env.sim.data.qpos, qpos)
+
+
+def test_an_untouched_nan_is_not_state_the_body_changed(env):
+    term = fx.on_arm(fx.NanFieldActionCfg).build(env)
+    trace_action_term(term, name="joint_pos")
+
+
+def test_a_clipped_term_rebinding_twice_keeps_its_processed_action_as_state(env):
+    # mjlab's own process_actions rebinds `_processed_actions` twice under `clip`; a
+    # freed tensor's id once let the second rebind pass for no write at all.
+    from mjlab.envs.mdp.actions import JointPositionActionCfg
+
+    cfg = fx.on_arm(JointPositionActionCfg, clip={".*": (-0.5, 0.5)})
+    for _ in range(30):
+        export = trace_action_term(cfg.build(env), name="joint_pos", ramp_from=True)
+        assert "_processed_actions" in _state_names(export)
+
+
+def test_a_per_joint_mask_is_not_an_env_row_mask():
+    from mjswan.compile.gate import MaskedRows
+
+    gains = torch.tensor([1.0, 2.0, 3.0])
+    mask = torch.tensor([True, False, True])
+    with MaskedRows(1):
+        assert torch.equal(gains[mask], torch.tensor([1.0, 3.0]))
+        rows = torch.ones(1, 3)
+        rows[torch.tensor([False])] = 0.0
+    assert torch.equal(rows, torch.ones(1, 3))
+
+
+def test_a_term_that_names_no_joints_is_refused():
+    from types import SimpleNamespace
+
+    from mjswan.compile.action import joint_targets
+
+    ik = SimpleNamespace(cfg=SimpleNamespace(entity_name="robot"))
+    with pytest.raises(UntraceableAction, match="names no joints"):
+        joint_targets(ik, "ik")
+
+
+def test_a_ramp_on_a_velocity_apply_is_refused(env, tmp_path):
+    cfg = TracedActionCfg(
+        mjlab_cfg=fx.on_arm(fx.EmaActionCfg),
+        binding=ActionBinding(apply="joint_velocity", interpolate=True),
+    )
+    with pytest.raises(ValueError, match="ramp or hold a position target"):
+        serialize_actions({"joint_pos": cfg}, env=env, out_dir=tmp_path)
 
 
 def test_a_trace_leaves_the_term_as_it_found_it(env):
@@ -181,7 +254,8 @@ def test_the_build_writes_both_graphs_and_names_the_apply(env, tmp_path):
     assert entry["type"] == "joint_position"
     assert entry["interpolate"] is True
     assert entry["actuator_names"] == ["robot/j1", "robot/j2", "robot/j3"]
-    assert entry["process"]["ramp_from"] is True
+    # The ramp is the entry's `interpolate`; the graph's `processed_from` feeds it.
+    assert "ramp_from" not in entry["process"]
     assert (tmp_path / entry["process"]["onnx"]).is_file()
     assert (tmp_path / entry["reset"]["onnx"]).is_file()
     assert entry["reset"]["input_slots"] == [
@@ -237,6 +311,51 @@ def test_an_observation_reads_a_traced_terms_state_as_a_slot(env, tmp_path):
     ]
 
 
+def test_an_observation_reads_a_long_state_field_as_float32(tmp_path):
+    import onnx
+
+    from mjswan.build.mdp import serialize_observation_group
+    from mjswan.compile.slot import traced_action_state
+    from mjswan.managers.observation_manager import (
+        ObservationGroupCfg,
+        ObservationTermCfg,
+    )
+
+    def steps(env, action_name="joint_pos"):
+        return env.action_manager.get_term(action_name)._steps.float().unsqueeze(-1)
+
+    counting = fx.arm_env({"joint_pos": fx.on_arm(fx.StepCountActionCfg)})
+    group = ObservationGroupCfg(terms={"steps": ObservationTermCfg(func=steps)})
+    try:
+        with traced_action_state({"joint_pos": ["_steps"]}):
+            entry = serialize_observation_group(group, counting, tmp_path, "policy")
+    finally:
+        counting.close()
+
+    (slot,) = entry["input_slots"]
+    model = onnx.load(str(next(tmp_path.rglob("*.onnx"))))
+    inputs = {i.name: i.type.tensor_type.elem_type for i in model.graph.input}
+    # The browser feeds every action_term slot as float32.
+    assert inputs[slot["input"]] == onnx.TensorProto.FLOAT
+
+
+def test_an_observation_reads_only_a_traced_terms_state_and_processed_action(env):
+    from mjswan.compile.record import _RecordingEnv
+    from mjswan.compile.slot import UnsupportedEnvRead, traced_action_state
+
+    with traced_action_state({"joint_pos": ["_target", "_raw_actions"]}):
+        term = _RecordingEnv(env).action_manager.get_term("joint_pos")
+        term._target
+        term._processed_actions
+        term.raw_action
+        assert term.num_envs == 1
+        # Neither the browser holds: their trace-time values would bake.
+        with pytest.raises(UnsupportedEnvRead):
+            term._target_ids
+        with pytest.raises(UnsupportedEnvRead):
+            term._entity
+
+
 def _find(tree, key):
     """Every value under *key*, anywhere in a JSON tree."""
     if isinstance(tree, dict):
@@ -284,3 +403,84 @@ def test_a_scene_builds_a_task_action_into_its_manifest(
     assert {"process", "reset"} <= set(entry)
     graphs = {p.name for p in (tmp_path / "dist").rglob("*.onnx")}
     assert {"joint_pos.onnx", "joint_pos_reset.onnx"} <= graphs
+
+
+def test_a_binding_registered_again_after_add_policy_wins(
+    tmp_path, build_manifest, minimal_onnx
+):
+    from mjswan import Builder, register_action
+    from mjswan.managers.action_manager import _action_registry
+
+    env = fx.arm_env({"joint_pos": fx.on_arm(fx.DeltaActionCfg)})
+    register_action("DeltaActionCfg", ActionBinding(apply="joint_position"))
+    builder = Builder()
+    scene = builder.add_project(name="P").add_scene(
+        control_dt=0.02, name="S", model=env.sim.mj_model
+    )
+    scene.set_trace_env(env)
+    scene.add_policy(
+        name="Policy",
+        policy=minimal_onnx,
+        actions={"joint_pos": fx.on_arm(fx.DeltaActionCfg)},
+        policy_joint_names=["robot/j1", "robot/j2", "robot/j3"],
+    )
+    # A notebook cell run again, with the ramp added.
+    register_action(
+        "DeltaActionCfg", ActionBinding(apply="joint_position", interpolate=True)
+    )
+    try:
+        manifest = build_manifest(builder, tmp_path / "dist")
+    finally:
+        _action_registry.pop("DeltaActionCfg", None)
+        env.close()
+
+    (actions,) = list(_find(manifest, "actions"))
+    assert actions["joint_pos"]["interpolate"] is True
+
+
+def test_run_parity_traces_a_task_action_and_what_the_build_registers():
+    from mjlab.managers.observation_manager import (
+        ObservationGroupCfg as MjlabGroupCfg,
+    )
+    from mjlab.managers.observation_manager import (
+        ObservationTermCfg as MjlabTermCfg,
+    )
+
+    from mjswan import register_observation
+    from mjswan.compile.parity import run_parity
+    from mjswan.envs.mdp.observations import _custom_registry
+
+    def target(env, action_name="joint_pos"):
+        return env.action_manager.get_term(action_name)._target
+
+    def joint_pos_via_model(env):
+        env.sim.mj_model  # A read the tracer refuses.
+        return env.scene["robot"].data.joint_pos
+
+    def joint_pos(env):
+        return env.scene["robot"].data.joint_pos
+
+    register_observation("joint_pos_via_model", joint_pos)
+    parity_env = fx.arm_env(
+        {"joint_pos": fx.on_arm(fx.DeltaActionCfg)},
+        observations={
+            "actor": MjlabGroupCfg(
+                terms={
+                    "target": MjlabTermCfg(func=target),
+                    "joints": MjlabTermCfg(func=joint_pos_via_model),
+                }
+            )
+        },
+    )
+    try:
+        report = run_parity(parity_env, n_steps=4, event_modes=())
+    finally:
+        _custom_registry.pop("joint_pos_via_model", None)
+        parity_env.close()
+
+    terms = {t.name: t for t in report.terms}
+    assert terms["joint_pos"].kind == "action"
+    assert terms["target"].representation == "onnx"
+    # The build ships the registered replacement; it is checked against mjlab's own.
+    assert terms["joints"].representation == "onnx"
+    assert report.passed, report.summary()

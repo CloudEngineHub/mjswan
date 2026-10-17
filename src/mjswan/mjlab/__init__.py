@@ -22,6 +22,7 @@ from .action import (
     resolve_actuator_delays,
     resolve_default_joint_vel,
     resolve_pd_gains,
+    warn_split_delays,
     warn_unrun_actuator_fields,
 )
 from .command import adapt_commands
@@ -52,5 +53,6 @@ __all__ = [
     "resolve_default_joint_vel",
     "resolve_pd_gains",
     "resolve_runner_defaults",
+    "warn_split_delays",
     "warn_unrun_actuator_fields",
 ]

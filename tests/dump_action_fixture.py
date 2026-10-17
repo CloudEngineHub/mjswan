@@ -78,10 +78,11 @@ def _dump_case(cfg: Any, binding: Any, delay_lag: int, out_dir: Path) -> dict[st
         register_action(type(cfg).__name__, binding)
     try:
         actions = adapt_actions({"joint_pos": cfg}) or {}
+        resolve_actuator_delays(actions, joints, env.cfg)
+        # The build looks the binding up, so it stays registered until then.
+        entry = serialize_actions(actions, env=env, out_dir=out_dir)["joint_pos"]
     finally:
         _action_registry.pop(type(cfg).__name__, None)
-    resolve_actuator_delays(actions, joints, env.cfg)
-    entry = serialize_actions(actions, env=env, out_dir=out_dir)["joint_pos"]
     # The browser starts the term at `init`; the env's own term starts at its reset.
     term = env.action_manager.get_term("joint_pos")
     for spec in entry["process"]["state_fields"]:

@@ -90,6 +90,10 @@ def inherited_apply(term: Any, *, unchanged: bool) -> str | None:
     return None
 
 
+#: The applies a ramp or a hold acts on: a position target, absolute or relative.
+_POSITION_KINDS = frozenset({"joint_position", "joint_position_relative"})
+
+
 def _resolve(value: Any, mjlab_cfg: Any) -> Any:
     """A binding field: a value, or a ``(mjlab_cfg) -> value`` callable."""
     return value(mjlab_cfg) if callable(value) else value
@@ -104,7 +108,7 @@ def traced_action_entry(
     scope: str | None = None,
 ) -> dict[str, Any]:
     """Build the term on *env*, trace it, write its graphs and return its entry."""
-    from ...compile.action import trace_action_term
+    from ...compile.action import joint_targets, trace_action_term
     from ...compile.slot import slots_json
 
     cls_name = type(cfg.mjlab_cfg).__name__
@@ -115,7 +119,8 @@ def traced_action_entry(
             "one; a plain scene needs `scene.set_trace_env(...)` (ADR 0005 §6)."
         )
     term = cfg.mjlab_cfg.build(env)
-    # Looked up again here, so a binding registered after `add_policy` still counts.
+    joint_targets(term, name)
+    # Looked up here, so a binding registered after `add_policy` still counts.
     registered = cfg.binding or _action_registry.get(cls_name)
     binding = registered or ActionBinding()
     if binding.trace_override is not None:
@@ -131,6 +136,11 @@ def traced_action_entry(
         )
     interpolate = bool(_resolve(binding.interpolate, cfg.mjlab_cfg))
     hold_s = _resolve(binding.hold_s, cfg.mjlab_cfg)
+    if (interpolate or hold_s is not None) and kind not in _POSITION_KINDS:
+        raise ValueError(
+            f"Action term {name!r}: `interpolate` and `hold_s` ramp or hold a position "
+            f"target, and its apply is {kind!r}. Drop them from its ActionBinding."
+        )
 
     export = trace_action_term(term, name=name, ramp_from=interpolate)
     meta = graph_meta("action", name, type(term))
@@ -164,7 +174,6 @@ def traced_action_entry(
     entry["process"] = {
         **written(name, export.process),
         "state_fields": export.state_fields,
-        **({"ramp_from": True} if export.ramp_from else {}),
     }
     if export.reset is not None:
         entry["reset"] = written(f"{name}_reset", export.reset)
