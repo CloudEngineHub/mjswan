@@ -397,7 +397,9 @@ class _RecordingEnv:
         object.__setattr__(self, "_sensors", {})
         object.__setattr__(self, "_commands", {})
         object.__setattr__(self, "_sim", _RecordingSimData(real, self._log))
-        object.__setattr__(self, "sim", _SimStandIn(self._sim))
+        object.__setattr__(
+            self, "sim", _SimStandIn(self._sim, getattr(real, "sim", None))
+        )
         object.__setattr__(
             self,
             "scene",
@@ -407,6 +409,8 @@ class _RecordingEnv:
         )
 
     def __getattr__(self, name: str) -> Any:
+        if name == "unwrapped":  # mjlab's is the env itself
+            return self
         if name == "command_manager":
             return _RecordingCommandManager(
                 self._real.command_manager, self._log, self._commands
@@ -615,6 +619,8 @@ class _EventCaptureEnv:
             )
 
     def __getattr__(self, name: str) -> Any:
+        if name == "unwrapped":  # mjlab's is the env itself
+            return self
         if name == "sim" and self._serves_model:
             recorder = ModelRecorder(self._real.sim)
             object.__setattr__(self, "model", recorder)

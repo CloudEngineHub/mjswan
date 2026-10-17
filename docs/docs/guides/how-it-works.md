@@ -297,6 +297,14 @@ A command is a class, so its way out is
 command ships, the build runs its graph against the term's own body on draws that take
 each selection both ways; a graph that disagrees fails the build the same way.
 
+Every other graph is checked too. Before an observation, termination or event graph
+ships, the build runs the term's own code on the trace inputs and on perturbed ones, and
+fails where the graph disagrees: a value the body works out in Python (`.item()`, `bool()`
+of a tensor, an `if` on a tensor, a counter) is fixed in the graph. The error names the
+term and, where the tracer warned, the line. A read the tracer refuses fails the build even
+behind a `getattr` default or `hasattr`, when mjlab's env has the attribute. A graph that
+draws its own random numbers (`torch.rand` in a body) is not compared.
+
 In practice tracing failures are rare, because mjlab must run thousands of parallel
 environments on a GPU. That forces term bodies to avoid per-environment Python
 `if`/`for` over tensor values in favour of masking — which is exactly the shape

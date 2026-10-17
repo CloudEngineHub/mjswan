@@ -313,6 +313,8 @@ class _ReplayEnv:
         self._real_env = real_env
 
     def __getattr__(self, name: str) -> Any:
+        if name == "unwrapped":  # mjlab's is the env itself
+            return self
         if name == "action_manager":
             return _ReplayActionManager(self._slots, self._real_env.action_manager)
         if name in _ENV_SLOT_DTYPES:
@@ -418,5 +420,7 @@ class _EventReplayEnv:
             )
 
     def __getattr__(self, name: str) -> Any:
+        if name == "unwrapped":  # mjlab's is the env itself
+            return self
         # Forwarded, so replay sees the same `num_envs` discovery ran against.
         return _forward_env_attr(self._real_env, name, _EVENT_ENV_READS)

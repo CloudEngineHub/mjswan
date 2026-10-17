@@ -21,7 +21,7 @@ import torch
 from torch.utils._pytree import tree_leaves, tree_map
 
 from .proxy import _SHAPE_QUERIES, _FieldProxy, _plain
-from .slot import _EVENT_ENV_READS, _MODEL_NS, SlotKey, UnsupportedEnvRead, _sim_tensor
+from .slot import _EVENT_ENV_READS, _MODEL_NS, SlotKey, _sim_tensor, refuse_read
 
 #: A model field's element kind by name prefix, the ``mjtObj`` naming it, and the
 #: ``MjModel`` count of that kind.
@@ -371,7 +371,7 @@ class ModelSim:
         return self._real.per_world_default_fields
 
     def __getattr__(self, name: str) -> Any:
-        raise UnsupportedEnvRead(f"sim.{name}", _EVENT_ENV_READS)
+        raise refuse_read(self._real, name, _EVENT_ENV_READS, "sim.")
 
 
 class _ModelView:
