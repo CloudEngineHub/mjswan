@@ -120,6 +120,18 @@ def test_a_probe_for_what_the_env_lacks_traces():
     assert export.input_slots == [("robot", "root_link_pos_w")]
 
 
+def test_any_over_a_count_traces():
+    """The export of `any` casts to an integer, so a count must stay a whole number."""
+    env = _env()
+    env.scene["robot"].data.contact_count = torch.zeros(1, 4)
+
+    def touching(env):
+        return torch.any(env.scene["robot"].data.contact_count, dim=-1)
+
+    export = trace_term(touching, {}, env, name="touching")
+    assert export.input_slots == [("robot", "contact_count")]
+
+
 def test_a_fused_group_names_the_term_that_disagrees():
     from mjswan.compile.group import GroupTermSpec, trace_observation_group
 

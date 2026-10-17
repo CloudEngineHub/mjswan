@@ -273,8 +273,9 @@ def no_hidden_reads(what: str) -> Iterator[None]:
             f"{what} read {reads}, which the tracer does not serve, and went on without "
             "it (a `getattr` default, `hasattr` or `except AttributeError`). mjlab's env "
             "has it, so the graph would follow a path the term does not take in mjlab. "
-            "Read the value through what the tracer serves, or pass it in the term's "
-            "params."
+            "Read the value through what the tracer serves, pass it in the term's "
+            "params, or register a trace-friendly replacement with the matching "
+            "mjswan.register_* function."
         )
 
 
@@ -361,7 +362,11 @@ def _perturbed(
     """*example* redrawn for *sample* (1 on): a float negated, then scaled by a random
     factor of either sign plus noise; a bool flipped, then drawn; an integer drawn; a
     trailing ``rand`` at the low end of *rand_ranges*, just under the high end, then
-    inside them, so a branch on a draw is taken both ways."""
+    inside them, so a branch on a draw is taken both ways.
+
+    A float holding only whole numbers of at least zero (a count, a flag, the episode
+    clock) is drawn as one: the export of ``any`` casts it to an integer, exact there and
+    nowhere else."""
     inputs = []
     for i, value in enumerate(example):
         drawn: torch.Tensor
@@ -380,7 +385,7 @@ def _perturbed(
                 if sample == 1
                 else torch.rand(value.shape, generator=generator) < 0.5
             )
-        elif value.is_floating_point():
+        elif value.is_floating_point() and not _whole_counts(value):
             x = value.detach().cpu().to(torch.float32)
             if sample == 1:
                 drawn = -x
@@ -394,6 +399,10 @@ def _perturbed(
             drawn = torch.randint(0, top, value.shape, generator=generator)
         inputs.append(drawn.to(value.dtype).reshape(value.shape))
     return tuple(inputs)
+
+
+def _whole_counts(value: torch.Tensor) -> bool:
+    return bool(value.numel()) and bool(((value >= 0) & (value == value.round())).all())
 
 
 def _apart(
