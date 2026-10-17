@@ -1309,8 +1309,8 @@ class TestMuscleActionAdaptation:
         assert result["muscles"].offset == 0.0
 
     def test_class_name_alias_dispatch(self):
-        # The adapter looks up the source class name in envs/mdp/actions' _ALIASES. If the source
-        # class is renamed upstream, this test would catch the break by failing dispatch.
+        # The class name goes through envs/mdp/actions' _ALIASES: an upstream rename
+        # fails dispatch here.
         mjlab_cfg = FakeMyoMuscleActivationActionCfg()
         assert type(mjlab_cfg).__name__ == "MyoMuscleActivationActionCfg"
 

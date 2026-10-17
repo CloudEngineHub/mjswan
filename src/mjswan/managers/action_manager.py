@@ -67,7 +67,7 @@ ApplyKind = Literal[
 class ActionBinding:
     """How the browser runs a task's own mjlab action class (ADR 0009).
 
-    The build traces every action class mjswan has no class of its own for: its
+    The build traces a task's own action class mjswan has no class of its own for: its
     ``process_actions`` and ``reset`` become graphs. Its ``apply_actions`` runs every
     physics substep, so the browser runs it natively, and a class that overrides it
     needs a binding naming what it does. One that inherits mjlab's
@@ -101,7 +101,9 @@ _action_registry: dict[str, ActionBinding] = {}
 def register_action(mjlab_name: str, binding: ActionBinding) -> None:
     """Bind a task's action cfg class, by its name, to how the browser runs it.
 
-    Example, for a term that holds each joint where the reset left it::
+    The build looks the binding up, so this may come before or after ``add_policy``; a
+    later call replaces an earlier one. For a term that holds each joint where the reset
+    left it::
 
         mjswan.register_action(
             "HeldJointPositionActionCfg",

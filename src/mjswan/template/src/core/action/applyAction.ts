@@ -96,7 +96,7 @@ export interface ResolvedActionTerm {
   holdS: number | null;
   /** Whether this control step is inside `holdS`; `process` decides it. */
   holding: boolean;
-  /** mjlab's actuator command delays, one per distinct setting among the term's joints. */
+  /** mjlab's actuator command delays on the term's joints, one per mjlab delay buffer. */
   delays: CommandDelay[];
 }
 

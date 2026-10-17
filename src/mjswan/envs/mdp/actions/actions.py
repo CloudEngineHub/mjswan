@@ -53,9 +53,9 @@ class BaseActionCfg(ActionTermCfg):
 
     delay: list[dict[str, Any]] | None = None
     """mjswan-specific: mjlab's actuator command delays (``ActuatorCfg.delay_*``) on this
-    term's joints, which the build resolves from the actuator configs, one entry per
-    distinct setting: ``{"joints", "min_lag", "max_lag", "hold_prob", "update_period",
-    "per_env_phase"}``."""
+    term's joints, one entry per mjlab delay buffer: ``{"joints", "min_lag", "max_lag",
+    "hold_prob", "update_period", "per_env_phase"}``. Resolved from the actuator configs
+    when unset."""
 
     def _add_delay(self, entry: dict[str, Any]) -> None:
         if self.delay:
@@ -304,8 +304,8 @@ class JointEffortActionCfg(BaseActionCfg):
 class TracedActionCfg(BaseActionCfg):
     """A task's own mjlab action term, traced at build time (ADR 0009).
 
-    The adapter makes one for an mjlab action class mjswan has no class of its own for:
-    its ``process_actions`` and ``reset`` become graphs, and its ``apply_actions`` is
+    The adapter makes one for a task's own action class mjswan has no class of its own
+    for: its ``process_actions`` and ``reset`` become graphs, and its ``apply_actions`` is
     the native kind and options its :class:`~mjswan.ActionBinding` names, or its mjlab
     base's. ``actuator_names`` are the mjlab cfg's, entity-prefixed, for resolving the
     gains and delays of its joints; the build writes the exact joints the term drives.

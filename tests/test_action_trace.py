@@ -185,8 +185,7 @@ def test_an_untouched_nan_is_not_state_the_body_changed(env):
 
 
 def test_a_clipped_term_rebinding_twice_keeps_its_processed_action_as_state(env):
-    # mjlab's own process_actions rebinds `_processed_actions` twice under `clip`; a
-    # freed tensor's id once let the second rebind pass for no write at all.
+    # mjlab's own process_actions rebinds `_processed_actions` twice under `clip`.
     from mjlab.envs.mdp.actions import JointPositionActionCfg
 
     cfg = fx.on_arm(JointPositionActionCfg, clip={".*": (-0.5, 0.5)})
@@ -386,7 +385,7 @@ def test_a_scene_builds_a_task_action_into_its_manifest(
         actions={"joint_pos": fx.on_arm(fx.DeltaActionCfg)},
         policy_joint_names=["robot/j1", "robot/j2", "robot/j3"],
     )
-    # After `add_policy`: the build looks the binding up again.
+    # After `add_policy`: the build looks the binding up.
     register_action(
         "DeltaActionCfg", ActionBinding(apply="joint_position", interpolate=True)
     )

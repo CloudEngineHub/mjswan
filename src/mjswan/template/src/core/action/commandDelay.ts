@@ -4,7 +4,7 @@
  * `[min_lag, max_lag]`. A port of `DelayBuffer` over `CircularBuffer` at batch size 1.
  */
 
-/** One delay setting and the term targets it covers, as the build resolved them. */
+/** One mjlab delay buffer: its setting and the term targets behind it. */
 export interface DelaySpec {
   /** Positions in the term's target list. */
   indices: number[];

@@ -66,7 +66,7 @@ Body = Literal["reset", "process"]
 #: The bodies a draw may sit in, up the term's class hierarchy.
 _BODIES = ("process_actions", "reset")
 
-#: Plain values a body could keep as Python state, which a graph cannot carry.
+#: Plain immutable values: a frozen copy of one is the value itself.
 _SCALARS = (bool, int, float, str, type(None))
 
 #: State dtypes the runtime holds natively; any other crosses as float32.

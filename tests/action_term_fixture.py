@@ -2,8 +2,8 @@
 
 ``DeltaAction`` is in-hand-rotation-mjlab's ``JointPositionDeltaAction``, trimmed;
 ``HeldAction`` is luwu_mjlab's ``HeldJointPositionAction``; ``EmaAction`` smooths the
-target the way wuji's EMA terms do, inheriting mjlab's apply. The rest each break one
-rule the tracer enforces.
+target the way wuji's EMA terms do, inheriting mjlab's apply. The rest each break a rule
+the tracer enforces, or sit just inside one.
 """
 
 from __future__ import annotations

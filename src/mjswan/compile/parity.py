@@ -157,8 +157,8 @@ def _iter_event_terms(
 
 def _trace_action_terms(env: Any) -> tuple[list[TermReport], dict[str, list[str]]]:
     """Trace each action term the build traces (ADR 0009), which checks both graphs
-    against the term's own bodies: the reports, and each term's state an observation
-    may read."""
+    against the term's own bodies. Returns the reports, and each term's state for the
+    observations that read it."""
     reports: list[TermReport] = []
     state: dict[str, list[str]] = {}
     manager = env.action_manager
@@ -199,11 +199,10 @@ def run_parity(
 
     ``env`` must be a freshly constructed mjlab env; this function resets it.
     Observation and termination terms are checked every step; ``reset``-mode Event
-    terms are checked by replaying ``n_event_draws`` fresh recorded RNG draws (§2b). A
-    term an author registered an override for is traced from the override, as the build
-    does, and checked against mjlab's own; one bound to a TS class is not checked. A
-    task's own action term is traced, and its state served to the observations reading
-    it, as the build does.
+    terms are checked by replaying ``n_event_draws`` fresh recorded RNG draws (§2b). As
+    in the build, a registered override is traced in place of its term and checked
+    against mjlab's own, a TS binding goes unchecked, and a task's own action term is
+    traced, its state served to the observations that read it.
 
     ``reader_fields`` is passed to :func:`trace_term`; an empty set traces every
     ``EntityData`` property through to raw sim slots, putting mjlab's own property math

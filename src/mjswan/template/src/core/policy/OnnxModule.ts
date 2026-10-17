@@ -76,7 +76,7 @@ export class OnnxModule {
 
   /**
    * `adapt_hx`'s shape as the network declares it, a dynamic axis read as 1, so a carry
-   * wider than 128 starts at its own width rather than failing every run.
+   * wider than 128 starts at its own width.
    */
   private carryShape(): number[] {
     const index = this.inKeys.indexOf('adapt_hx');

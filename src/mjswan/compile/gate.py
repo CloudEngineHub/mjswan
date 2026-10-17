@@ -149,8 +149,8 @@ class GatedIndexing(TorchFunctionMode):
 
 
 def _is_row_mask(base: Any, index: Any, num_envs: int) -> bool:
-    """A 1-D boolean mask over a data tensor's env rows; ``GatedIds`` covers index
-    tensors. A mask as long as the envs, so a per-joint mask is left alone."""
+    """A 1-D boolean mask over a data tensor's env rows, one per env, so a per-joint
+    mask is left alone. ``GatedIds`` covers index tensors."""
     return (
         isinstance(base, torch.Tensor)
         and not _is_ids(base)
