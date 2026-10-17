@@ -297,13 +297,12 @@ A command is a class, so its way out is
 command ships, the build runs its graph against the term's own body on draws that take
 each selection both ways; a graph that disagrees fails the build the same way.
 
-Every other graph is checked too. Before an observation, termination or event graph ships,
-the build runs the term's own code on the inputs it was traced on and on perturbed ones,
-each draw at both ends of its range, and fails if the graph disagrees. That catches a value
-the body works out in Python, which the export fixes at its trace-time value: `.item()`,
-`float()` or `bool()` of a tensor, an `if` on a tensor, a counter. The error names the term
-and, where the tracer warned, the line. A read the tracer refuses fails the build even when
-the body probes it with a `getattr` default or `hasattr`, as long as mjlab's env has it.
+Every other graph is checked too. Before an observation, termination or event graph
+ships, the build runs the term's own code on the trace inputs and on perturbed ones, and
+fails where the graph disagrees: a value the body works out in Python (`.item()`, `bool()`
+of a tensor, an `if` on a tensor, a counter) is fixed in the graph. The error names the
+term and, where the tracer warned, the line. A read the tracer refuses fails the build even
+behind a `getattr` default or `hasattr`, when mjlab's env has the attribute.
 
 In practice tracing failures are rare, because mjlab must run thousands of parallel
 environments on a GPU. That forces term bodies to avoid per-environment Python

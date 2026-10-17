@@ -1,9 +1,6 @@
-"""A traced graph ships only if it computes what its body computes (#168).
-
-The export records tensor operations only, so a value a body works out in Python is
-fixed at its trace-time value. Each tracer runs its module against the exported graph
-on perturbed inputs, and refuses a read the body went on without.
-"""
+"""A traced graph ships only if it computes what its term's body computes (#168): each
+tracer runs its module against the graph on perturbed inputs, and refuses a read the body
+went on without."""
 
 from __future__ import annotations
 

@@ -263,8 +263,7 @@ _FIX = (
 
 @contextlib.contextmanager
 def no_hidden_reads(what: str) -> Iterator[None]:
-    """Fail when the body run inside went on without a read the tracer refused and
-    mjlab's env would have answered."""
+    """Fail if the body run inside swallowed a refused read mjlab's env would answer."""
     with watch_refused_reads() as refused:
         yield
     if refused:
@@ -279,8 +278,7 @@ def no_hidden_reads(what: str) -> Iterator[None]:
         )
 
 
-#: Input sets a graph runs on against its module before it ships: the set it was traced
-#: on, then perturbed ones, seeded so a build passes or fails the same way every time.
+#: Input sets per check, the trace inputs first; seeded, so a verdict is reproducible.
 _CHECK_SAMPLES = 8
 
 #: Tracer warnings a single-env trace raises on sound code (see
@@ -360,13 +358,10 @@ def _perturbed(
     rand_ranges: Sequence[Sequence[float]] | None,
 ) -> tuple[torch.Tensor, ...]:
     """*example* redrawn for *sample* (1 on): a float negated, then scaled by a random
-    factor of either sign plus noise; a bool flipped, then drawn; an integer drawn; a
-    trailing ``rand`` at the low end of *rand_ranges*, just under the high end, then
-    inside them, so a branch on a draw is taken both ways.
-
-    A float holding only whole numbers of at least zero (a count, a flag, the episode
-    clock) is drawn as one: the export of ``any`` casts it to an integer, exact there and
-    nowhere else."""
+    factor of either sign; a bool flipped, then drawn; a draw at the low end of its range,
+    just under the high end, then inside it, so a branch on it goes both ways. A float of
+    whole numbers at least zero (a count, a flag) stays one: the export of ``any`` casts
+    to an integer, exact only there."""
     inputs = []
     for i, value in enumerate(example):
         drawn: torch.Tensor
