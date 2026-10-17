@@ -24,6 +24,8 @@ from .export import (
     _narrow_inputs,
     _narrow_slots,
     _register_consts,
+    check_against_module,
+    no_hidden_reads,
 )
 from .record import _RecordingEnv
 from .replay import _ReplayEnv
@@ -173,11 +175,13 @@ def trace_term(
     Raises:
         ConstantTerm: the term reads no simulation state; its value is a constant.
         UntraceableTerm: the term reads state the tracer cannot follow.
+        DivergentGraph: the graph would not compute what the term computes in mjlab.
     """
     readers = _reader_fields(reader_fields)
     # 1. Discovery: run once against the recording env.
     recorder = _RecordingEnv(env, readers)
-    recorded = func(recorder, **params)
+    with no_hidden_reads(f"Term {name!r}"):
+        recorded = func(recorder, **params)
     if not isinstance(recorded, torch.Tensor):
         raise ValueError(
             f"Term {name!r} returned {type(recorded).__name__}, not a Tensor; "
@@ -224,6 +228,14 @@ def trace_term(
         output_names=[output_name],
         batch_axis=[*input_names, output_name],
         opset=opset,
+    )
+    check_against_module(
+        module,
+        onnx_bytes,
+        example_inputs,
+        input_names=input_names,
+        output_names=[output_name],
+        what=f"Term {name!r}",
     )
 
     return TermExport(

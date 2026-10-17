@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import contextvars
+import inspect
 import re
 from typing import Any, Collection, Iterable, Iterator, Mapping, Sequence
 
@@ -153,6 +154,41 @@ class UnsupportedEnvRead(AttributeError):
         )
 
 
+#: Refused reads the real object could have answered, while a pass is watched.
+_REFUSED_READS: contextvars.ContextVar[list[str] | None] = contextvars.ContextVar(
+    "refused_reads", default=None
+)
+
+
+@contextlib.contextmanager
+def watch_refused_reads() -> Iterator[list[str]]:
+    """Collect each refused read the real object has. A body that went on without one,
+    through a ``getattr`` default or ``hasattr``, took a path mjlab does not take."""
+    refused: list[str] = []
+    token = _REFUSED_READS.set(refused)
+    try:
+        yield refused
+    finally:
+        _REFUSED_READS.reset(token)
+
+
+def refuse_read(
+    real: Any, attr: str, served: Sequence[str], prefix: str = ""
+) -> UnsupportedEnvRead:
+    """The error refusing ``env.<prefix><attr>``, noted for :func:`watch_refused_reads`
+    when *real* has *attr*."""
+    refused = _REFUSED_READS.get()
+    if refused is not None:
+        try:
+            # Static, so no property of the real object runs.
+            inspect.getattr_static(real, attr)
+        except AttributeError:
+            pass
+        else:
+            refused.append(prefix + attr)
+    return UnsupportedEnvRead(prefix + attr, served)
+
+
 #: The episode horizon, which bakes into a graph comparing the episode counter.
 _HORIZON_ATTRS = frozenset({"max_episode_length", "max_episode_length_s"})
 
@@ -160,7 +196,7 @@ _HORIZON_ATTRS = frozenset({"max_episode_length", "max_episode_length_s"})
 def _forward_env_attr(real_env: Any, name: str, served: Sequence[str]) -> Any:
     """``real_env.<name>`` for a forwarded constant; raise for anything else."""
     if name not in _FORWARDED_ENV_ATTRS:
-        raise UnsupportedEnvRead(name, served)
+        raise refuse_read(real_env, name, served)
     value = getattr(real_env, name)
     if name in _HORIZON_ATTRS and not value > 0:
         raise ValueError(

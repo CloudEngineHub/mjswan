@@ -14,7 +14,7 @@ from typing import Any, Callable, Collection
 
 import torch
 
-from .slot import _TERM_ENV_READS, UnsupportedEnvRead, _forward_env_attr
+from .slot import _TERM_ENV_READS, _forward_env_attr, refuse_read
 
 #: Torch calls that read a tensor's shape, never its values: a proxy treats them as
 #: no read at all.
@@ -102,7 +102,7 @@ def _forward_action_attr(manager: Any, name: str) -> Any:
     the runtime does not hold, which would otherwise bake as a constant."""
     value = getattr(manager, name)
     if isinstance(value, torch.Tensor):
-        raise UnsupportedEnvRead(f"action_manager.{name}", _TERM_ENV_READS)
+        raise refuse_read(manager, name, _TERM_ENV_READS, "action_manager.")
     return value
 
 
@@ -191,9 +191,7 @@ def _action_term_proxy(
                 return read_state(attr, value)
         elif not _is_live_object(value):
             return value
-        raise UnsupportedEnvRead(
-            f"action_manager.get_term(...).{attr}", _TERM_ENV_READS
-        )
+        raise refuse_read(real, attr, _TERM_ENV_READS, "action_manager.get_term(...).")
 
     return _class_proxy(real, {"__getattribute__": __getattribute__})
 
@@ -246,8 +244,9 @@ class _SimStandIn:
     mid-trace, so it raises.
     """
 
-    def __init__(self, data: Any):
+    def __init__(self, data: Any, real: Any = None):
         object.__setattr__(self, "data", data)
+        object.__setattr__(self, "_real", real)
 
     def __getattr__(self, name: str) -> Any:
-        raise UnsupportedEnvRead(f"sim.{name}", _TERM_ENV_READS)
+        raise refuse_read(self._real, name, _TERM_ENV_READS, "sim.")

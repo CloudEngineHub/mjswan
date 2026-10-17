@@ -29,14 +29,13 @@ import torch
 from torch import nn
 
 from .command import (
-    GraphRunner,
     _mismatch,
     _restore_state,
     _snapshot_state,
     _state_spec,
-    reference_runner,
 )
 from .export import (
+    GraphRunner,
     _classify_slots,
     _const_values,
     _export_onnx,
@@ -45,6 +44,7 @@ from .export import (
     _narrow_slots,
     _prepare_single_env_export,
     _register_consts,
+    reference_runner,
 )
 from .gate import GatedIndexing, MaskedRows
 from .proxy import _is_live_object, _is_sensor

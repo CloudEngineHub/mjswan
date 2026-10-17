@@ -19,7 +19,7 @@ each selection both ways.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Protocol
+from typing import Any, Callable
 from unittest import mock
 
 import numpy as np
@@ -27,11 +27,13 @@ import torch
 from torch import nn
 
 from .export import (
+    GraphRunner,
     _classify_tagged,
     _const_values,
     _export_onnx,
     _prepare_single_env_export,
     _register_consts,
+    reference_runner,
 )
 from .gate import GatedIndexing, _where
 from .record import (
@@ -387,14 +389,6 @@ def trace_command_term(
     return export
 
 
-GraphRunner = Callable[[dict[str, np.ndarray]], dict[str, np.ndarray]]
-
-
-class _Graph(Protocol):
-    onnx_bytes: bytes
-    output_names: list[str]
-
-
 def _state_spec(name: str, value: torch.Tensor) -> dict[str, Any]:
     """``{name, shape, dtype, init}`` for one state field, as the build left it.
 
@@ -525,23 +519,6 @@ def _probe_draws(
         (low + span * f, i % 4 != 3, has_reset and i % 2 == 0)
         for i, f in enumerate(fractions)
     ]
-
-
-def reference_runner(graph: _Graph) -> GraphRunner:
-    """*graph*, run by ONNX's reference evaluator, which needs no runtime."""
-    import onnx
-    from onnx.reference import ReferenceEvaluator
-
-    evaluator = ReferenceEvaluator(onnx.load_from_string(graph.onnx_bytes))
-    declared = set(evaluator.input_names)
-
-    def run(feeds: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
-        outs = evaluator.run(
-            graph.output_names, {k: v for k, v in feeds.items() if k in declared}
-        )
-        return {n: np.asarray(o) for n, o in zip(graph.output_names, outs)}
-
-    return run
 
 
 def _verify(export: CommandExport, term: Any, state_fields: list[str]) -> None:

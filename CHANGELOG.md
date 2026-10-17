@@ -326,6 +326,17 @@ shortcuts.
 
 ### Changed
 
+- **A traced observation, termination or event graph must compute what its term computes**
+  ([#168](https://github.com/ttktjmt/mjswan/issues/168)). The export records tensor
+  operations only, so a value a body worked out in Python (`.item()`, `float()` or `bool()`
+  of a tensor, an `if` on a tensor, a counter) was fixed at its trace-time value, and the
+  build succeeded. Before such a graph ships, the build now runs the term's own code on the
+  inputs it was traced on and on perturbed ones, each draw at both ends of its range, and
+  fails if the graph disagrees, naming the term and, where the tracer warned, the line. A
+  read the tracer refuses, which a `getattr` default or `hasattr` used to swallow, fails the
+  build too when mjlab's env has it. The command and action graphs had such a check
+  already. A port that built before may now fail on a term whose browser value was wrong.
+
 - **The browser runs an action term in two halves, as mjlab does**: `process` once per
   control step, after the policy, and `apply` once per physics substep. It recomputed the
   whole term every substep. A traced term's process and reset run one at a time, so a

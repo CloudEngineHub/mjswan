@@ -21,6 +21,8 @@ from .export import (
     _export_onnx,
     _prepare_single_env_export,
     _register_consts,
+    check_against_module,
+    no_hidden_reads,
 )
 from .model import SET_CONST_FIELDS, ModelPlan, ModelRecorder, ModelReplay
 from .record import (
@@ -133,7 +135,7 @@ def trace_event_term(
     log: list[tuple[TaggedKey, Any]] = []
     captures: WriteCaptures = {}
     proxy = _EventCaptureEnv(env, log, captures, model=True)
-    with DrawRecorder(func) as rec:
+    with DrawRecorder(func) as rec, no_hidden_reads(f"Event term {name!r}"):
         func(proxy, env_ids, **params)
     recorder: ModelRecorder | None = proxy.model
     model_writes = recorder.writes if recorder else []
@@ -178,6 +180,15 @@ def trace_event_term(
         output_names=output_names,
         batch_axis=[*dyn_input_names, *output_names],
         opset=opset,
+    )
+    check_against_module(
+        module,
+        onnx_bytes,
+        example,
+        input_names=input_names,
+        output_names=output_names,
+        what=f"Event term {name!r}",
+        rand_ranges=rand_ranges,
     )
 
     # The write says which entity it landed on; `asset_cfg` is the fallback.

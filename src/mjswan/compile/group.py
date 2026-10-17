@@ -20,6 +20,8 @@ from .export import (
     _narrow_inputs,
     _narrow_slots,
     _register_consts,
+    check_against_module,
+    no_hidden_reads,
 )
 from .record import _RecordingEnv, _RecordingSimData
 from .replay import _ReplayEnv
@@ -164,7 +166,8 @@ def trace_observation_group(
 
     for term in terms:
         recorder = _RecordingEnv(env, readers)
-        recorded = term.func(recorder, **term.params)
+        with no_hidden_reads(f"Observation term {term.name!r}"):
+            recorded = term.func(recorder, **term.params)
         if not isinstance(recorded, torch.Tensor):
             raise ValueError(
                 f"Observation term {term.name!r} returned "
@@ -219,6 +222,15 @@ def trace_observation_group(
         output_names=[output_name],
         batch_axis=[*input_names, output_name],
         opset=opset,
+    )
+    check_against_module(
+        module,
+        onnx_bytes,
+        example_inputs,
+        input_names=input_names,
+        output_names=[output_name],
+        what=f"Observation group {name!r}",
+        columns=[(row["name"], row["size"]) for row in layout],
     )
 
     return GroupExport(
@@ -316,7 +328,8 @@ def trace_termination_group(
 
     for term in terms:
         recorder = _RecordingEnv(env, readers)
-        recorded = term.func(recorder, **term.params)
+        with no_hidden_reads(f"Termination term {term.name!r}"):
+            recorded = term.func(recorder, **term.params)
         if not isinstance(recorded, torch.Tensor):
             raise ValueError(
                 f"Termination term {term.name!r} returned "
@@ -363,6 +376,15 @@ def trace_termination_group(
         output_names=[output_name],
         batch_axis=[*input_names, output_name],
         opset=opset,
+    )
+    check_against_module(
+        module,
+        onnx_bytes,
+        example_inputs,
+        input_names=input_names,
+        output_names=[output_name],
+        what=f"Termination group {name!r}",
+        columns=[(term.name, 1) for term in terms],
     )
 
     return TerminationGroupExport(

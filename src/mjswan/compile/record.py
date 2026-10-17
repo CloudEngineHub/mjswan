@@ -397,7 +397,9 @@ class _RecordingEnv:
         object.__setattr__(self, "_sensors", {})
         object.__setattr__(self, "_commands", {})
         object.__setattr__(self, "_sim", _RecordingSimData(real, self._log))
-        object.__setattr__(self, "sim", _SimStandIn(self._sim))
+        object.__setattr__(
+            self, "sim", _SimStandIn(self._sim, getattr(real, "sim", None))
+        )
         object.__setattr__(
             self,
             "scene",
