@@ -21,6 +21,7 @@ from .envs.mdp.commands import ui_command, velocity_command
 from .envs.mdp.events import EventBinding, register_event
 from .envs.mdp.observations import ObservationBinding, register_observation
 from .envs.mdp.terminations import TerminationBinding, register_termination
+from .managers.action_manager import ActionBinding, register_action
 from .managers.command_manager import (
     Button,
     ButtonConfig,
@@ -72,6 +73,8 @@ __all__ = [
     "register_event",
     "TerminationBinding",
     "register_termination",
+    "ActionBinding",
+    "register_action",
     # MDP config (mjlab-compatible)
     "ObservationGroupCfg",
     "ObservationTermCfg",

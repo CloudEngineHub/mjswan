@@ -8,6 +8,7 @@ for the top-level ``plugins`` (manifest rules 1 and 2).
 
 from __future__ import annotations
 
+import contextlib
 import json
 import warnings
 from collections.abc import Callable
@@ -17,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 from .._version import __version__
 from ..document import DOCUMENT_FORMAT
 from ..document.manifest import DEFAULT_IN_KEYS, DEFAULT_OUT_KEYS, RUNTIME_INPUT_SLOTS
+from ..envs.mdp.actions import TracedActionCfg
 from ..mjlab.env import mdp_commands, policy_actions
 from ..mjlab.gui import record_scene_gui
 from ..viewer import ViewerConfig
@@ -161,36 +163,42 @@ def mdp_entry(
     widths = command_widths(mdp.commands, entry.get("commands", {}))
     # A plain scene's env lacks the widths a last-action or command read needs.
     with policy_actions(env, num_actions), mdp_commands(env, widths):
-        if mdp.observations:
-            on_term("observations")
-            # Authored groups first, never overwritten: the key names the fused graph.
-            obs_config = dict(first_sidecar.get("observations") or {})
-            for key, group in mdp.observations.items():
-                target_key = f"{key}_monitor" if key in obs_config else key
-                obs_config[target_key] = serialize_observation_group(
-                    group, env, scene_dir, target_key, scope=scope
-                )
-            entry["observations"] = obs_config
-        elif first_sidecar.get("observations"):
-            entry["observations"] = first_sidecar["observations"]
+        # Before the observations, which may read a traced action term's state.
         if mdp.actions:
+            if any(isinstance(a, TracedActionCfg) for a in mdp.actions.values()):
+                on_term("actions")
             entry["actions"] = serialize_actions(
                 mdp.actions,
                 first_sidecar.get("actions"),
                 commands=entry.get("commands", {}),
                 widths=widths,
+                env=env,
+                out_dir=scene_dir,
+                scope=scope,
             )
         elif first_sidecar.get("actions"):
             entry["actions"] = first_sidecar["actions"]
-        if mdp.terminations:
-            on_term("terminations")
-            terminations = serialize_terminations(
-                mdp.terminations, env, scene_dir, scope=scope
+        action_state = {
+            name: [f["name"] for f in action["process"]["state_fields"]]
+            for name, action in entry.get("actions", {}).items()
+            if "process" in action
+        }
+        reading: contextlib.AbstractContextManager[None] = contextlib.nullcontext()
+        if action_state:
+            # Lazy: a core install has no torch, which only a traced term needs.
+            from ..compile.slot import traced_action_state
+
+            reading = traced_action_state(action_state)
+        with reading:
+            _serialize_reading_actions(
+                mdp,
+                entry,
+                first_sidecar,
+                env=env,
+                scene_dir=scene_dir,
+                scope=scope,
+                on_term=on_term,
             )
-            if terminations:
-                entry["terminations"] = terminations
-        elif first_sidecar.get("terminations"):
-            entry["terminations"] = first_sidecar["terminations"]
     if mdp.events:
         events = serialize_events(
             mdp.events,
@@ -206,6 +214,40 @@ def mdp_entry(
     if debug_vis := debug_vis_entry(env):
         entry["debug_vis"] = debug_vis
     return entry
+
+
+def _serialize_reading_actions(
+    mdp: MdpConfig,
+    entry: dict[str, Any],
+    sidecar: dict[str, Any],
+    *,
+    env: Any,
+    scene_dir: Path,
+    scope: str,
+    on_term: Callable[[str], None],
+) -> None:
+    """The observation and termination terms, which may read the action terms."""
+    if mdp.observations:
+        on_term("observations")
+        # Authored groups first, never overwritten: the key names the fused graph.
+        obs_config = dict(sidecar.get("observations") or {})
+        for key, group in mdp.observations.items():
+            target_key = f"{key}_monitor" if key in obs_config else key
+            obs_config[target_key] = serialize_observation_group(
+                group, env, scene_dir, target_key, scope=scope
+            )
+        entry["observations"] = obs_config
+    elif sidecar.get("observations"):
+        entry["observations"] = sidecar["observations"]
+    if mdp.terminations:
+        on_term("terminations")
+        terminations = serialize_terminations(
+            mdp.terminations, env, scene_dir, scope=scope
+        )
+        if terminations:
+            entry["terminations"] = terminations
+    elif sidecar.get("terminations"):
+        entry["terminations"] = sidecar["terminations"]
 
 
 def policy_entry(

@@ -9,11 +9,12 @@ command's tensor attributes, ``env.sim``. A raw sim field travels as a
 from __future__ import annotations
 
 import copy
+import functools
 from typing import Any, Callable, Collection
 
 import torch
 
-from .slot import _TERM_ENV_READS, UnsupportedEnvRead
+from .slot import _TERM_ENV_READS, UnsupportedEnvRead, _forward_env_attr
 
 #: Torch calls that read a tensor's shape, never its values: a proxy treats them as
 #: no read at all.
@@ -105,19 +106,94 @@ def _forward_action_attr(manager: Any, name: str) -> Any:
     return value
 
 
-def _action_term_proxy(real: Any, raw_action: Callable[[], torch.Tensor]) -> Any:
-    """An action-term stand-in serving ``raw_action`` from ``raw_action()``; any other
-    tensor it holds (``processed_actions``, say) raises, as the manager's do."""
+@functools.cache
+def _live_classes() -> tuple[type, ...]:
+    try:
+        from mjlab.entity import Entity
+        from mjlab.entity.data import EntityData
+        from mjlab.envs import ManagerBasedRlEnv
+        from mjlab.managers.manager_base import ManagerBase, ManagerTermBase
+        from mjlab.scene import Scene
+        from mjlab.sensor import Sensor
+        from mjlab.sim.sim import Simulation
+    except ImportError:
+        return ()
+    return (
+        Entity,
+        EntityData,
+        ManagerBasedRlEnv,
+        ManagerBase,
+        ManagerTermBase,
+        Scene,
+        Sensor,
+        Simulation,
+    )
+
+
+def _is_live_object(value: Any, depth: int = 0) -> bool:
+    """Whether *value* holds sim state that changes under a term: an entity or its
+    data, a sensor, the scene, the sim, the env, a manager or its term, or a container
+    of one. A read through it bypasses the tracer and would bake as a constant."""
+    if isinstance(value, (torch.Tensor, str, bytes, int, float, type(None))):
+        return False
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return depth < 3 and any(_is_live_object(v, depth + 1) for v in value)
+    if isinstance(value, dict):
+        return depth < 3 and any(_is_live_object(v, depth + 1) for v in value.values())
+    if isinstance(value, _live_classes()):
+        return True
+    if (type(value).__module__ or "").split(".")[0] == "mujoco_warp":
+        return True
+    return hasattr(value, "data") and (
+        hasattr(value, "write_joint_state_to_sim") or hasattr(value, "update")
+    )
+
+
+class _EnvConstants:
+    """A term's ``_env`` read off a proxy: the forwarded constants, nothing live."""
+
+    def __init__(self, real: Any):
+        object.__setattr__(self, "_real", real)
+
+    def __getattr__(self, name: str) -> Any:
+        return _forward_env_attr(self._real, name, _TERM_ENV_READS)
+
+
+#: The processed action's backing field, which the browser serves for every term.
+_PROCESSED_FIELD = "_processed_actions"
+
+
+def _action_term_proxy(
+    real: Any,
+    raw_action: Callable[[], torch.Tensor],
+    read_state: Callable[[str, torch.Tensor], torch.Tensor],
+    traced: frozenset[str] | None,
+) -> Any:
+    """An action-term stand-in.
+
+    A native term (*traced* ``None``) serves ``raw_action`` from ``raw_action()``, a
+    traced one its state fields (*traced*) through ``read_state``, and either its
+    processed action through ``read_state`` (ADR 0009 §5). Any other tensor, or a live
+    object such as its entity, raises: the browser holds neither, so its value would
+    bake. A property runs on the stand-in, so what it reads comes back through here.
+    """
 
     def __getattribute__(self: Any, attr: str) -> Any:  # noqa: N807
-        if attr == "raw_action":
+        if attr == "raw_action" and traced is None:
             return raw_action()
+        if attr == "_env":
+            return _EnvConstants(object.__getattribute__(self, attr))
+        if isinstance(getattr(type(real), attr, None), property):
+            return object.__getattribute__(self, attr)
         value = object.__getattribute__(self, attr)
         if isinstance(value, torch.Tensor):
-            raise UnsupportedEnvRead(
-                f"action_manager.get_term(...).{attr}", _TERM_ENV_READS
-            )
-        return value
+            if attr == _PROCESSED_FIELD or (traced is not None and attr in traced):
+                return read_state(attr, value)
+        elif not _is_live_object(value):
+            return value
+        raise UnsupportedEnvRead(
+            f"action_manager.get_term(...).{attr}", _TERM_ENV_READS
+        )
 
     return _class_proxy(real, {"__getattribute__": __getattribute__})
 

@@ -13,17 +13,37 @@ from typing import Any, Callable, Collection
 import numpy as np
 import torch
 
-from .event import _env_ids, _event_outputs, trace_event_term
+from ..envs.mdp.actions import is_traced
+from ..envs.mdp.events import EventBinding
+from ..envs.mdp.events import _custom_registry as _event_registry
+from ..envs.mdp.observations import ObservationBinding
+from ..envs.mdp.observations import _custom_registry as _observation_registry
+from ..envs.mdp.registry import resolve
+from ..envs.mdp.terminations import TerminationBinding
+from ..envs.mdp.terminations import _custom_registry as _termination_registry
+from .action import UntraceableAction, trace_action_term
+from .event import (
+    _env_ids,
+    _event_outputs,
+    event_writes_nothing_reason,
+    trace_event_term,
+)
 from .record import WriteCaptures, _EventCaptureEnv
 from .rng import DrawRecorder
-from .slot import read_slot, slot_label
-from .term import TermExport, trace_term
+from .slot import read_slot, slot_label, traced_action_state
+from .term import ConstantTerm, TermExport, trace_term
+
+#: Where an author's override of each kind of term is registered, and its TS binding.
+_REGISTRIES: dict[str, tuple[dict[str, Any], type]] = {
+    "observation": (_observation_registry, ObservationBinding),
+    "termination": (_termination_registry, TerminationBinding),
+}
 
 
 @dataclass
 class TermReport:
     name: str
-    kind: str  # "observation" | "termination" | "event"
+    kind: str  # "observation" | "termination" | "event" | "action"
     representation: str  # "onnx" | "native"
     input_slots: list[str] = field(default_factory=list)
     constant_slots: list[str] = field(default_factory=list)
@@ -51,8 +71,8 @@ class ParityReport:
         ]
         for t in self.terms:
             status = "OK  " if t.passed else "FAIL"
-            if t.representation == "native":
-                lines.append(f"  [{status}] {t.name:<16} native ({t.note})")
+            if t.representation == "native" or t.kind == "action":
+                lines.append(f"  [{status}] {t.name:<16} {t.representation} ({t.note})")
             elif t.kind == "event":
                 lines.append(
                     f"  [{status}] {t.name:<16} onnx-event  "
@@ -135,6 +155,33 @@ def _iter_event_terms(
     return out
 
 
+def _trace_action_terms(env: Any) -> tuple[list[TermReport], dict[str, list[str]]]:
+    """Trace each action term the build traces (ADR 0009), which checks both graphs
+    against the term's own bodies. Returns the reports, and each term's state for the
+    observations that read it."""
+    reports: list[TermReport] = []
+    state: dict[str, list[str]] = {}
+    manager = env.action_manager
+    for name in manager.active_terms:
+        cfg = manager.get_term(name).cfg
+        if not is_traced(cfg):
+            continue
+        tr = TermReport(name=name, kind="action", representation="onnx")
+        reports.append(tr)
+        try:
+            export = trace_action_term(cfg.build(env), name=name)
+        except UntraceableAction as exc:
+            tr.representation = "native"
+            tr.passed = False
+            tr.note = str(exc)
+            continue
+        tr.input_slots = [slot_label(k) for k in export.process.input_slots]
+        tr.rand_dim = export.process.rand_dim
+        tr.note = "process and reset match the term's own bodies"
+        state[name] = [spec["name"] for spec in export.state_fields]
+    return reports, state
+
+
 def run_parity(
     env: Any,
     *,
@@ -152,7 +199,10 @@ def run_parity(
 
     ``env`` must be a freshly constructed mjlab env; this function resets it.
     Observation and termination terms are checked every step; ``reset``-mode Event
-    terms are checked by replaying ``n_event_draws`` fresh recorded RNG draws (§2b).
+    terms are checked by replaying ``n_event_draws`` fresh recorded RNG draws (§2b). As
+    in the build, a registered override is traced in place of its term and checked
+    against mjlab's own, a TS binding goes unchecked, and a task's own action term is
+    traced, its state served to the observations that read it.
 
     ``reader_fields`` is passed to :func:`trace_term`; an empty set traces every
     ``EntityData`` property through to raw sim slots, putting mjlab's own property math
@@ -163,6 +213,8 @@ def run_parity(
     report = ParityReport(n_steps=n_steps, atol=atol, rtol=rtol)
     torch.manual_seed(seed)
     env.reset()
+    action_reports, action_state = _trace_action_terms(env)
+    report.terms.extend(action_reports)
 
     # --- Trace observation and termination terms; classify the rest. -----
     checks: list[
@@ -175,18 +227,32 @@ def run_parity(
         else []
     )
     for kind, term_name, func, params in terms:
-        try:
-            export = trace_term(
-                func, params, env, name=term_name, reader_fields=reader_fields
-            )
-        except ValueError as exc:
+        registry, binding = _REGISTRIES[kind]
+        traced = resolve(func, term_name, registry, binding)
+        if isinstance(traced, binding):
             report.terms.append(
                 TermReport(
                     name=term_name,
                     kind=kind,
                     representation="native",
-                    # The build bakes a constant observation but refuses a termination.
-                    passed=kind == "observation",
+                    note=f"TS class {traced.ts_name}",
+                )
+            )
+            continue
+        try:
+            with traced_action_state(action_state):
+                export = trace_term(
+                    traced, params, env, name=term_name, reader_fields=reader_fields
+                )
+        except (ValueError, AttributeError) as exc:
+            report.terms.append(
+                TermReport(
+                    name=term_name,
+                    kind=kind,
+                    representation="native",
+                    # The build bakes a constant observation; it refuses an untraceable
+                    # term, and a constant termination.
+                    passed=kind == "observation" and isinstance(exc, ConstantTerm),
                     note=str(exc).split(";")[0],
                 )
             )
@@ -231,6 +297,11 @@ def run_parity(
         for term_name, func, params, is_global_time in _iter_event_terms(env, mode):
             tr = TermReport(name=term_name, kind="event", representation="onnx")
             report.terms.append(tr)
+            bound = resolve(func, term_name, _event_registry, EventBinding)
+            if isinstance(bound, EventBinding):
+                tr.representation = "native"
+                tr.note = f"TS class {bound.ts_name}"
+                continue
             try:
                 export = trace_event_term(
                     func,
@@ -243,6 +314,8 @@ def run_parity(
             except Exception as exc:  # noqa: BLE001 — untraceable term → native fallback
                 tr.representation = "native"
                 tr.note = f"{type(exc).__name__}: {str(exc).splitlines()[0][:80]}"
+                # As the build, which fails on any other untraceable event.
+                tr.passed = event_writes_nothing_reason(func, env, params) is not None
                 continue
             tr.rand_dim = export.rand_dim
             tr.input_slots = [slot_label(k) for k in export.input_slots]

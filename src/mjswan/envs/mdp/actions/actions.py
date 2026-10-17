@@ -25,7 +25,7 @@ import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
-from mjswan.managers.action_manager import ActionTermCfg
+from mjswan.managers.action_manager import ActionBinding, ActionTermCfg
 
 if TYPE_CHECKING:
     import mujoco
@@ -48,7 +48,18 @@ class BaseActionCfg(ActionTermCfg):
     """Action offset added after scaling."""
 
     preserve_order: bool = False
-    """Accepted for mjlab compatibility; ignored in mjswan."""
+    """Accepted for mjlab compatibility; ignored, as mjlab 1.6.0 ignores it for joint
+    actions: targets follow the model's joint order."""
+
+    delay: list[dict[str, Any]] | None = None
+    """mjswan-specific: mjlab's actuator command delays (``ActuatorCfg.delay_*``) on this
+    term's joints, one entry per mjlab delay buffer: ``{"joints", "min_lag", "max_lag",
+    "hold_prob", "update_period", "per_env_phase"}``. Resolved from the actuator configs
+    when unset."""
+
+    def _add_delay(self, entry: dict[str, Any]) -> None:
+        if self.delay:
+            entry["delay"] = self.delay
 
     def to_dict(self) -> dict[str, Any]:
         if self.unsupported_reason is not None:
@@ -61,6 +72,7 @@ class BaseActionCfg(ActionTermCfg):
             entry["offset"] = self.offset
         entry["actuator_names"] = list(self.actuator_names)
         self._add_clip(entry)
+        self._add_delay(entry)
         return entry
 
 
@@ -105,6 +117,7 @@ class JointPositionActionCfg(BaseActionCfg):
         if self.damping is not None:
             entry["damping"] = self.damping
         self._add_clip(entry)
+        self._add_delay(entry)
         return entry
 
 
@@ -147,6 +160,7 @@ class ReferenceJointPositionActionCfg(BaseActionCfg):
         if self.damping is not None:
             entry["damping"] = self.damping
         self._add_clip(entry)
+        self._add_delay(entry)
         return entry
 
 
@@ -181,6 +195,44 @@ class CommandJointPositionActionCfg(BaseActionCfg):
         if self.damping is not None:
             entry["damping"] = self.damping
         self._add_clip(entry)
+        self._add_delay(entry)
+        return entry
+
+
+@dataclass(kw_only=True)
+class RelativeJointPositionActionCfg(BaseActionCfg):
+    """Joint targets relative to the measured position: ``q + scale * a``.
+
+    Mirrors ``mjlab.envs.mdp.actions.actions.RelativeJointPositionActionCfg``. The
+    browser reads ``q`` every substep, as mjlab's ``apply_actions`` does; ``clip``
+    bounds the delta, and there is no offset and no encoder bias.
+    """
+
+    stiffness: float | list[float] | dict[str, float] | None = None
+    """Position gain (kp). mjswan-specific; see :class:`JointPositionActionCfg`."""
+
+    damping: float | list[float] | dict[str, float] | None = None
+    """Velocity gain (kd). mjswan-specific; see :class:`JointPositionActionCfg`."""
+
+    def to_dict(self) -> dict[str, Any]:
+        if self.unsupported_reason is not None:
+            raise NotImplementedError(self.unsupported_reason)
+        if self.offset != 0.0:
+            raise ValueError(
+                "RelativeJointPositionActionCfg takes no `offset`: the target is the "
+                "measured position plus the scaled action, as in mjlab."
+            )
+
+        entry: dict[str, Any] = {"type": "joint_position_relative"}
+        if self.scale != 1.0:
+            entry["scale"] = self.scale
+        entry["actuator_names"] = list(self.actuator_names)
+        if self.stiffness is not None:
+            entry["stiffness"] = self.stiffness
+        if self.damping is not None:
+            entry["damping"] = self.damping
+        self._add_clip(entry)
+        self._add_delay(entry)
         return entry
 
 
@@ -212,6 +264,7 @@ class JointVelocityActionCfg(BaseActionCfg):
         if self.damping is not None:
             entry["damping"] = self.damping
         self._add_clip(entry)
+        self._add_delay(entry)
         return entry
 
 
@@ -243,7 +296,38 @@ class JointEffortActionCfg(BaseActionCfg):
         if self.damping is not None:
             entry["damping"] = self.damping
         self._add_clip(entry)
+        self._add_delay(entry)
         return entry
+
+
+@dataclass(kw_only=True)
+class TracedActionCfg(BaseActionCfg):
+    """A task's own mjlab action term, traced at build time (ADR 0009).
+
+    The adapter makes one for a task's own action class mjswan has no class of its own
+    for: its ``process_actions`` and ``reset`` become graphs, and its ``apply_actions`` is
+    the native kind and options its :class:`~mjswan.ActionBinding` names, or its mjlab
+    base's. ``actuator_names`` are the mjlab cfg's, entity-prefixed, for resolving the
+    gains and delays of its joints; the build writes the exact joints the term drives.
+    """
+
+    mjlab_cfg: Any = None
+    """The task's mjlab action cfg, built on the trace env."""
+
+    binding: ActionBinding | None = None
+
+    stiffness: float | list[float] | dict[str, float] | None = None
+    """Position gain (kp). mjswan-specific; see :class:`JointPositionActionCfg`."""
+
+    damping: float | list[float] | dict[str, float] | None = None
+    """Velocity gain (kd). mjswan-specific; see :class:`JointPositionActionCfg`."""
+
+    def to_dict(self) -> dict[str, Any]:
+        raise TypeError(
+            f"TracedActionCfg({type(self.mjlab_cfg).__name__}) is traced at build time; "
+            "use mjswan.build.mdp.serialize_actions(..., env=...) instead of to_dict() "
+            "directly (the Builder does this automatically)."
+        )
 
 
 MuscleActionMode = Literal["sigmoid", "direct", "excitation"]
@@ -440,6 +524,8 @@ __all__ = [
     "JointVelocityActionCfg",
     "JointEffortActionCfg",
     "MuscleActivationActionCfg",
+    "RelativeJointPositionActionCfg",
+    "TracedActionCfg",
     "TendonLengthActionCfg",
     "TendonVelocityActionCfg",
     "TendonEffortActionCfg",

@@ -33,6 +33,7 @@ from .proxy import (
 )
 from .slot import (
     _ACTION_NS,
+    _ACTION_TERM_NS,
     _COMMAND_NS,
     _ENV_NS,
     _ENV_SLOT_DTYPES,
@@ -45,6 +46,7 @@ from .slot import (
     SlotKey,
     _forward_env_attr,
     _sim_tensor,
+    traced_action_fields,
 )
 
 
@@ -357,7 +359,15 @@ class _RecordingActionManager:
             self._logged_action()
             return real.raw_action
 
-        return _action_term_proxy(real, raw_action)
+        def read_state(attr: str, value: torch.Tensor) -> torch.Tensor:
+            # Logged as the float32 the browser feeds; replay casts back to its dtype.
+            key = (_ACTION_TERM_NS, f"{name}.{attr}")
+            self._log.append((key, value.to(torch.float32)))
+            return value
+
+        return _action_term_proxy(
+            real, raw_action, read_state, traced_action_fields(name)
+        )
 
     def _logged_action(self) -> torch.Tensor:
         value = self._real.action

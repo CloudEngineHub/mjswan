@@ -148,4 +148,51 @@ class GatedIndexing(TorchFunctionMode):
         return func(*args, **kwargs)
 
 
-__all__ = ["GatedIds", "GatedIndexing", "gated"]
+def _is_row_mask(base: Any, index: Any, num_envs: int) -> bool:
+    """A 1-D boolean mask over a data tensor's env rows, one per env, so a per-joint
+    mask is left alone. ``GatedIds`` covers index tensors."""
+    return (
+        isinstance(base, torch.Tensor)
+        and not _is_ids(base)
+        and base.dim() >= 1
+        and isinstance(index, torch.Tensor)
+        and not isinstance(index, GatedIds)
+        and index.dtype == torch.bool
+        and index.dim() == 1
+        and index.shape[0] == base.shape[0] == num_envs
+    )
+
+
+class MaskedRows(TorchFunctionMode):
+    """Rows a boolean mask selects (``x[mask]``, ``x[mask] = v``) stay whole and gated.
+
+    A read through the mask reads every row, a write through it is
+    ``where(mask, new, old)``. Single-env traces only, where a mask selects the one row
+    or none, so a row the body would skip is computed but never written.
+    """
+
+    def __init__(self, num_envs: int):
+        super().__init__()
+        self._num_envs = num_envs
+
+    def __torch_function__(
+        self,
+        func: Any,
+        types: Any,
+        args: tuple[Any, ...] = (),
+        kwargs: dict[str, Any] | None = None,
+    ) -> Any:
+        if func is torch.Tensor.__getitem__ and _is_row_mask(
+            args[0], args[1], self._num_envs
+        ):
+            # A copy: `x[mask] += 1` updates what this returns before writing it back.
+            return args[0].clone()
+        if func is torch.Tensor.__setitem__ and _is_row_mask(
+            args[0], args[1], self._num_envs
+        ):
+            base, mask, value = args
+            return func(base, slice(None), _where(mask, value, base))
+        return func(*args, **(kwargs or {}))
+
+
+__all__ = ["GatedIds", "GatedIndexing", "MaskedRows", "gated"]

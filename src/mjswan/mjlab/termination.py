@@ -2,32 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import Any
 
+from ..envs.mdp.registry import resolve
 from ..envs.mdp.terminations import TerminationBinding
 from ..envs.mdp.terminations import _custom_registry as _custom_term_registry
 from ..managers.termination_manager import (
     TerminationTermCfg as MjswanTerminationTermCfg,
 )
 from .detect import is_from_mjlab
-
-
-def _adapt_term_func(
-    func: Any, term_name: str | None = None
-) -> TerminationBinding | Callable[..., Any]:
-    """Resolve the function a termination term's ONNX graph is traced from.
-
-    *term_name* also covers closures, which can only be registered by their dict key.
-    """
-    if isinstance(func, TerminationBinding):
-        return func
-    name = getattr(func, "__name__", None)
-    if name and name in _custom_term_registry:
-        return _custom_term_registry[name]
-    if term_name and term_name in _custom_term_registry:
-        return _custom_term_registry[term_name]
-    return func
 
 
 def _sanitize_termination_params(params: dict[str, Any]) -> dict[str, Any]:
@@ -63,7 +46,7 @@ def _adapt_term_cfg(
     As in :func:`_adapt_obs_term`, params are sanitized only for the binding path.
     """
     raw_params = dict(getattr(term, "params", None) or {})
-    func = _adapt_term_func(term.func, term_name=term_name)
+    func = resolve(term.func, term_name, _custom_term_registry, TerminationBinding)
     params = (
         _sanitize_termination_params(raw_params)
         if isinstance(func, TerminationBinding)

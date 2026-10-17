@@ -55,7 +55,8 @@ function numel(shape: readonly number[]): number {
   return shape.reduce((a, b) => a * b, 1);
 }
 
-function makeTensor(spec: OnnxStateFieldSpec): OnnxTensorLike {
+/** A state field's tensor at its build-time `init`. Shared with traced action terms. */
+export function makeStateTensor(spec: OnnxStateFieldSpec): OnnxTensorLike {
   const n = numel(spec.shape);
   const data = spec.dtype === 'bool' ? new Uint8Array(n) : new Float32Array(n);
   const init = spec.init;
@@ -92,7 +93,7 @@ export class OnnxCommand implements CommandTerm {
     this.cfg = config;
     this.deps = deps;
     this.context = context;
-    for (const spec of config.state_fields) this.state.set(spec.name, makeTensor(spec));
+    for (const spec of config.state_fields) this.state.set(spec.name, makeStateTensor(spec));
     const commandSpec = config.state_fields.find(s => s.name === config.command_field);
     this.command = new Float32Array(commandSpec ? numel(commandSpec.shape) : 0);
     this.timeLeft = this.sampleResampleTime();

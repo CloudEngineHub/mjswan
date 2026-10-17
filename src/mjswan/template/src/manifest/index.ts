@@ -206,9 +206,11 @@ export function sanitizeName(name: string): string {
  * slot that `time_out` is traced through; 5 the `action` input slot that `last_action`
  * is traced through, the `model` input slot and write target that model-field
  * randomization is traced through, and a command graph's `reset_mask`, gated writes and
- * `root_velocity_b` write.
+ * `root_velocity_b` write; 6 an action term's traced `process` and `reset` graphs, its
+ * `interpolate`, `hold_s` and `delay`, the `joint_position_relative` type, and the
+ * `action_term` input slot (ADR 0009).
  */
-export const MAX_DOCUMENT_FORMAT = 5;
+export const MAX_DOCUMENT_FORMAT = 6;
 
 /**
  * Refuse a document this reader cannot read: one without a `format`, or one newer than it

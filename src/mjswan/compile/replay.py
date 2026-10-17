@@ -31,6 +31,7 @@ from .proxy import (
 from .record import _index_rows, _WriteCaptureMixin
 from .slot import (
     _ACTION_NS,
+    _ACTION_TERM_NS,
     _COMMAND_NS,
     _ENV_NS,
     _ENV_SLOT_DTYPES,
@@ -42,6 +43,7 @@ from .slot import (
     SlotKey,
     TaggedKey,
     _forward_env_attr,
+    traced_action_fields,
 )
 
 
@@ -260,9 +262,22 @@ class _ReplayActionManager:
 
     def get_term(self, name: str) -> Any:
         offset, dim = action_term_window(self._real, name)
+
+        def read_state(attr: str, real: torch.Tensor) -> torch.Tensor:
+            value = self._slots.get((_ACTION_TERM_NS, f"{name}.{attr}"))
+            if value is None:
+                raise AttributeError(
+                    f"Term read action term {name!r}'s {attr} during tracing, which the "
+                    "discovery pass never saw: the term's control flow is "
+                    "input-dependent, which is not traceable (ADR 0005 §Consequences)."
+                )
+            return value.to(real.dtype)
+
         return _action_term_proxy(
             self._real.get_term(name),
             lambda: self._action()[:, offset : offset + dim],
+            read_state,
+            traced_action_fields(name),
         )
 
     def _action(self) -> torch.Tensor:

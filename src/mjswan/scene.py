@@ -31,9 +31,11 @@ from .mjlab import (
     adapt_observations,
     adapt_terminations,
     resolve_action_scales,
+    resolve_actuator_delays,
     resolve_default_joint_vel,
     resolve_pd_gains,
     resolve_runner_defaults,
+    warn_split_delays,
     warn_unrun_actuator_fields,
 )
 from .mjlab.task import env_cfg_control_dt
@@ -74,7 +76,8 @@ def _get_scene_model(scene_config: SceneConfig) -> mujoco.MjModel | None:
 def _resolve_command_joints(
     model: mujoco.MjModel | None, name: str, term: CommandJointPositionActionCfg
 ) -> list[str]:
-    """The joints *term* drives, resolved as mjlab resolves an action term's.
+    """The joints *term* drives, resolved as mjlab resolves an action term's: in model
+    order, since mjlab ignores ``preserve_order`` for joints.
 
     Writes them back as exact ``actuator_names``, one per command column, so the build
     can check the command's width and the browser finds the same joints.
@@ -609,6 +612,7 @@ class SceneHandle:
         if has_command_terms or (mdp.actions and policy_joint_names):
             resolved_env_cfg = self._resolve_env_cfg(env_cfg)
             model = _get_scene_model(self._config) if has_command_terms else None
+            resolved: dict[str, list[str]] = {}
             for name, term in (mdp.actions or {}).items():
                 if isinstance(term, CommandJointPositionActionCfg):
                     joints = _resolve_command_joints(model, name, term)
@@ -623,11 +627,14 @@ class SceneHandle:
                 else:
                     joints = policy_joint_names
                 if joints:
+                    resolved[name] = joints
                     one = {name: term}
                     resolve_action_scales(one, joints)
                     resolve_pd_gains(one, joints, resolved_env_cfg)
+                    resolve_actuator_delays(one, joints, resolved_env_cfg)
                     resolve_default_joint_vel(one, joints, resolved_env_cfg)
             warn_unrun_actuator_fields(mdp.actions, resolved_env_cfg)
+            warn_split_delays(mdp.actions, resolved, resolved_env_cfg)
         mdp._adapted = True
 
     def add_policy(

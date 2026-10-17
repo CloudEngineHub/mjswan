@@ -18,6 +18,13 @@
 > `manifest.json` at the document root. ADR 0006 also amends §2 (PRNG behaviour
 > at an MDP switch) and §4 (graph references resolve against the scene
 > directory). §3 and §5–§9 stand as written.
+>
+> **Amended by [ADR 0009](0009-action-terms-traced-process-native-apply.md):** Action
+> is no longer fully native. A task's own action class has its `process_actions` and
+> `reset` traced in §3's stateful shape; every term's `apply_actions` stays native and
+> synchronous, as §7 and §8 require. §7's `relative_joint_position` is implemented as
+> `joint_position_relative`; its tendon and site kinds are still not run. §3's stateful
+> Event terms were never implemented: an event's trace carries no state.
 
 ## Context
 

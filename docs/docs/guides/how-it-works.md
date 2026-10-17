@@ -97,12 +97,13 @@ The split is strict, and it is the key to understanding the artifacts:
 |---|---|---|
 | Observation | **ONNX**, fused into one graph per group | concatenate, clip, scale, history |
 | Termination | **ONNX**, one bool lane per term | OR-reduce, terminated-vs-truncated split |
-| Action | **none** — native | the full term (`raw * scale + offset`, clip, PD, actuator write) |
+| Action | **none** for mjlab's own classes; **ONNX** for a task's own `process_actions`, state threaded explicitly | `raw * scale + offset`, clip; every substep: ramp, hold, command delay, PD, actuator write |
 | Event | **ONNX**, run only when the trigger fires | interval countdown, startup-once, reset gating |
 | Command | **ONNX**, state threaded explicitly | resample timer, held state, UI override |
 
-Action is deliberately native: it is a closed set of term types, it is the hottest loop
-(once per physics substep, not once per control step), and it must be synchronous.
+An action term's `apply` is deliberately native: it is the hottest loop (once per physics
+substep, not once per control step), and it must be synchronous. Only a task's own
+`process`, once per control step, is a graph.
 
 Only these five managers exist. Reward, curriculum, metrics, and recorders are training
 concerns and mjswan is a playback tool, so a task's reward config is simply ignored — it

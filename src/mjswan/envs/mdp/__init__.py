@@ -1,10 +1,13 @@
 """MDP components for mjswan.
 
-``actions`` mirrors ``mjlab.envs.mdp.actions``: Action stays a closed,
-permanently-native set (ADR 0005 §7), so ``mjswan.envs.mdp.actions`` carries
-real, directly-usable action-term configs, same import pattern as mjlab::
+``actions`` mirrors ``mjlab.envs.mdp.actions``: mjlab's own action classes run natively
+in the browser, so ``mjswan.envs.mdp.actions`` carries real, directly-usable action-term
+configs, same import pattern as mjlab::
 
     from mjswan.envs.mdp.actions import JointPositionActionCfg
+
+A task's own action class is traced instead (ADR 0009); ``mjswan.register_action`` names
+what its ``apply_actions`` does when it overrides it.
 
 ``observations`` / ``terminations`` / ``events`` are different: mjswan reimplements
 none of mjlab's term functions. Pass mjlab's own straight to

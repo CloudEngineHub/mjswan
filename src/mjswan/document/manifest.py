@@ -28,7 +28,12 @@ MANIFEST_NAME = "manifest.json"
 #: and a write may be a body-frame root velocity (``kind: "root_velocity_b"``). An older
 #: engine cannot serve them: the observation group would freeze, the randomization would
 #: not happen, and the command would not run.
-DOCUMENT_FORMAT = 5
+#:
+#: 6: an action term may be traced (``process`` and ``reset`` graphs, ADR 0009), carry
+#: ``interpolate``, ``hold_s`` or ``delay``, or be ``joint_position_relative``, and an
+#: input slot may read an action term's state (``{"action_term": ...}``). An older engine
+#: would apply the raw action through the native formula, without any of them.
+DOCUMENT_FORMAT = 6
 
 #: Input slots the runtime fills itself rather than from an observation group: the
 #: recurrent carry (``is_init``, ``adapt_hx``) and the step counter (``time_step``).

@@ -6,7 +6,7 @@ Same resolution order as :mod:`.observation`.
 from __future__ import annotations
 
 import math
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from typing import Any
 
 from ..envs.mdp.events import (
@@ -14,22 +14,9 @@ from ..envs.mdp.events import (
     reset_root_state_on_flat_patch,
 )
 from ..envs.mdp.events import _custom_registry as _custom_event_registry
+from ..envs.mdp.registry import resolve
 from ..managers.event_manager import EventTermCfg as MjswanEventTermCfg
 from .detect import is_from_mjlab
-
-
-def _adapt_event_func(
-    func: Any, term_name: str | None = None
-) -> EventBinding | Callable[..., Any]:
-    """Resolve the function an event term's ONNX graph is traced from."""
-    if isinstance(func, EventBinding):
-        return func
-    name = getattr(func, "__name__", None)
-    if name and name in _custom_event_registry:
-        return _custom_event_registry[name]
-    if term_name and term_name in _custom_event_registry:
-        return _custom_event_registry[term_name]
-    return func
 
 
 def _sanitize_event_params(params: dict[str, Any]) -> dict[str, Any]:
@@ -66,7 +53,7 @@ def _adapt_event_cfg(term: Any, term_name: str | None = None) -> MjswanEventTerm
 
     As in :func:`_adapt_obs_term`, params are sanitized only for the binding path.
     """
-    func = _adapt_event_func(term.func, term_name=term_name)
+    func = resolve(term.func, term_name, _custom_event_registry, EventBinding)
     raw_params = dict(getattr(term, "params", None) or {})
     params = (
         _sanitize_event_params(raw_params)

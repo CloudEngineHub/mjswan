@@ -1,9 +1,10 @@
 """mjlab action terms as mjswan's.
 
-Actions stay a fixed, native, non-traced set (ADR 0005 §7), matched by class name. The
-regex scale/offset patterns, and the PD gains mjlab keeps on the actuator config, are
-resolved against the policy's joint names, or a command term's own, since the browser
-looks joints up by exact name.
+mjlab's own action classes run natively in the browser, matched by class name; a task's
+own class is traced at build time (ADR 0009). The regex scale/offset patterns, and the
+PD gains and command delays mjlab keeps on the actuator config, are resolved against the
+policy's joint names, or a command term's own, since the browser looks joints up by
+exact name.
 """
 
 from __future__ import annotations
@@ -17,19 +18,18 @@ from collections.abc import Mapping
 from typing import Any
 
 from ..envs.mdp import actions as _actions_module
+from ..envs.mdp.actions import is_traced, native_class
 from ..envs.mdp.actions.actions import (
+    BaseActionCfg,
     CommandJointPositionActionCfg,
     JointPositionActionCfg,
     JointVelocityActionCfg,
     ReferenceJointPositionActionCfg,
+    RelativeJointPositionActionCfg,
+    TracedActionCfg,
 )
 from ..managers.action_manager import ActionTermCfg as MjswanActionTermCfg
 from .detect import differs, field_default, is_from_mjlab
-
-_ACTION_CLASS_ALIASES: dict[str, str] = {
-    # myosuite's muscle action cfg sits outside mjlab's hierarchy; translate it.
-    "MyoMuscleActivationActionCfg": "MuscleActivationActionCfg",
-}
 
 #: Set by each mjlab action class in ``__post_init__`` (a tendon action's is ``TENDON``),
 #: so the class name the mapping goes by already carries it.
@@ -54,17 +54,25 @@ def _listing(fields: Mapping[str, Any]) -> str:
     return ", ".join(f"{name}={reprlib.repr(value)}" for name, value in fields.items())
 
 
-def _mjswan_action_class(term: Any) -> type[MjswanActionTermCfg] | None:
-    class_name = _ACTION_CLASS_ALIASES.get(type(term).__name__, type(term).__name__)
-    cls = getattr(_actions_module, class_name, None)
-    if isinstance(cls, type) and issubclass(cls, MjswanActionTermCfg):
-        return cls
-    return None
+def _prefixed(entity_name: str | None, names: Any) -> Any:
+    """Patterns prefixed with the entity name, as mjlab does, to match
+    ``policy_joint_names``. An alternation is grouped, or the prefix would bind to its
+    first branch only."""
+    if not entity_name or not isinstance(names, (list, tuple)):
+        return names
+    return tuple(
+        f"{entity_name}/(?:{n})" if "|" in n else f"{entity_name}/{n}" for n in names
+    )
 
 
-def _has_mjswan_action(term: Any) -> bool:
-    """Whether *term*'s class name maps to an mjswan action, mjlab bases or not."""
-    return _mjswan_action_class(term) is not None
+def _traced_action_cfg(term: Any) -> TracedActionCfg:
+    """A task's own action class, to be traced at build time (ADR 0009)."""
+    entity_name = getattr(term, "entity_name", "robot")
+    return TracedActionCfg(
+        entity_name=entity_name,
+        actuator_names=_prefixed(entity_name, getattr(term, "actuator_names", (".*",))),
+        mjlab_cfg=term,
+    )
 
 
 def _adapt_action_cfg(term: Any) -> MjswanActionTermCfg | None:
@@ -72,15 +80,19 @@ def _adapt_action_cfg(term: Any) -> MjswanActionTermCfg | None:
 
     The class is looked up by name on ``mjswan.envs.mdp.actions`` and every field it
     shares with *term* is copied; a field set on *term* that the class lacks warns, since
-    the browser ignores it. ``None`` if no mjswan equivalent exists.
+    the browser ignores it. A task's own class with no mjswan equivalent is traced; one
+    of mjlab's own without one (differential IK), or a cfg with no ``build`` to trace,
+    is skipped and ``None`` returned.
     """
-    class_name = _ACTION_CLASS_ALIASES.get(type(term).__name__, type(term).__name__)
-    mjswan_cls = _mjswan_action_class(term)
+    mjswan_cls = native_class(term)
 
     if mjswan_cls is None:
+        if is_traced(term):
+            return _traced_action_cfg(term)
+        traceable = callable(getattr(term, "build", None))
         warnings.warn(
-            f"mjlab action type '{class_name}' has no mjswan equivalent. "
-            f"It will be skipped.",
+            f"mjlab action type '{type(term).__name__}' has no mjswan equivalent"
+            f"{'' if traceable else ' and no build() to trace'}. It will be skipped.",
             category=RuntimeWarning,
             stacklevel=3,
         )
@@ -104,15 +116,8 @@ def _adapt_action_cfg(term: Any) -> MjswanActionTermCfg | None:
             stacklevel=3,
         )
 
-    # Prefixed with the entity name, as mjlab does, to match policy_joint_names. An
-    # alternation is grouped, or the prefix would bind to its first branch only.
-    if entity_name and "actuator_names" in kwargs:
-        raw = kwargs["actuator_names"]
-        if isinstance(raw, (list, tuple)):
-            kwargs["actuator_names"] = tuple(
-                f"{entity_name}/(?:{n})" if "|" in n else f"{entity_name}/{n}"
-                for n in raw
-            )
+    if "actuator_names" in kwargs:
+        kwargs["actuator_names"] = _prefixed(entity_name, kwargs["actuator_names"])
 
     return mjswan_cls(**kwargs)
 
@@ -129,7 +134,11 @@ def adapt_actions(
             continue
         if isinstance(term, MjswanActionTermCfg):
             result[key] = term
-        elif is_from_mjlab(term) or _has_mjswan_action(term):
+        elif (
+            is_from_mjlab(term)
+            or native_class(term) is not None
+            or callable(getattr(term, "build", None))
+        ):
             adapted = _adapt_action_cfg(term)
             if adapted is not None:
                 result[key] = adapted
@@ -222,6 +231,10 @@ def resolve_pd_gains(
                 JointPositionActionCfg,
                 ReferenceJointPositionActionCfg,
                 CommandJointPositionActionCfg,
+                RelativeJointPositionActionCfg,
+                # Whatever it applies: a position term reads both gains, a velocity
+                # term only the damping.
+                TracedActionCfg,
             ),
         ):
             continue
@@ -247,19 +260,16 @@ def resolve_pd_gains(
 
 
 def _unrun_fields(cfg: Any) -> dict[str, Any]:
-    """What an ideal-PD-family *cfg* sets beyond that PD: a subclass's own fields (a
-    torque-speed curve, friction) and a command delay."""
+    """What an ideal-PD-family *cfg* sets beyond that PD and its command delay, which the
+    browser runs: a subclass's own fields (a torque-speed curve, friction)."""
     pd_fields = {
         f.name
         for base in type(cfg).__mro__
         if base.__name__ == _PYTHON_PD_ACTUATOR and dataclasses.is_dataclass(base)
         for f in dataclasses.fields(base)
     }
-    delayed = getattr(cfg, "delay_max_lag", 0) > 0
     return {
-        name: value
-        for name, value in _set_fields(cfg).items()
-        if name not in pd_fields or (delayed and name.startswith("delay_"))
+        name: value for name, value in _set_fields(cfg).items() if name not in pd_fields
     }
 
 
@@ -278,7 +288,112 @@ def warn_unrun_actuator_fields(
             warnings.warn(
                 f"mjlab actuator '{type(cfg).__name__}' on "
                 f"{reprlib.repr(cfg.target_names_expr)} sets {_listing(unrun)}, which "
-                "the browser does not run: it runs only the PD within the effort limit.",
+                "the browser does not run: it runs only the PD within the effort limit "
+                "and the command delay.",
+                category=RuntimeWarning,
+                stacklevel=2,
+            )
+
+
+#: mjlab's ``ActuatorCfg.delay_*`` fields, by the name the manifest gives each.
+_DELAY_FIELDS = {
+    "min_lag": "delay_min_lag",
+    "max_lag": "delay_max_lag",
+    "hold_prob": "delay_hold_prob",
+    "update_period": "delay_update_period",
+    "per_env_phase": "delay_per_env_phase",
+}
+
+
+def _delay_groups(
+    env_cfg: Any | None, term: Any, joint_names: list[str]
+) -> dict[tuple[Any, ...], list[str]]:
+    """*term*'s joints behind each mjlab delay buffer, by that buffer's key.
+
+    mjlab fuses delayed actuators of one class, transmission and delay setting behind a
+    single ``DelayBuffer``, which draws one lag for all of them.
+    """
+    entity = _entity_cfg(env_cfg, term)
+    actuators = getattr(getattr(entity, "articulation", None), "actuators", ())
+    targets = [re.compile(pattern) for pattern in term.actuator_names]
+    driven = [n for n in joint_names if any(t.fullmatch(n) for t in targets)]
+    groups: dict[tuple[Any, ...], list[str]] = {}
+    for cfg in actuators:
+        if getattr(cfg, "delay_max_lag", 0) <= 0:
+            continue
+        key = (
+            type(cfg),
+            getattr(cfg, "transmission_type", None),
+            *(getattr(cfg, f) for f in _DELAY_FIELDS.values()),
+        )
+        joints = groups.setdefault(key, [])
+        for name in _expand_patterns(
+            {pattern: 0.0 for pattern in cfg.target_names_expr}, driven
+        ):
+            if name in driven and name not in joints:
+                joints.append(name)
+    return {
+        key: [n for n in driven if n in joints]
+        for key, joints in groups.items()
+        if joints
+    }
+
+
+def _delayed_terms(
+    actions: Mapping[str, MjswanActionTermCfg] | None,
+) -> list[tuple[str, BaseActionCfg]]:
+    return [
+        (name, term)
+        for name, term in (actions or {}).items()
+        if isinstance(term, BaseActionCfg)
+        and not isinstance(term, _actions_module.MuscleActivationActionCfg)
+    ]
+
+
+def resolve_actuator_delays(
+    actions: Mapping[str, MjswanActionTermCfg] | None,
+    joint_names: list[str],
+    env_cfg: Any | None,
+) -> None:
+    """Give each term the command delays of the actuators on its joints, in place.
+
+    mjlab delays an actuator's command by ``delay_*`` physics steps (``ActuatorCfg``,
+    any actuator type). One entry per mjlab delay buffer the term's joints sit behind,
+    which draws one lag for them. A term whose ``delay`` the author set is left alone.
+    """
+    if not actions or not joint_names:
+        return
+    for _, term in _delayed_terms(actions):
+        if term.delay is not None:
+            continue
+        term.delay = [
+            {"joints": joints, **dict(zip(_DELAY_FIELDS, key[2:]))}
+            for key, joints in _delay_groups(env_cfg, term, joint_names).items()
+        ] or None
+
+
+def warn_split_delays(
+    actions: Mapping[str, MjswanActionTermCfg] | None,
+    joint_names: Mapping[str, list[str]],
+    env_cfg: Any | None,
+) -> None:
+    """Warn when two action terms drive joints behind one mjlab delay buffer whose lag
+    is random: mjlab draws one lag for the buffer, the browser one per term.
+
+    *joint_names* maps each term to the joints it was resolved against.
+    """
+    terms: dict[tuple[Any, ...], list[str]] = {}
+    for name, term in _delayed_terms(actions):
+        for key in _delay_groups(env_cfg, term, joint_names.get(name, [])):
+            min_lag, max_lag, hold_prob = key[2], key[3], key[4]
+            if min_lag != max_lag or hold_prob > 0:
+                terms.setdefault(key, []).append(name)
+    for key, names in terms.items():
+        if len(names) > 1:
+            warnings.warn(
+                f"Action terms {names} drive joints behind one mjlab "
+                f"'{key[0].__name__}' command delay with a random lag. mjlab draws one "
+                "lag for them all; the browser draws each term's on its own.",
                 category=RuntimeWarning,
                 stacklevel=2,
             )
@@ -320,7 +435,9 @@ def resolve_default_joint_vel(
 __all__ = [
     "adapt_actions",
     "resolve_action_scales",
+    "resolve_actuator_delays",
     "resolve_default_joint_vel",
     "resolve_pd_gains",
+    "warn_split_delays",
     "warn_unrun_actuator_fields",
 ]

@@ -50,6 +50,8 @@ export type SlotReaderContext = {
   episodeLength?: number;
   /** The policy's last action, zeroed on reset: mjlab's `action_manager.action`. */
   lastActions?: () => Float32Array | null;
+  /** An action term's state field or processed action, by term and field name. */
+  actionTermField?: (term: string, field: string) => Float32Array | null;
   /** The model's compiled field values, for a `model` slot that reads the default. */
   modelDefaults?: ModelDefaultsSource | null;
 };
@@ -222,6 +224,10 @@ export function createSlotReader(
     if (slot.action) {
       if (slot.action !== 'action') return null;
       return context.lastActions?.() ?? null;
+    }
+
+    if (slot.action_term) {
+      return context.actionTermField?.(slot.action_term, slot.field ?? '') ?? null;
     }
 
     const { mjModel, mjData } = context;

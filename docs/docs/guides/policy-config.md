@@ -229,10 +229,12 @@ keeps a policy whose input really is called `"observation"` or `"obs_history"` w
 
 ## Actions
 
-Actions are the one manager that is **not** traced: a closed set of term types,
-implemented natively in TypeScript because it runs once per physics substep rather than
-once per control step. So `mjswan.envs.mdp.actions` carries real, directly-usable config
-classes rather than an escape hatch.
+An action term has two halves, as in mjlab: `process`, once per control step, turns the
+policy's action into a target, and `apply`, once per physics substep, writes that target
+to the actuators. `apply` is always native TypeScript, since it runs on the hottest loop.
+mjlab's own action classes are native end to end, so `mjswan.envs.mdp.actions` carries
+real, directly-usable config classes; a task's own action class has its `process` traced
+instead (see [Task-defined action terms](#task-defined-action-terms)).
 
 ```python
 from mjswan.envs.mdp.actions import (
@@ -261,6 +263,7 @@ actions = {
 | Class | Status |
 |---|---|
 | `JointPositionActionCfg` | Supported. |
+| `RelativeJointPositionActionCfg` | Supported. The target is the measured joint position plus `scale * a`, read every substep; there is no offset. |
 | `JointVelocityActionCfg` | Supported. The target is a velocity actuator's `ctrl`; for a motor the browser applies `damping * (target - qvel)`. |
 | `JointEffortActionCfg` | Supported. |
 | `MuscleActivationActionCfg` | Supported — drives MuJoCo muscle actuators. See [below](#muscle-actuators). |
@@ -280,11 +283,65 @@ the browser runtime computes PD externally for motor actuators with `biastype=no
 they have to be in the policy config. Both accept a scalar, a per-joint list (aligned with
 `policy_joint_names`), or a dict keyed by joint name.
 
+An actuator's command delay (mjlab's `delay_min_lag`, `delay_max_lag`, `delay_hold_prob`,
+`delay_update_period`, `delay_per_env_phase`) runs in the browser for every kind of term:
+the build reads it off the actuator configs, as it reads the gains. Lags drawn at random
+follow mjlab's distribution from the browser's seeded RNG, not torch's stream.
+
 What the browser does not run warns at build time rather than being dropped silently: an
 mjlab action field mjswan's class does not have, when it holds a non-default value, and
-whatever an `IdealPdActuatorCfg` does beyond its PD within the effort limit, such as a
-subclass's own fields (`DcMotorActuatorCfg`'s torque-speed curve, a friction model) or a
-command delay.
+whatever an `IdealPdActuatorCfg` does beyond its PD within the effort limit and its
+command delay, such as a subclass's own fields (`DcMotorActuatorCfg`'s torque-speed curve,
+a friction model).
+
+### Task-defined action terms
+
+An action class mjswan has no class of its own for (a task's `JointPositionDeltaAction`,
+`HeldJointPositionAction`, an EMA filter) is built on the scene's trace env, and its
+`process_actions` and `reset` are traced to ONNX with the term's state carried between
+steps, as a traced command's is ([ADR 0009](https://github.com/ttktjmt/mjswan/blob/main/docs/adr/0009-action-terms-traced-process-native-apply.md)).
+Each graph is checked against the term's own code before it ships. The build refuses a
+body a graph cannot reproduce, such as one that keeps a Python counter, writes the sim,
+caches the entity's data in `__init__` or keeps two names for one tensor, and says how to
+rewrite it. One of mjlab's own classes mjswan has none of, such as
+`DifferentialIKActionCfg`, is skipped with a warning instead.
+
+Its `apply_actions` is not traced. A class that inherits it from mjlab's
+`JointPositionAction`, `RelativeJointPositionAction`, `JointVelocityAction` or
+`JointEffortAction` needs nothing more. One that overrides it is refused until you name
+what it does, from what the browser runs natively:
+
+```python
+import mjswan
+
+# in-hand rotation: ramp the target across the substeps
+mjswan.register_action(
+    "JointPositionDeltaActionCfg",
+    mjswan.ActionBinding(
+        apply="joint_position",
+        interpolate=lambda cfg: cfg.interpolate_decimation,
+    ),
+)
+
+# hold the measured pose after a reset, then follow the policy
+mjswan.register_action(
+    "HeldJointPositionActionCfg",
+    mjswan.ActionBinding(hold_s=lambda cfg: cfg.hold_duration_s),
+)
+```
+
+| `ActionBinding` field | What the browser does each substep |
+|---|---|
+| `apply` | `"joint_position"`, `"joint_position_relative"`, `"joint_velocity"` or `"torque"`; `None` takes it from the class's mjlab base. |
+| `interpolate` | Ramps the target from the previous step's processed action to this step's, reaching it at the last substep. |
+| `hold_s` | While `episode_length * step_dt < hold_s`, holds each joint at its measured position. |
+| `trace_override` | Called with the built term before tracing, to swap in a trace-friendly body. |
+
+`hold_s` and `interpolate` take a value or a function of the task's cfg, and act on a
+position target only. The build looks the binding up itself, so `register_action` may come
+before or after `add_policy`, and a second call replaces the first. An observation that
+reads the term's internals (`get_term("joint_pos")._target`) reads the traced state; it
+may read the state fields and `_processed_actions`, nothing else.
 
 ### Joints a command drives
 
