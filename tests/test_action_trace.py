@@ -72,6 +72,17 @@ def test_a_delta_term_carries_its_target_and_restarts_it_at_the_measured_pose(en
     assert export.process.output_names[-2:] == ["processed", "processed_from"]
 
 
+def test_a_floating_base_without_mocap_bodies_traces():
+    env = fx.arm_env({"joint_pos": fx.on_arm(fx.DeltaActionCfg)}, floating=True)
+    try:
+        assert env.sim.mj_model.nmocap == 0
+        term = fx.on_arm(fx.DeltaActionCfg).build(env)
+        export = trace_action_term(term, name="joint_pos", ramp_from=True)
+        assert "_target" in _state_names(export)
+    finally:
+        env.close()
+
+
 def test_the_delta_graph_matches_the_body_in_onnx_runtime(env):
     term = fx.on_arm(fx.DeltaActionCfg).build(env)
     export = trace_action_term(term, name="joint_pos", ramp_from=True)

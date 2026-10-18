@@ -229,7 +229,13 @@ def _sim_values(env: Any) -> dict[str, torch.Tensor]:
     data = getattr(getattr(env, "sim", None), "data", None)
     values = {}
     for name in _SIM_FIELDS:
-        value = _sim_tensor(getattr(data, name, None))
+        try:
+            field = getattr(data, name, None)
+        except TypeError:
+            # mjlab cannot wrap an empty vector field on the CPU, such as mocap_pos in
+            # a floating-base model; an empty field holds nothing to write.
+            continue
+        value = _sim_tensor(field)
         if isinstance(value, torch.Tensor):
             values[name] = value.detach().clone()
     return values
