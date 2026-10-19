@@ -326,6 +326,12 @@ shortcuts.
 
 ### Changed
 
+- **A camera-like raycast casts each frame's rays in one call.** A raycast sensor whose
+  rays all leave one point per frame, as mjlab's `PinholeCameraPatternCfg` does, is cast
+  with one `mj_multiRay` per frame instead of one `mj_ray` per ray: a call through the
+  binding costs far more than a ray. A G1 head camera's 5,684 rays took 19.5 ms a step and
+  now take 1.3 ms, with the same readings.
+
 - **A traced observation, termination or event graph must compute what its term computes**
   ([#168](https://github.com/ttktjmt/mjswan/issues/168)). The export records tensor
   operations only, so a value a body worked out in Python (`.item()`, `bool()` of a tensor,
