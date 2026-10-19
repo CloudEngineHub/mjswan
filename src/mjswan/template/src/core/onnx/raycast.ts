@@ -12,6 +12,11 @@
 type MjModel = import('mujoco').MjModel;
 type MjData = import('mujoco').MjData;
 type MainModule = import('mujoco').MainModule;
+type Buffer = { GetView(): ArrayLike<number>; delete(): void };
+
+/** MuJoCo's `mjMAXVAL`. `mj_multiRay` culls geoms beyond its cutoff, an infinite plane
+ * too once the rays leave its centre, so `max_distance` applies after, as for `mj_ray`. */
+const NO_CUTOFF = 1e10;
 
 export type RayAlignment = 'base' | 'yaw' | 'world';
 
@@ -171,10 +176,16 @@ export class RaycastSensor {
   private readonly directions: Float32Array;
   private readonly normals: Float32Array;
   /** `mj_ray`'s normal output, allocated on the first read of `normals_w`. */
-  private normalOut: { GetView(): ArrayLike<number>; delete(): void } | null = null;
+  private normalOut: Buffer | null = null;
+  /** `mj_multiRay`'s directions and outputs, allocated on its first cast. */
+  private batch: { vec: number[]; geomIds: Buffer; dists: Buffer } | null = null;
+  private batchNormals: Buffer | null = null;
 
   /** `mj_ray`'s per-group mask (nonzero = castable), or null for every group. */
   private readonly geomGroup: Uint8Array | null;
+  /** Every ray of a frame leaves one point, as a camera's do, so one `mj_multiRay` casts
+   * them: a call through the binding costs far more than a ray, at thousands a step. */
+  private readonly oneOrigin: boolean;
 
   constructor(
     private readonly mujoco: MainModule,
@@ -187,6 +198,8 @@ export class RaycastSensor {
     this.directions = new Float32Array(total * 3);
     this.normals = new Float32Array(total * 3);
     this.geomGroup = geomGroupMask(descriptor.include_geom_groups);
+    const [first, ...rest] = descriptor.local_offsets;
+    this.oneOrigin = rest.length > 0 && rest.every((o) => o.every((v, k) => v === first[k]));
   }
 
   /** One of the sensor's fields, or null if this model has no such frame. */
@@ -247,6 +260,11 @@ export class RaycastSensor {
   dispose(): void {
     this.normalOut?.delete();
     this.normalOut = null;
+    this.batch?.geomIds.delete();
+    this.batch?.dists.delete();
+    this.batch = null;
+    this.batchNormals?.delete();
+    this.batchNormals = null;
   }
 
   /** Look up each frame's model index once per model. */
@@ -302,11 +320,14 @@ export class RaycastSensor {
   }
 
   private cast(poses: FramePose[], mjModel: MjModel, mjData: MjData, withNormals = false): void {
-    const { local_offsets, local_directions, ray_alignment, max_distance } =
-      this.descriptor;
+    if (this.oneOrigin) {
+      this.castFromOrigins(poses, mjModel, mjData, withNormals);
+      return;
+    }
+    const { local_offsets, local_directions, ray_alignment } = this.descriptor;
     if (withNormals && !this.normalOut) {
       const buffers = this.mujoco as unknown as {
-        DoubleBuffer: { FromArray(values: number[]): RaycastSensor['normalOut'] };
+        DoubleBuffer: { FromArray(values: number[]): Buffer };
       };
       this.normalOut = buffers.DoubleBuffer.FromArray([0, 0, 0]);
     }
@@ -325,7 +346,7 @@ export class RaycastSensor {
           pose.pos[1] + offset[1],
           pose.pos[2] + offset[2],
         ];
-        let distance = this.mujoco.mj_ray(
+        const distance = this.mujoco.mj_ray(
           mjModel,
           mjData,
           origin as unknown as number[],
@@ -336,18 +357,85 @@ export class RaycastSensor {
           this.geomId,
           normalOut,
         );
-        // mjlab treats an over-range hit as a miss too, not just "no geom".
-        if (distance > max_distance) distance = -1;
-        this.distances[ray] = distance;
-        const travelled = Math.max(distance, 0);
-        const normal = normalOut?.GetView();
-        for (let k = 0; k < 3; k++) {
-          this.origins[ray * 3 + k] = origin[k];
-          this.directions[ray * 3 + k] = direction[k];
-          this.hitPos[ray * 3 + k] = origin[k] + direction[k] * travelled;
-          if (normal) this.normals[ray * 3 + k] = distance >= 0 ? normal[k] : 0;
-        }
+        this.record(ray, origin, direction, 0, distance, normalOut?.GetView() ?? null, 0);
       }
+    }
+  }
+
+  private castFromOrigins(
+    poses: FramePose[],
+    mjModel: MjModel,
+    mjData: MjData,
+    withNormals: boolean,
+  ): void {
+    const { local_offsets, local_directions, ray_alignment } = this.descriptor;
+    const perFrame = local_offsets.length;
+    const buffers = this.mujoco as unknown as {
+      IntBuffer: new (size: number) => Buffer;
+      DoubleBuffer: new (size: number) => Buffer;
+    };
+    this.batch ??= {
+      vec: new Array<number>(perFrame * 3),
+      geomIds: new buffers.IntBuffer(perFrame),
+      dists: new buffers.DoubleBuffer(perFrame),
+    };
+    if (withNormals) this.batchNormals ??= new buffers.DoubleBuffer(perFrame * 3);
+    const { vec, geomIds, dists } = this.batch;
+    const normalOut = withNormals ? this.batchNormals : null;
+    let ray = 0;
+    for (const pose of poses) {
+      const rot = alignmentRotation(pose.mat, ray_alignment);
+      const offset = apply(rot, local_offsets[0]);
+      const origin: [number, number, number] = [
+        pose.pos[0] + offset[0],
+        pose.pos[1] + offset[1],
+        pose.pos[2] + offset[2],
+      ];
+      for (let n = 0; n < perFrame; n++) {
+        const direction = apply(rot, local_directions[n]);
+        for (let k = 0; k < 3; k++) vec[n * 3 + k] = direction[k];
+      }
+      this.mujoco.mj_multiRay(
+        mjModel,
+        mjData,
+        origin as unknown as number[],
+        vec,
+        this.geomGroup as unknown as number[],
+        true,
+        this.descriptor.exclude_parent_body ? pose.bodyId : -1,
+        geomIds,
+        dists,
+        normalOut,
+        perFrame,
+        NO_CUTOFF,
+      );
+      const distances = dists.GetView();
+      const normals = normalOut?.GetView() ?? null;
+      for (let n = 0; n < perFrame; n++, ray++) {
+        this.record(ray, origin, vec, n * 3, distances[n], normals, n * 3);
+      }
+    }
+  }
+
+  /** One ray's readings: its direction at `vec[at]`, its normal at `normal[normalAt]`. */
+  private record(
+    ray: number,
+    origin: readonly number[],
+    vec: ArrayLike<number>,
+    at: number,
+    distance: number,
+    normal: ArrayLike<number> | null,
+    normalAt: number,
+  ): void {
+    // mjlab treats an over-range hit as a miss too, not just "no geom".
+    if (distance > this.descriptor.max_distance) distance = -1;
+    this.distances[ray] = distance;
+    const travelled = Math.max(distance, 0);
+    for (let k = 0; k < 3; k++) {
+      this.origins[ray * 3 + k] = origin[k];
+      this.directions[ray * 3 + k] = vec[at + k];
+      this.hitPos[ray * 3 + k] = origin[k] + vec[at + k] * travelled;
+      if (normal) this.normals[ray * 3 + k] = distance >= 0 ? normal[normalAt + k] : 0;
     }
   }
 }

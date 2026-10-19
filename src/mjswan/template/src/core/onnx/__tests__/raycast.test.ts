@@ -174,6 +174,33 @@ describe('RaycastSensor', () => {
     expect(new RaycastSensor(mujoco, filtered).read('distances', model, data)![0]).toBeCloseTo(1.0, 3);
   });
 
+  it('casts a fan from one point in one batch, reading as ray by ray', () => {
+    // Rays from the pelvis to the floor, the block, past the plane's edge and up into
+    // nothing: one origin, so they go through `mj_multiRay` together.
+    const directions = [
+      [0, 0, -1],
+      [0.8, 0, -0.45],
+      [0.9, 0.1, -0.2],
+      [1, 0, -0.1],
+      [0, 0, 1],
+    ].map((d) => d.map((v) => v / Math.hypot(...d)));
+    const fan = (rays: number[][]) =>
+      descriptor({
+        local_offsets: rays.map(() => [0, 0, 0]),
+        local_directions: rays,
+        ray_alignment: 'base',
+      });
+    const batched = new RaycastSensor(mujoco, fan(directions));
+    for (const field of ['distances', 'hit_pos_w', 'normals_w']) {
+      const oneByOne = directions.flatMap((d) =>
+        Array.from(new RaycastSensor(mujoco, fan([d])).read(field, mjModel, mjData)!),
+      );
+      expect(Array.from(batched.read(field, mjModel, mjData)!)).toEqual(oneByOne);
+    }
+    expect(batched.read('distances', mjModel, mjData)![4]).toBe(-1);
+    batched.dispose();
+  });
+
   it('knows which fields it can serve', () => {
     expect(isRaycastField('distances')).toBe(true);
     expect(isRaycastField('hit_pos_w')).toBe(true);
