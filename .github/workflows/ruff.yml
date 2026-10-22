@@ -12,17 +12,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+      - name: Set up uv and Python 3.12
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
-          python-version: 3.12
+          python-version: "3.12"
+          activate-environment: true
 
       - name: Install dependencies
-        run: |
-          pip install uv
-          uv pip install --system -e ".[check]"
+        run: uv sync --locked --extra check
 
       - name: Run ruff check
         run: ruff check src/ examples/

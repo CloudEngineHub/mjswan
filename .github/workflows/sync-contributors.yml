@@ -16,13 +16,14 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
 
+      # Standard library only, so it needs none of the project's dependencies.
       - name: Sync contributors
-        run: uv run scripts/sync_contributors.py
+        run: uv run --no-project scripts/sync_contributors.py
 
       - name: Check for changes
         id: diff
@@ -42,7 +43,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -B "$BRANCH"
-          git restore uv.lock
           git add src/mjswan/template/src/Version.ts
           git commit -m "Update contributors list"
           git push -f origin "$BRANCH"
