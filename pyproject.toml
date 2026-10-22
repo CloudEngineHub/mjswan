@@ -108,6 +108,11 @@ examples = [
 [project.scripts]
 mjswan = "mjswan.cli:app"
 
+[dependency-groups]
+# pytest without any extra, for the `core` job: a group is locked like an extra, but is
+# not published as one.
+test = ["pytest>=9.0.2"]
+
 [tool.pyright]
 extraPaths = []
 # The package only: checking `examples/` means walking mjlab's and torch's dependency
@@ -168,6 +173,10 @@ exclude = [
 ]
 
 [tool.uv]
+# `uv lock` takes no release younger than three days: hijacked releases such as litellm
+# 1.107.0 were caught and pulled within that window. The template's .npmrc holds npm to
+# the same three days (`min-release-age`).
+exclude-newer = "3 days"
 required-environments = [
     "sys_platform == 'darwin' and platform_machine == 'arm64'",
     "sys_platform == 'linux' and platform_machine == 'x86_64'",

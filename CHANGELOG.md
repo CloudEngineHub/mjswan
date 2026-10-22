@@ -1162,3 +1162,17 @@ shortcuts.
   until the next `npm install` rewrote it in whatever commit came next, and 0.10.1 and
   0.10.2 each needed a sync commit afterwards. The bump commit now carries the lockfile's
   two version fields as well.
+
+### Security
+
+- **CI installs Python dependencies from `uv.lock` alone, and the lock waits three days
+  for a release.** `pytest.yml`, `ruff.yml` and `parity.yml` ran `uv pip install -e .[...]`,
+  which resolves every `>=` floor afresh, so a hijacked release (litellm 1.107.0 was live
+  for under two hours on 2026-10-21) would reach the next run that started inside its
+  window. Every workflow now runs `uv sync --locked` or `uv run --locked`, the `core` job
+  takes its pytest from a `test` dependency group, and `[tool.uv] exclude-newer = "3 days"`
+  keeps any release younger than that out of the lock, as the template's `.npmrc` already
+  does for npm. The test jobs now install the locked torch, the CUDA build on Linux,
+  where they used to fetch the CPU wheel outside the lock.
+- **Every GitHub Action is pinned to a commit SHA**, with its release tag in a comment: a
+  moved tag no longer changes what a workflow runs.
