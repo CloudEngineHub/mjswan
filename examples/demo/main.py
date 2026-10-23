@@ -7,15 +7,19 @@ Two projects:
 - **mjlab Tasks**: mjlab's own tasks, taken as they are. Every scene is
   ``add_scene_mjlab`` plus trained checkpoints; nothing is hand-written.
 - **Showcase**: what mjswan adds on top of the same engine, namely a Gaussian Splat
-  background, a model mjlab has no task for, and muscle actuators.
+  background, a model mjlab has no task for, muscle actuators, and skins: characters
+  drawn over the G1 Spinkick and the Go1.
 
 No asset is stored in this repository. Models come from mjlab or the Hugging Face Hub,
-policies from the Hub. The Hub repository is public, so a build needs no credentials.
+policies and skins from the Hub. The Hub repository is public, so a build needs no
+credentials.
 """
 
+import math
 import os
 import re
 import types
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -125,40 +129,33 @@ def _checkpoints_for(task_id: str, repo_onnx: list[str]) -> list[str]:
     return [name for _, name in steps]
 
 
-def _add_mjlab_tasks(builder: mjswan.Builder) -> None:
+def _add_mjlab_tasks(builder: mjswan.Builder, repo_onnx: list[str]) -> None:
     """mjlab's tasks, as mjlab gives them, driven by the mirrored checkpoints."""
     project = builder.add_project(name="mjlab Tasks")
-    repo_onnx = hf.list_repo_onnx(HF_REPO)
 
     for task_id in MJLAB_TASKS:
-        add_mjlab_task(project, task_id, repo_onnx)
+        _add_mjlab_task(project, task_id, _checkpoints_for(task_id, repo_onnx))
 
-    add_tracking_scene(project, repo_onnx)
+    _add_tracking_scene(project, _checkpoints_for(TRACKING_TASK, repo_onnx))
 
 
-def add_mjlab_task(
-    project: mjswan.ProjectHandle, task_id: str, repo_onnx: list[str]
+def _add_mjlab_task(
+    project: mjswan.ProjectHandle, task_id: str, checkpoints: list[str]
 ) -> mjswan.SceneHandle:
-    """One of mjlab's tasks, as mjlab gives it, driven by its mirrored checkpoints.
-
-    Shared with ``go1_avatar.py``, which runs the Go1 velocity tasks on their own.
-    """
+    """One of mjlab's tasks, as mjlab gives it, driven by ``checkpoints``."""
     env_cfg = load_env_cfg(task_id, play=True)
     scene = project.add_scene_mjlab(task_id, env_cfg=env_cfg)
     # Only the files are named here: the MDP and the action order come from
     # `env_cfg`, the rest pose from each `.onnx`'s mjlab metadata, else from the
     # model's keyframe (cartpole's exports carry none).
-    scene.add_policy_hf(HF_REPO, filename=_checkpoints_for(task_id, repo_onnx))
+    scene.add_policy_hf(HF_REPO, filename=checkpoints)
     return scene
 
 
-def add_tracking_scene(
-    project: mjswan.ProjectHandle, repo_onnx: list[str]
+def _add_tracking_scene(
+    project: mjswan.ProjectHandle, checkpoints: list[str]
 ) -> mjswan.SceneHandle:
-    """G1 Spinkick: the one task whose policy needs a reference motion beside it.
-
-    Shared with ``spinkick_avatar.py``, which runs this scene on its own.
-    """
+    """G1 Spinkick: the one task whose policy needs a reference motion beside it."""
     env_cfg = load_env_cfg(TRACKING_TASK, play=True)
     motion_term = env_cfg.commands["motion"]
     scene = project.add_scene_mjlab(TRACKING_TASK, env_cfg=env_cfg)
@@ -168,7 +165,7 @@ def add_tracking_scene(
     # reference pose the clip already carries, named so the table lines up.
     policies = scene.add_policy_hf(
         HF_REPO,
-        filename=_checkpoints_for(TRACKING_TASK, repo_onnx),
+        filename=checkpoints,
         in_keys=["actor", "time_step"],
         out_keys=[
             "action",
@@ -400,10 +397,227 @@ def _add_myofinger(project: mjswan.ProjectHandle) -> None:
     )
 
 
-def _add_showcase(builder: mjswan.Builder) -> None:
+# Skins (ADR 0010): a character drawn over the robot and posed from its bodies, while
+# physics, collision and the policy stay the robot's. Each file sits under `skins/` in
+# HF_REPO with its license, and the repository's README says where it came from. The
+# build bundles each byte for byte, so a VRM keeps the license its meta states.
+# AvatarSample_A to C are not CC0: pixiv's terms let anyone use and redistribute them as
+# distributed, but never relabelled as CC0, sold, behind a paywall, with an editor for
+# their looks, or shown as if pixiv or VRoid endorse mjswan.
+
+#: The G1 body each VRM humanoid bone follows. The waist's yaw and roll go to spine and
+#: its pitch to chest; the G1 has no neck, so neck and head follow the torso.
+G1_BONES = {
+    "hips": "pelvis",
+    "spine": "waist_roll_link",
+    "chest": "torso_link",
+    "neck": "torso_link",
+    "head": "torso_link",
+    **{
+        f"{side}{bone}": f"{side.lower()}_{body}"
+        for side in ("left", "right")
+        for bone, body in (
+            ("UpperLeg", "hip_yaw_link"),
+            ("LowerLeg", "knee_link"),
+            ("Foot", "ankle_roll_link"),
+            ("UpperArm", "shoulder_yaw_link"),
+            ("LowerArm", "elbow_link"),
+            ("Hand", "wrist_yaw_link"),
+        )
+    },
+}
+
+#: The G1 holding its arms out straight, as every VRM rests: at its zero pose it hangs its
+#: upper arms and bends its elbows square.
+G1_T_POSE = {
+    "left_shoulder_roll_joint": math.pi / 2,
+    "right_shoulder_roll_joint": -math.pi / 2,
+    "left_elbow_joint": math.pi / 2,
+    "right_elbow_joint": math.pi / 2,
+}
+
+#: Every VRM rests in a T-pose, so one map and one rest pose fit them all.
+G1_VRM = mjswan.SkinConfig(bones=G1_BONES, rest_pose=G1_T_POSE)
+
+#: The Spinkick's skins, in the Skin menu's order; the first is shown on load.
+G1_SKINS = {
+    "VRM1 Constraint Twist Sample": "skins/pixiv/VRM1_Constraint_Twist_Sample.vrm",
+    "AvatarSample_A": "skins/pixiv/AvatarSample_A.vrm",
+    "AvatarSample_B": "skins/pixiv/AvatarSample_B.vrm",
+    "AvatarSample_C": "skins/pixiv/AvatarSample_C.vrm",
+    "Sendagaya Shino": "skins/pixiv/Sendagaya_Shino.vrm",
+    "Sendagaya Shibu": "skins/pixiv/Sendagaya_Shibu.vrm",
+    "Crimsom": "skins/100avatars/100Avatars_001_Crimsom.vrm",
+    "Cool Banana": "skins/100avatars/100Avatars_024_CoolBanana.vrm",
+}
+
+# 100Avatars' VRMs and release notes say CC0, but its repository's license file is
+# CC BY 4.0, so the scene credits Polygonal Mind as that asks.
+HUNDRED_AVATARS_NOTICE = (
+    "Crimsom and Cool Banana: from 100Avatars by Polygonal Mind, "
+    "https://github.com/PolygonalMind/100Avatars (CC BY 4.0, "
+    "https://creativecommons.org/licenses/by/4.0/)\n"
+)
+
+GO1_TASK = "Mjlab-Velocity-Rough-Unitree-Go1"
+
+#: The Go1 body each bone follows: front legs for arms, hind legs for legs. The Go1 has
+#: no neck, so the animal's spine, neck and head ride its trunk.
+GO1_BONES = {
+    **{bone: "trunk" for bone in ("hips", "spine", "chest", "neck", "head")},
+    **{
+        f"{side}{bone}": f"{leg}_{body}"
+        for side, front, rear in (("left", "FL", "RL"), ("right", "FR", "RR"))
+        for bone, leg, body in (
+            ("UpperArm", front, "thigh"),
+            ("LowerArm", front, "calf"),
+            ("Hand", front, "calf"),
+            ("UpperLeg", rear, "thigh"),
+            ("LowerLeg", rear, "calf"),
+            ("Foot", rear, "calf"),
+            ("Toes", rear, "calf"),
+        )
+    },
+}
+
+#: VRM humanoid bone -> the Fox's node. Its front legs are already named as arms.
+FOX_HUMANOID = {
+    "hips": "b_Hip_01",
+    "spine": "b_Spine01_02",
+    "chest": "b_Spine02_03",
+    "neck": "b_Neck_04",
+    "head": "b_Head_05",
+    "leftUpperArm": "b_LeftUpperArm_09",
+    "leftLowerArm": "b_LeftForeArm_010",
+    "leftHand": "b_LeftHand_011",
+    "rightUpperArm": "b_RightUpperArm_06",
+    "rightLowerArm": "b_RightForeArm_07",
+    "rightHand": "b_RightHand_08",
+    "leftUpperLeg": "b_LeftLeg01_015",
+    "leftLowerLeg": "b_LeftLeg02_016",
+    "leftFoot": "b_LeftFoot01_017",
+    "leftToes": "b_LeftFoot02_018",
+    "rightUpperLeg": "b_RightLeg01_019",
+    "rightLowerLeg": "b_RightLeg02_020",
+    "rightFoot": "b_RightFoot01_021",
+    "rightToes": "b_RightFoot02_022",
+}
+
+#: The Khronos glTF sample Fox, its tail a spring.
+FOX = mjswan.SkinConfig(
+    bones=GO1_BONES,
+    humanoid=FOX_HUMANOID,
+    # Its shoulders and hips then sit 0.37 m apart, as the Go1's front and rear hips do.
+    scale=0.0078,
+    rest_pose="init_state",
+    springs=[
+        mjswan.SpringChain(
+            root="b_Tail01_012",
+            stiffness=1.5,
+            drag=0.3,
+            gravity=0.1,
+            hit_radius=0.03,
+            tip=0.16,
+            # The pelvis and the hind thighs, which the tail must not swing through.
+            colliders=(
+                mjswan.SpringCollider("b_Hip_01", radius=0.06),
+                *(
+                    mjswan.SpringCollider(thigh, radius=0.035, tail=(0.147, 0.0, 0.0))
+                    for thigh in ("b_LeftLeg01_015", "b_RightLeg01_019")
+                ),
+            ),
+        )
+    ],
+    # The rig and animation's CC BY 4.0 asks for this credit wherever the Fox is shown.
+    license="CC-BY-4.0",
+    notice=(
+        "Fox: low-poly model by PixelMannen (CC0 1.0), rigged and animated by "
+        "@tomkranis (CC BY 4.0, https://creativecommons.org/licenses/by/4.0/), glTF "
+        "conversion by @AsoboStudio and @scurest. "
+        "https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/Fox\n"
+    ),
+)
+
+#: VRM humanoid bone -> the Pug's bone. Its hips bone is mid-body, as the Go1's trunk
+#: origin is; it has no toes.
+PUG_HUMANOID = {
+    "hips": "Body",
+    "spine": "Shoulders",
+    "neck": "Neck",
+    "head": "Head",
+    "leftUpperArm": "FrontUpLeg.L",
+    "leftLowerArm": "FrontLowLeg.L",
+    "leftHand": "FrontFoot.L",
+    "rightUpperArm": "FrontUpLeg.R",
+    "rightLowerArm": "FrontLowLeg.R",
+    "rightHand": "FrontFoot.R",
+    "leftUpperLeg": "BackUpLeg.L",
+    "leftLowerLeg": "BackLowLeg.L",
+    "leftFoot": "BackFoot.L",
+    "rightUpperLeg": "BackUpLeg.R",
+    "rightLowerLeg": "BackLowLeg.R",
+    "rightFoot": "BackFoot.R",
+}
+
+#: The Pug of Quaternius's Farm Animals, in toon shading.
+PUG = mjswan.SkinConfig(
+    bones={bone: GO1_BONES[bone] for bone in PUG_HUMANOID},
+    humanoid=PUG_HUMANOID,
+    rest_pose="init_state",
+    # The shaded side 60% of the lit one, the two blending softly, as the source's do.
+    material=mjswan.ToonShading(shade=0.6, toony=0.5),
+    # MuJoCo's lights, shared out, leave the beige darker than the source's.
+    brightness=1.25,
+    license="CC0-1.0",
+    notice=(
+        "Pug: from Farm Animals Animated by Quaternius (CC0 1.0), "
+        "https://quaternius.itch.io/lowpoly-animated-animals\n"
+        "Made forward-kinematic and scaled by make_pug.py, beside it in "
+        "https://huggingface.co/ttktjmt/mjswan/tree/main/skins/quaternius\n"
+    ),
+)
+
+#: The Go1's skins, in the Skin menu's order: rigged glTF quadrupeds used as they are,
+#: their front legs named as arms, resting as the Go1 stands in its keyframe.
+GO1_SKINS = {
+    "Fox": ("skins/khronos/Fox.glb", FOX),
+    "Pug": ("skins/quaternius/pug.glb", PUG),
+}
+
+
+def _skin_file(path: str) -> str:
+    """A skin's file, fetched from HF_REPO and cached like every Hub asset here."""
+    return str(hf.fetch_file(HF_REPO, path))
+
+
+def _add_g1_spinkick(project: mjswan.ProjectHandle, repo_onnx: list[str]) -> None:
+    """The Spinkick under VRM avatars, on its final checkpoint alone.
+
+    mjlab Tasks shows the whole training run; here only the skins change.
+    """
+    checkpoints = _checkpoints_for(TRACKING_TASK, repo_onnx)[-1:]
+    scene = _add_tracking_scene(project, checkpoints)
+    for name, path in G1_SKINS.items():
+        scene.add_skin(name, replace(G1_VRM, source=_skin_file(path)))
+    scene.add_attribution(
+        "100avatars", license="CC-BY-4.0", notice=HUNDRED_AVATARS_NOTICE
+    )
+
+
+def _add_go1_velocity(project: mjswan.ProjectHandle, repo_onnx: list[str]) -> None:
+    """The Go1 on rough terrain under two animals, on its final checkpoint alone."""
+    checkpoints = _checkpoints_for(GO1_TASK, repo_onnx)[-1:]
+    scene = _add_mjlab_task(project, GO1_TASK, checkpoints)
+    for name, (path, config) in GO1_SKINS.items():
+        scene.add_skin(name, replace(config, source=_skin_file(path)))
+
+
+def _add_showcase(builder: mjswan.Builder, repo_onnx: list[str]) -> None:
     project = builder.add_project(name="Showcase")
     _add_g1_on_street(project)
     _add_myofinger(project)
+    _add_g1_spinkick(project, repo_onnx)
+    _add_go1_velocity(project, repo_onnx)
 
 
 def setup_builder() -> mjswan.Builder:
@@ -414,8 +628,9 @@ def setup_builder() -> mjswan.Builder:
         license="Apache-2.0",
         copyright="mjswan Developers",
     )
-    _add_mjlab_tasks(builder)
-    _add_showcase(builder)
+    repo_onnx = hf.list_repo_onnx(HF_REPO)
+    _add_mjlab_tasks(builder, repo_onnx)
+    _add_showcase(builder, repo_onnx)
     return builder
 
 

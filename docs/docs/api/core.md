@@ -932,7 +932,7 @@ Everything one skin needs, so swapping characters swaps only this object. Frames
 | `facing` | `.glb` only: the axis the model faces (glTF's convention is `+z`). |
 | `springs` | `.glb` only: chains that swing as a VRM's spring bones do. See [`SpringChain`](#springchain). |
 | `material` | `.glb` only: draw its PBR materials as MToon, balanced against the scene's lights as a VRM's are. See [`ToonShading`](#toonshading). |
-| `rest_pose` | The robot's pose while the character holds its own rest pose: a keyframe's name, or joint to value (radians, metres) over the zero pose. Every VRM rests in a T-pose, so for a humanoid robot this holds its arms out straight (`examples/demo/spinkick_avatar.py` has the G1's). `None`: the zero pose. |
+| `rest_pose` | The robot's pose while the character holds its own rest pose: a keyframe's name, or joint to value (radians, metres) over the zero pose. Every VRM rests in a T-pose, so for a humanoid robot this holds its arms out straight (`examples/demo/main.py` has the G1's). `None`: the zero pose. |
 | `rest_offsets` | Bone to a turn, in degrees about the character's x, then y, then z axis, on top of `rest_pose`, for what the robot's joints cannot pose. |
 | `height_ratio` | Scale from the robot root's height to the character's root bone height, both above the ground under the robot (the first geom in group 0 straight below that is not the robot's, as mjlab's height scan sees the terrain). `None` takes the root bone's height above the character's lowest point at rest, over the robot root's above its soles at `rest_pose`. |
 | `offset` | Added to the character's position, in metres: it moves where the robot moves, this far aside. `(0, 1, 0)` stands it 1 m to the robot's left. |
@@ -985,7 +985,7 @@ class mjswan.ToonShading(shade: float = 0.6, toony: float = 0.5, shift: float = 
 
 A `.glb`'s PBR materials drawn as MToon: `shade` is the shaded side's share of the lit colour, `toony` how sharply the two meet (0 soft, 1 hard), `shift` where they meet.
 
-`examples/demo/spinkick_avatar.py` puts VRMs on the G1, and `examples/demo/go1_avatar.py` two `.glb` animals on the Go1: the Khronos sample Fox, with a tail spring, and a pug in toon shading. `mjswan skin map` drafts a config for a new file; see the [CLI](../getting-started/cli.md).
+The demo's Showcase (`examples/demo/main.py`) puts VRM avatars on the G1 Spinkick, and two `.glb` animals on the Go1: the Khronos sample Fox, with a tail spring, and a pug in toon shading. Their files are on the Hugging Face Hub, in `skins/` of [`ttktjmt/mjswan`](https://huggingface.co/ttktjmt/mjswan), each with its license. `mjswan skin map` drafts a config for a new file; see the [CLI](../getting-started/cli.md).
 
 ---
 

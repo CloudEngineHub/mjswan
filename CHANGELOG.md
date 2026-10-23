@@ -35,10 +35,9 @@ shortcuts.
   asks before sending one only its author or someone they licensed may use, and warns
   on one for non-commercial use. `mjswan skin map <file> --robot <...>` drafts the maps
   and writes a `SkinConfig` to check, and `mjswan info` lists each skin with its
-  license. `examples/demo/spinkick_avatar.py` puts VRMs on the G1 Spinkick, and
-  `examples/demo/go1_avatar.py` the Khronos sample Fox (tail spring included) and a pug
-  from Quaternius's Farm Animals (CC0, committed as `examples/demo/assets/pug.glb`,
-  made by `make_pug.py`) on the Go1 velocity tasks.
+  license. The demo's Showcase puts eight VRM avatars on the G1 Spinkick, and the
+  Khronos sample Fox (tail spring included) and a pug from Quaternius's Farm Animals on
+  the Go1 on rough terrain, every file fetched from the Hub's `skins/`.
 - **A task's own action class runs in the browser** (ADR 0009, **document format 6**). An
   mjlab action class mjswan has no class of its own for, such as in-hand rotation's
   `JointPositionDeltaAction` or luwu's `HeldJointPositionAction`, was skipped with a

@@ -78,7 +78,5 @@ docs/site
 # Temporal CORS/COOP enable
 src/mjswan/template/public/_headers
 
-# VRM avatars: each user downloads their own copy (see examples/demo/spinkick_avatar.py)
+# Skins are fetched from the Hugging Face Hub (examples/demo/main.py), never committed
 *.vrm
-/examples/demo/dist_spinkick_avatar/
-/examples/demo/dist_go1_avatar/
