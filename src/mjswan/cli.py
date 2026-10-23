@@ -176,6 +176,7 @@ def publish_cmd(
             api_base=api_base,
             on_progress=lambda msg: console.print(f"[dim]{msg}[/dim]"),
             on_warning=lambda msg: console.print(f"[yellow]Warning:[/yellow] {msg}"),
+            attest=_confirm_avatar_use,
         )
     except PublishError as exc:
         location = f" [dim]({exc.file})[/dim]" if exc.file else ""
@@ -184,6 +185,25 @@ def publish_cmd(
 
     url = simulation_url(result.id)
     console.print(f"[green]Published![/green] [bold][link={url}]{url}[/link][/bold]")
+
+
+def _confirm_avatar_use(path: str, terms) -> bool:
+    """Ask whether the publisher may use *path*, a VRM only some may use as an avatar.
+    Never assumed: without a terminal to answer at, the answer is no."""
+    from mjswan.license.vrm import describe
+
+    who = "its author" if terms.avatar_use == "author" else "people its author licensed"
+    console.print(
+        f"[bold]{escape(path)}[/bold]: {escape(describe(terms))}. Its license lets only "
+        f"{who} use it as an avatar, and mjswan Cloud will show that you said you may."
+    )
+    if not _interactive():
+        return False
+    return typer.confirm("Are you its author, or licensed by them?", default=False)
+
+
+def _interactive() -> bool:
+    return sys.stdin.isatty()
 
 
 # ── login / logout / whoami ────────────────────────────────────
@@ -485,6 +505,29 @@ def _describe_licenses(node, root: Path, directory: Path) -> None:
         node.add(f"{label}{what}  [dim]{escape(declaration.path)}[/dim]")
 
 
+def _describe_skin(node, scene_dir: Path, skin: dict) -> None:
+    """One line for a skin, with a VRM's license."""
+    from mjswan.document import read_skin_file
+    from mjswan.license.vrm import describe, vrm_license
+
+    path = scene_dir / skin.get("path", "")
+    size = path.stat().st_size if path.is_file() else 0
+    detail = ""
+    if skin.get("format") == "vrm" and size:
+        try:
+            file = read_skin_file(path)
+        except ValueError as exc:
+            detail = f"  [red]{escape(str(exc))}[/red]"
+        else:
+            if file.vrm_version is not None:
+                terms = vrm_license(file.meta, file.vrm_version)
+                detail = f"  [blue]{escape(describe(terms))}[/blue]"
+    node.add(
+        f"Skin: [yellow]{escape(skin.get('name', ''))}[/yellow]  "
+        f"[dim]{escape(skin.get('path', ''))} ({_fmt_size(size)})[/dim]{detail}"
+    )
+
+
 def _describe_projects(tree, root: Path, manifest: dict) -> int:
     """Add one node per project/scene/MDP/policy under ``tree``; return the asset bytes.
 
@@ -508,6 +551,8 @@ def _describe_projects(tree, root: Path, manifest: dict) -> int:
                 f"({_fmt_size(scene_size)})[/dim]"
             )
             _describe_licenses(s_node, root, scene_dir)
+            for skin in scene.get("skins", []):
+                _describe_skin(s_node, scene_dir, skin)
             for mdp in scene.get("mdps", []):
                 graphs = list((scene_dir / "mdp" / mdp["id"]).rglob("*.onnx"))
                 s_node.add(
