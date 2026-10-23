@@ -13,6 +13,9 @@ import { type Bytes } from '../utils/bytes';
 import type { EnginePlugins } from '../plugins';
 import { type SplatTransform, type SplatMesh, loadSplat, disposeSplat, applySplatTransform } from '../scene/splat';
 import { loadCollider, disposeCollider } from '../scene/collider';
+import { SeeThrough } from '../scene/seeThrough';
+import type { Skin } from '../skin/skin';
+import type { SkinConfig } from '../skin/config';
 import { InteractionManager, type InteractionSim } from '../interaction/InteractionManager';
 import type { InteractionModeId } from '../interaction/params';
 import { createTendonState, updateTendonGeometry, updateTendonRendering } from '../scene/tendons';
@@ -75,7 +78,7 @@ import type { ActionConfigEntry, PolicyConfig } from '../policy/types';
 import { TrackingPolicy } from '../policy/modules/TrackingPolicy';
 import { LocomotionPolicy } from '../policy/modules/LocomotionPolicy';
 import { CommandManager, type CommandTermContext, type CommandsConfig } from '../command';
-import { DebugViz } from '../debugViz/DebugViz';
+import { DebugViz, type ViewerSwitch } from '../debugViz/DebugViz';
 import { EventManager, type EventControl } from '../event/EventManager';
 import { ModelFieldDefaults } from '../event/modelWrite';
 import type { EventContext, TerrainData } from '../event/EventBase';
@@ -87,6 +90,10 @@ import { SeededRng } from '../rng';
 
 /** Fixed rather than time-derived, so a plain page load replays identically. */
 const DEFAULT_TERM_SEED = 0x5eed;
+
+/** The skin's Debug Viz switches, listed after mjlab's drawings and under "Enabled" alike. */
+const SKIN_SWITCH = 'skin';
+const ROBOT_SWITCH = 'robot';
 
 
 /**
@@ -181,6 +188,12 @@ export type ResolvedSplat = {
   transform?: SplatTransform;
 };
 
+/** A skin with its bytes resolved. */
+export type ResolvedSkin = {
+  data: ArrayBuffer;
+  config: SkinConfig;
+};
+
 /** A full scene ready to build: model bytes plus resolved policy/splat/config. */
 export type ResolvedScene = {
   model: ArrayBuffer;
@@ -188,6 +201,7 @@ export type ResolvedScene = {
   modelFormat?: ModelFormat;
   policy?: ResolvedPolicy | null;
   splat?: ResolvedSplat | null;
+  skin?: ResolvedSkin | null;
   viewer?: ViewerConfig | null;
   /** Spawn positions the event terms of any policy on this scene may draw from. */
   terrainData?: TerrainData | null;
@@ -339,6 +353,28 @@ export class mjswanRuntime {
   private splatMesh: SplatMesh | null;
   private colliderMesh: THREE.Group | null;
   private currentSplatTransform: SplatTransform;
+  /** The skin on show, posed from the robot's bodies; outside the model. */
+  private skin: Skin | null = null;
+  /** One switch for every skin, so turning it off holds when the menu picks another. */
+  private readonly skinSwitch: ViewerSwitch = {
+    label: 'Skin',
+    enabled: true,
+    apply: (visible) => {
+      this.skin?.setShown(visible);
+      this.drawRobotUnderSkin();
+    },
+  };
+  /** Draws the robot a skin hides through it, to see how the two line up. */
+  private readonly robotSwitch: ViewerSwitch = {
+    label: 'Robot',
+    enabled: false,
+    apply: (visible) => {
+      this.robotXray = visible;
+      this.drawRobotUnderSkin();
+    },
+  };
+  private robotXray = false;
+  private readonly robotThrough = new SeeThrough();
   private cameraState: ViewerState;
   /** mjviser's "Track camera": whether the view follows the tracked body. */
   private cameraTracking = true;
@@ -558,6 +594,7 @@ export class mjswanRuntime {
       disposeCollider(this.colliderMesh, this.scene);
       this.colliderMesh = null;
     }
+    this.disposeSkin();
 
     // Initialize CommandManager with default velocity commands
     this.initializeCommands();
@@ -575,6 +612,9 @@ export class mjswanRuntime {
 
     if (scene.splat) {
       await this.applySplat(scene.splat);
+    }
+    if (scene.skin) {
+      await this.applySkin(scene.skin);
     }
 
     // Builds the MDP's event manager and fires its startup pass before the reset.
@@ -813,6 +853,68 @@ export class mjswanRuntime {
     this.splatMesh = loadSplat(splat.data, this.currentSplatTransform, this.scene);
     if (splat.collider) {
       this.colliderMesh = await loadCollider(splat.collider, this.scene);
+    }
+  }
+
+  /** Show `skin` in place of the current one (or none); live, the model untouched. */
+  async setSkin(skin: ResolvedSkin | null): Promise<void> {
+    this.disposeSkin();
+    if (skin) await this.applySkin(skin);
+  }
+
+  /** Render only, so a file that does not load costs the skin and nothing else. */
+  private async applySkin(input: ResolvedSkin): Promise<void> {
+    try {
+      // Only now: the skin module brings three-vrm and the spring model with it.
+      const { Skin } = await import('../skin/skin');
+      const skin = await Skin.load(input.data, input.config);
+      if (this.disposed || !this.mjModel) {
+        skin.dispose();
+        return;
+      }
+      skin.bind(this.mujoco, this.mjModel);
+      this.scene.add(skin.root);
+      this.skin = skin;
+      this.debugVizSet.addSwitch(SKIN_SWITCH, this.skinSwitch);
+      if (skin.hiddenBodies.length) this.debugVizSet.addSwitch(ROBOT_SWITCH, this.robotSwitch);
+    } catch (error) {
+      console.warn('[mjswanRuntime] skin not loaded; the scene runs without it:', error);
+    }
+  }
+
+  private disposeSkin(): void {
+    const skin = this.skin;
+    if (!skin) return;
+    this.skin = null;
+    this.debugVizSet.removeSwitch(SKIN_SWITCH);
+    this.debugVizSet.removeSwitch(ROBOT_SWITCH);
+    this.robotThrough.restore();
+    this.drawRobot(skin.hiddenBodies, true);
+    skin.dispose();
+  }
+
+  /** With `hide_robot`, the robot is drawn only while its skin is not, or through it. */
+  private drawRobotUnderSkin(): void {
+    const skin = this.skin;
+    if (!skin) return;
+    const through = skin.shown && this.robotXray && !!this.bodies;
+    if (through) this.robotThrough.apply(skin.hiddenBodies.map((b) => this.bodies![b]));
+    else this.robotThrough.restore();
+    this.drawRobot(skin.hiddenBodies, !skin.shown || through);
+  }
+
+  /**
+   * Hidden by material, each geom's own: neither drawn nor shadowed, still hit by the
+   * pointer's raycast, and the tracking ghost, a clone with materials of its own, shows.
+   */
+  private drawRobot(bodyIds: number[], drawn: boolean): void {
+    if (!this.bodies) return;
+    for (const bodyId of bodyIds) {
+      this.bodies[bodyId]?.traverse((object) => {
+        if (!(object as THREE.Mesh).isMesh) return;
+        const material = (object as THREE.Mesh).material;
+        for (const m of Array.isArray(material) ? material : [material]) m.visible = drawn;
+      });
     }
   }
 
@@ -1077,6 +1179,8 @@ export class mjswanRuntime {
     this.eventManager = null;
     this.onnxModule = null;
     this.modelFieldDefaults = null;
+    // The meshes go with the model: their own materials back, as the scene cache keeps them.
+    this.robotThrough.restore();
     this.releaseModel();
     this.bodies = null;
     this.lights = [];
@@ -1095,6 +1199,8 @@ export class mjswanRuntime {
       throw isWasmOom(error) ? new WasmMemoryLimitError() : error;
     }
     if (this.mjModel) this.modelFieldDefaults = new ModelFieldDefaults(this.mjModel);
+    // New body groups, all drawn; the skin's body ids hold, as the hands are appended.
+    this.drawRobotUnderSkin();
     await this.loadPolicyConfig(this.currentPolicy, kept);
     if (motion !== null) await this.setSelectedMotion(motion);
     for (const [id, value] of Object.entries(values)) this.commandManager.setValue(id, value);
@@ -2212,6 +2318,8 @@ export class mjswanRuntime {
           body.quaternion.copy(state.quaternion);
         }
       }
+      // From the poses just drawn, so the skin is never a frame behind the robot.
+      this.skin?.update(this.bodies, performance.now(), this.mjData);
 
       this.resizeHandBoneMeshes();
       updateLightsFromData(this.mujoco, this.mjData, this.lights);
@@ -2303,6 +2411,7 @@ export class mjswanRuntime {
       disposeCollider(this.colliderMesh, this.scene);
       this.colliderMesh = null;
     }
+    this.disposeSkin();
 
     this.interaction.dispose();
 
