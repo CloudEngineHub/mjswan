@@ -382,9 +382,8 @@ class SceneConfig:
     """Optional viewer configuration for this scene."""
 
     skins: list[ResolvedSkin] = field(default_factory=list)
-    """Rigged characters posed from the robot's bodies, render only; the viewer shows one
-    at a time, the first by default. Resolved against their files and the model when
-    added."""
+    """Skins, resolved against their files and the model when added; the viewer shows one
+    at a time, the first by default."""
 
     events: dict[str, Any] | None = None
     """The scene's event terms (mjswan or mjlab ``EventTermCfg``), adapted.

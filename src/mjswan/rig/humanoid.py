@@ -57,7 +57,7 @@ HUMANOID_LIMBS: tuple[tuple[str, str, str], ...] = tuple(
 )
 
 #: VRM humanoid bone -> node name in a Mixamo rig, matched with or without Mixamo's
-#: ``mixamorig:`` prefix, so Ready Player Me avatars, which drop it, match as well.
+#: ``mixamorig:`` prefix, which some exporters drop.
 HUMANOID_PRESETS: dict[str, dict[str, str]] = {
     "mixamo": {
         "hips": "Hips",

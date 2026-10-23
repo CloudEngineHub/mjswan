@@ -1,8 +1,8 @@
 """Publish a built mjswan ``dist/`` to mjswan Cloud (v2).
 
 This module extracts the **data files** from a local build (manifest.json plus
-scene/policy/motion/splat/skin assets and traced MDP graphs; never HTML/JS/WASM) and uploads
-them to mjswan Cloud using the three-step presigned-upload protocol described in
+scene/policy/motion/splat/skin assets and traced MDP graphs; never HTML/JS/WASM) and
+uploads them to mjswan Cloud using the three-step presigned-upload protocol described in
 mjswan-cloud ADR 0001 §6:
 
 1. ``POST {base}/api/simulations/upload-session`` with a file manifest and the
@@ -222,8 +222,7 @@ class PublishPlan:
         return sum(f.size for f in self.files)
 
     def license_warnings(self) -> list[str]:
-        """One line per restricted license or VRM, for the author to read before the
-        upload."""
+        """One line per restricted license or VRM, for the author to read first."""
         return [
             restricted_warning(d.path, d.spdx)
             for d in self.licenses

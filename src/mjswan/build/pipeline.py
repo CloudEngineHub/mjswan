@@ -13,7 +13,7 @@ Output structure (ADR 0006 §2, license files ADR 0007 §1)::
             ├── scene.mjz | scene.mjb
             ├── mdp/<mdp-id>/{obs,term,command,event}/<name>.onnx
             ├── policy/<policy-id>.onnx
-            ├── assets/    (<motion>.npz, <splat>.spz, <skin>.vrm)
+            ├── assets/    (<motion>.npz, <splat>.spz, <skin>.vrm | .glb)
             └── LICENSE.<component>, NOTICE.<component>  (third-party)
 """
 

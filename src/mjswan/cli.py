@@ -188,8 +188,7 @@ def publish_cmd(
 
 
 def _confirm_avatar_use(path: str, terms) -> bool:
-    """Ask whether the publisher may use *path*, a VRM only some may use as an avatar.
-    Never assumed: without a terminal to answer at, the answer is no."""
+    """Ask whether the publisher may use *path* as an avatar; without a terminal, no."""
     from mjswan.license.vrm import describe
 
     who = "its author" if terms.avatar_use == "author" else "people its author licensed"
@@ -702,8 +701,8 @@ def _load_robot(robot: str):
 
 
 def _rest_pose(model, guess, bones: dict[str, str]):
-    """The rest pose to draft, said where it comes from; None, with what to set it from,
-    where it is not known."""
+    """The rest pose to draft, printed with its source; None, with the joints that set
+    it, when it is not known."""
     from mjswan.rig import guess as g
 
     known = g.known_rest_pose(model)

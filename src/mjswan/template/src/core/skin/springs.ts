@@ -55,7 +55,7 @@ type BodyNode = {
   joint?: VRMSpringBoneJoint;
   children: BodyNode[];
   geoms: string[];
-  /** Rest pose, relative to the VRM scene, scale left out. */
+  /** Rest pose, relative to the skin's scene, scale left out. */
   pos: THREE.Vector3;
   quat: THREE.Quaternion;
   /** Joint bodies: the tail in the body's frame, and the point mass there. */
@@ -88,7 +88,7 @@ export class SpringPhysics {
     private readonly links: Link[],
   ) {}
 
-  /** Joints simulated; zero means the VRM has no springs. */
+  /** Joints simulated; zero means the skin has no springs. */
   get jointCount(): number {
     return this.links.length;
   }

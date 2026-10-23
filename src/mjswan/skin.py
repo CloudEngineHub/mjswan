@@ -1,14 +1,9 @@
 """Skins: a rigged character posed from a robot's bodies, drawn only, never simulated.
 
-The browser turns each mapped bone the way its robot body has turned since the robot's
-rest pose and, by default, bends the arms and legs so the hands and feet land where the
-robot's do. Spring bones (hair, a tail) are simulated by MuJoCo in a model of their own,
-so the scene's physics, collision and policy never see the skin. A scene may carry
-several; the viewer shows one at a time, picked from its Skin menu.
-
 A skin is a ``.vrm``, which names its own bones, or a ``.glb``, whose bones are named by
-``humanoid`` (a humanoid or a four-legged animal, its front legs as arms) or, for any
-other skeleton, by node name.
+``humanoid`` (a humanoid, or a four-legged animal with its front legs as arms) or, for
+any other skeleton, by node name. Its spring bones are simulated by MuJoCo in a model of
+their own, so the scene's physics, collision and policy never see it.
 """
 
 from __future__ import annotations
@@ -439,7 +434,7 @@ def _named_nodes(config: SkinConfig, file: SkinFile) -> dict[str, int]:
 
 
 def _above(bone: str, nodes: Mapping[str, int], file: SkinFile) -> str | None:
-    """The bone of the nearest mapped node *bone*'s node hangs from."""
+    """The mapped bone whose node is nearest above *bone*'s."""
     by_node = {n: b for b, n in nodes.items()}
     found = file.nearest_ancestor(nodes[bone], by_node)
     return None if found is None else by_node[found]

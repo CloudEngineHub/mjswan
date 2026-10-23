@@ -30,10 +30,10 @@ export function modelFrame(metaVersion: string | undefined): THREE.Quaternion {
 }
 
 export interface RetargetBone {
-  /** VRM humanoid bone name. */
+  /** The bone's key in `bones`. */
   name: string;
   bodyId: number;
-  /** Index into {@link RetargetRig.bones} of the nearest mapped ancestor; null for hips. */
+  /** Index into {@link RetargetRig.bones} of the nearest mapped ancestor; null for the root. */
   parent: number | null;
   /** `Q0_b⁻¹`. */
   restInverse: THREE.Quaternion;
@@ -100,9 +100,8 @@ export function zeroPoseHeight(
 }
 
 /**
- * The rig for `bones` (VRM bone -> body id), in an order where each bone's mapped
- * ancestor comes first. `ancestors` lists a bone's VRM ancestors nearest first, the way
- * the file's own hierarchy has them.
+ * The rig for `bones` (bone -> body id), in an order where each bone's mapped ancestor
+ * comes first. `ancestors` lists the bones each hangs from, nearest first.
  */
 export function buildRig(
   bones: ReadonlyArray<{ name: string; bodyId: number; ancestors: string[] }>,
@@ -162,9 +161,9 @@ export function retarget(
 }
 
 /**
- * Where the hips go in the normalized rig's frame: on the robot root, its height above
- * `ground` (three.js y) scaled. Scaling across the floor too would carry the avatar off
- * the robot as it wanders, and scaling the ground's own height would lift it off a hill.
+ * Where the root bone goes in the normalized rig's frame: on the robot root, its height
+ * above `ground` (three.js y) scaled. Scaling across the floor too would carry the avatar
+ * off the robot as it wanders, and scaling the ground's own height would lift it off a hill.
  */
 export function hipsPosition(
   rig: RetargetRig,

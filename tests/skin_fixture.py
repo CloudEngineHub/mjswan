@@ -34,7 +34,7 @@ SKELETON: list[tuple[str, str | None, tuple[float, float, float]]] = [
     ),
 ]
 
-#: Each bone -> the body of :data:`ROBOT_XML` it follows.
+#: Each bone -> the body of :func:`robot_xml`'s robot it follows.
 BONES = {
     "hips": "pelvis",
     "spine": "torso",

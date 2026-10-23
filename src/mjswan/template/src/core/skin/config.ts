@@ -24,7 +24,7 @@ export interface SkinConfig {
   material?: { toon: ToonConfig };
   /** Bone -> `[x, y, z, w]`, in the avatar's VRM-1.0 frame: its turn at the rest pose. */
   rest_offsets?: Record<string, ArrayLike<number>>;
-  /** Robot root height -> avatar root height. Absent: their heights at rest, one over the other. */
+  /** Robot root height -> avatar root height. Absent: the avatar root's height at rest over `root_height`. */
   height_ratio?: number;
   /** The robot root's height above its soles at the rest pose. Absent: at the zero pose. */
   root_height?: number;

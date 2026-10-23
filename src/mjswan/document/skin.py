@@ -40,7 +40,7 @@ _JSON_CHUNK = 0x4E4F534A
 
 @dataclass(frozen=True)
 class SkinFile:
-    """What ``add_skin`` read from a ``.vrm`` or ``.glb``."""
+    """A ``.vrm`` or ``.glb`` as mjswan reads it."""
 
     path: Path
     format: Literal["vrm", "gltf"]
@@ -56,8 +56,7 @@ class SkinFile:
     meta: dict[str, Any] = field(default_factory=dict)
     """A VRM's ``meta`` as written. Empty for a glTF."""
     joints: frozenset[int] = frozenset()
-    """The nodes its skins deform the meshes by: its skeleton, without the nodes that
-    only hold a mesh or a camera."""
+    """Its skeleton: the nodes its skins deform the meshes by."""
 
     def node(self, name: str) -> int:
         """The one node called *name*; the error names the closest ones."""

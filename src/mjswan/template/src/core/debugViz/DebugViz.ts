@@ -1,7 +1,7 @@
 /**
  * mjlab's Debug Viz folder: "Enabled" over one switch per drawing (command terms, then
  * raycast sensors, then reward terms). A drawing shows only while both are on. The
- * viewer's own switches (the skin's) follow, under "Enabled" alike.
+ * viewer's own switches follow, under "Enabled" alike.
  */
 
 import type * as THREE from 'three';

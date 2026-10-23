@@ -3,8 +3,8 @@
 ``pug.glb`` is the Pug of "Farm Animals Animated" by Quaternius (CC0 1.0,
 https://quaternius.itch.io/lowpoly-animated-animals), made ready for ``go1_avatar.py``.
 The pack has no stable download URL and only Blender reads it, so the result is
-committed and this script is how it was made. With the pack
-unzipped, run it under Blender's Python module:
+committed and this script is how it was made. With the pack unzipped, run it under
+Blender's Python module:
 
     uv run --no-project --python 3.13 --with bpy==5.2.2 python \\
         examples/demo/assets/make_pug.py Blends/Pug.blend examples/demo/assets/pug.glb

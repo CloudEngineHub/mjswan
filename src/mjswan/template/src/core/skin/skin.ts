@@ -43,7 +43,7 @@ const STALL_SECONDS = 0.25;
 const TELEPORT_DISTANCE = 0.3;
 /** Straight down in MuJoCo's frame. */
 const DOWN = [0, 0, -1];
-/** Geoms of the robot's own a ray under it may pass before it gives up. */
+/** How many of the robot's own geoms a ray under it may pass before it gives up. */
 const MAX_ROBOT_HITS = 8;
 /**
  * With `retarget: 'hybrid'`, how far above the lowest hand or foot another still carries
@@ -107,7 +107,7 @@ export function geomBottom(mujoco: MainModule, model: MjModel, data: MjData, g: 
   return z + zx * cx + zy * cy + zz * cz - Math.abs(zx) * hx - Math.abs(zy) * hy - Math.abs(zz) * hz;
 }
 
-/** The model's body `name` names: itself, else the one `<entity>/<name>` (as Python's check). */
+/** The model's body `name` names: itself, else the one `<entity>/<name>`, as Python's `resolve_body`. */
 function findBody(mjModel: MjModel, name: string): number {
   let suffixed = -1;
   let matches = 0;

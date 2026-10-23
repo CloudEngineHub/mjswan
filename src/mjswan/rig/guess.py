@@ -581,7 +581,7 @@ def draft_source(
 
 
 def _py(value: object) -> str:
-    """*value* as Python source, a string double-quoted as the repo formats one."""
+    """*value* as Python source, a string double-quoted."""
     return json.dumps(value) if isinstance(value, str) else repr(value)
 
 
