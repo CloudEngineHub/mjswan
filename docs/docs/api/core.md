@@ -928,6 +928,7 @@ Everything one skin needs, so swapping characters swaps only this object. Frames
 | `source` | Local path or http(s) URL of the `.vrm` or `.glb`. |
 | `humanoid` | `.glb` only: VRM humanoid bone to node name, or a preset (`"mixamo"`, matched with or without Mixamo's `mixamorig:` prefix). A four-legged animal maps its front legs as arms. `None` keys `bones` by node name. |
 | `limbs` | A node map's arms and legs, as `(upper, lower, end)` bones, each the nearest mapped node below the one before: what `"hybrid"` bends. A humanoid's come from its bones. |
+| `reparent` | `.glb` only: node to the node to hang it from instead, its rest pose kept, before anything reads the nesting. For a rig whose feet IK controls carry rather than its legs, as Quaternius's animals do: posed from joint angles alone, the feet would stay behind. The file itself is bundled unchanged. |
 | `scale` | `.glb` only: metres per unit of the file. |
 | `facing` | `.glb` only: the axis the model faces (glTF's convention is `+z`). |
 | `springs` | `.glb` only: chains that swing as a VRM's spring bones do. See [`SpringChain`](#springchain). |
@@ -985,7 +986,7 @@ class mjswan.ToonShading(shade: float = 0.6, toony: float = 0.5, shift: float = 
 
 A `.glb`'s PBR materials drawn as MToon: `shade` is the shaded side's share of the lit colour, `toony` how sharply the two meet (0 soft, 1 hard), `shift` where they meet.
 
-The demo's Showcase (`examples/demo/main.py`) puts VRM avatars on the G1 Spinkick, and two `.glb` animals on the Go1: the Khronos sample Fox, with a tail spring, and a pug in toon shading. Their files are on the Hugging Face Hub, in `skins/` of [`ttktjmt/mjswan`](https://huggingface.co/ttktjmt/mjswan), each with its license. `mjswan skin map` drafts a config for a new file; see the [CLI](../getting-started/cli.md).
+The demo's Showcase (`examples/demo/main.py`) puts VRM avatars on the G1 Spinkick, and four `.glb` animals on the Go1: Quaternius's Shiba Inu and fox from Poly Pizza, their feet hung from their legs by `reparent`, the Khronos sample Fox, and a pug in toon shading. Their files are on the Hugging Face Hub, in `skins/` of [`ttktjmt/mjswan`](https://huggingface.co/ttktjmt/mjswan), each with its license. `mjswan skin map` drafts a config for a new file; see the [CLI](../getting-started/cli.md).
 
 ---
 

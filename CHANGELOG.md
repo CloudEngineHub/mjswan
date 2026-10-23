@@ -22,22 +22,25 @@ shortcuts.
   one (Draco, meshopt, KTX2/Basis) is refused with how to export it again. A VRM names
   its own bones; a `.glb` is mapped by `humanoid` (VRM bone to node name, or the
   `"mixamo"` preset; a four-legged animal's front legs as arms) or, for any other
-  skeleton, by node name with `limbs`. `rest_pose`, a keyframe or a few joints, is the
-  robot's pose while the character rests: the rest offsets, root height and hips
-  placement are measured from it at build time. `retarget="hybrid"`, the default,
-  turns each bone as its body has, then bends each limb so the hand or foot lands on
-  the robot's; `"position"` warns when the limbs are not the robot's lengths. A `.glb`
-  takes `scale`, `facing`, `springs` (`SpringChain`, `SpringCollider`) and toon
+  skeleton, by node name with `limbs`; `reparent` hangs a node from another, for a rig
+  whose feet IK controls carry (Quaternius's animals). `rest_pose`, a keyframe or a few
+  joints, is the robot's pose while the character rests: the rest offsets, root height
+  and hips placement are measured from it at build time. `retarget="hybrid"`, the
+  default, turns each bone as its body has, then bends each limb so the hand or foot
+  lands on the robot's; `"position"` warns when the limbs are not the robot's lengths. A
+  `.glb` takes `scale`, `facing`, `springs` (`SpringChain`, `SpringCollider`) and toon
   `material` (`ToonShading`), and `license` / `notice` as a component's. Spring bones
   are simulated by MuJoCo in a model of their own. The robot is undrawn by default;
-  Debug Viz's **Robot** switch draws it see-through over the character.
-  `mjswan publish` takes skins: it refuses a VRM whose license forbids redistribution,
-  asks before sending one only its author or someone they licensed may use, and warns
-  on one for non-commercial use. `mjswan skin map <file> --robot <...>` drafts the maps
-  and writes a `SkinConfig` to check, and `mjswan info` lists each skin with its
-  license. The demo's Showcase puts eight VRM avatars on the G1 Spinkick, and the
-  Khronos sample Fox (tail spring included) and a pug from Quaternius's Farm Animals on
-  the Go1 on rough terrain, every file fetched from the Hub's `skins/`.
+  Debug Viz's **Robot** switch draws it see-through over the character. `mjswan publish`
+  takes skins: it refuses a VRM whose license forbids redistribution, asks before
+  sending one only its author or someone they licensed may use, and warns on one for
+  non-commercial use. `mjswan skin map <file> --robot <...>` drafts the maps and writes
+  a `SkinConfig` to check, and `mjswan info` lists each skin with its license. The
+  demo's Showcase puts eight VRM avatars on the G1 Spinkick, and four animals on the Go1
+  on rough terrain: Quaternius's Shiba Inu and fox from Poly Pizza, their feet hung
+  from their legs by `reparent`, the Khronos sample Fox (both foxes' tails on
+  springs) and a pug from Quaternius's Farm Animals. Every file is fetched from the
+  Hub's `skins/`.
 - **A task's own action class runs in the browser** (ADR 0009, **document format 6**). An
   mjlab action class mjswan has no class of its own for, such as in-hand rotation's
   `JointPositionDeltaAction` or luwu's `HeldJointPositionAction`, was skipped with a

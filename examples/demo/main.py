@@ -559,15 +559,20 @@ PUG_HUMANOID = {
     "rightFoot": "BackFoot.R",
 }
 
-#: The Pug of Quaternius's Farm Animals, in toon shading.
+#: Quaternius's flat colours as toon shading: the shaded side 60% of the lit one, the two
+#: blending softly, as the sources' do, lifted where MuJoCo's lights, shared out, leave
+#: them darker than the sources'.
+QUATERNIUS_LOOK = {
+    "material": mjswan.ToonShading(shade=0.6, toony=0.5),
+    "brightness": 1.25,
+}
+
+#: The Pug of Quaternius's Farm Animals.
 PUG = mjswan.SkinConfig(
     bones={bone: GO1_BONES[bone] for bone in PUG_HUMANOID},
     humanoid=PUG_HUMANOID,
     rest_pose="init_state",
-    # The shaded side 60% of the lit one, the two blending softly, as the source's do.
-    material=mjswan.ToonShading(shade=0.6, toony=0.5),
-    # MuJoCo's lights, shared out, leave the beige darker than the source's.
-    brightness=1.25,
+    **QUATERNIUS_LOOK,
     license="CC0-1.0",
     notice=(
         "Pug: from Farm Animals Animated by Quaternius (CC0 1.0), "
@@ -577,11 +582,78 @@ PUG = mjswan.SkinConfig(
     ),
 )
 
+#: VRM humanoid bone -> the node of one of Quaternius's animals on Poly Pizza: the front
+#: legs as arms, the four bones of a hind leg as upper and lower leg, foot and toes.
+POLY_PIZZA_HUMANOID = {
+    "hips": "Back",
+    "spine": "Torso",
+    "chest": "Torso2",
+    "neck": "Neck1",
+    "head": "Head",
+    **{
+        f"{side}{bone}": f"{node}.{s}"
+        for side, s in (("left", "L"), ("right", "R"))
+        for bone, node in (
+            ("UpperArm", "FrontUpperLeg"),
+            ("LowerArm", "FrontLowerLeg"),
+            ("Hand", "IKFrontLeg"),
+            ("UpperLeg", "BackLeg"),
+            ("LowerLeg", "BackUpperLeg"),
+            ("Foot", "BackLowerLeg"),
+            ("Toes", "IKBackLeg"),
+        )
+    },
+}
+
+#: Its feet hang from IK controls at the root, so from joint angles alone they would
+#: stay behind; hung from the legs they end, the legs carry them.
+POLY_PIZZA_FEET = {
+    f"IK{end}Leg.{s}": f"{end}LowerLeg.{s}" for end in ("Front", "Back") for s in "LR"
+}
+
+POLY_PIZZA = mjswan.SkinConfig(
+    bones={bone: GO1_BONES[bone] for bone in POLY_PIZZA_HUMANOID},
+    humanoid=POLY_PIZZA_HUMANOID,
+    reparent=POLY_PIZZA_FEET,
+    rest_pose="init_state",
+    **QUATERNIUS_LOOK,
+    license="CC0-1.0",
+)
+
+#: Each scaled so its shoulders and hips sit 0.376 m apart, as the Go1's front and rear
+#: hips do.
+SHIBA_INU = replace(
+    POLY_PIZZA,
+    scale=0.236,
+    notice="Shiba Inu by Quaternius (CC0 1.0), https://poly.pizza/m/y4wdQpg767\n",
+)
+QUATERNIUS_FOX = replace(
+    POLY_PIZZA,
+    scale=0.2425,
+    springs=[
+        mjswan.SpringChain(
+            root="Tail1",
+            stiffness=1.5,
+            drag=0.3,
+            gravity=0.1,
+            hit_radius=0.03,
+            # The pelvis and the hind thighs, which the tail must not swing through.
+            colliders=(
+                mjswan.SpringCollider("Back", radius=0.06),
+                *(mjswan.SpringCollider(f"BackLeg.{s}", radius=0.035) for s in "LR"),
+            ),
+        )
+    ],
+    notice="Fox by Quaternius (CC0 1.0), https://poly.pizza/m/Bc97C66HKi\n",
+)
+
 #: The Go1's skins, in the Skin menu's order: rigged glTF quadrupeds used as they are,
 #: their front legs named as arms, resting as the Go1 stands in its keyframe.
 GO1_SKINS = {
-    "Fox": ("skins/khronos/Fox.glb", FOX),
+    "Shiba Inu": ("skins/quaternius/shiba_inu.glb", SHIBA_INU),
+    "Fox (Quaternius)": ("skins/quaternius/fox.glb", QUATERNIUS_FOX),
     "Pug": ("skins/quaternius/pug.glb", PUG),
+    "Fox (Khronos)": ("skins/khronos/Fox.glb", FOX),
 }
 
 
@@ -605,7 +677,7 @@ def _add_g1_spinkick(project: mjswan.ProjectHandle, repo_onnx: list[str]) -> Non
 
 
 def _add_go1_velocity(project: mjswan.ProjectHandle, repo_onnx: list[str]) -> None:
-    """The Go1 on rough terrain under two animals, on its final checkpoint alone."""
+    """The Go1 on rough terrain under four animals, on its final checkpoint alone."""
     checkpoints = _checkpoints_for(GO1_TASK, repo_onnx)[-1:]
     scene = _add_mjlab_task(project, GO1_TASK, checkpoints)
     for name, (path, config) in GO1_SKINS.items():

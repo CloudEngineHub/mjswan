@@ -73,6 +73,8 @@ async function fromGltf(gltf: GLTF, config: SkinConfig): Promise<SkinModel> {
   const scene = new THREE.Group();
   scene.add(gltf.scene);
   scene.updateMatrixWorld(true);
+  // Before the rig reads the nesting: a foot an IK control carried then hangs from its leg.
+  for (const [index, parent] of config.reparent ?? []) (await node(parent)).attach(await node(index));
 
   const nodes: Record<string, THREE.Object3D> = {};
   for (const [bone, index] of Object.entries(config.nodes ?? {})) nodes[bone] = await node(index);

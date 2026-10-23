@@ -14,6 +14,8 @@ export interface SkinConfig {
   nodes?: Record<string, number>;
   /** The arms and legs `'hybrid'` bends, as `[upper, lower, end]` bones. */
   limbs?: Array<[string, string, string]>;
+  /** `.glb` only: `[node, new parent]` moves, in order, each keeping its rest pose. */
+  reparent?: Array<[number, number]>;
   /** `.glb` only: metres per unit of the file. Absent: 1. */
   scale?: number;
   /** `.glb` only: the axis the model faces. Absent: `'+z'`. */

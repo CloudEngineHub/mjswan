@@ -40,7 +40,11 @@ Every name is resolved to a node index at build time. The browser poses a VRM th
 three-vrm's humanoid and every `.glb` through `NodeRig`, three-vrm's normalized rig
 nested as the file nests its nodes, so a `.glb` humanoid need not follow VRM's nesting
 (a pug's front legs hang from its body, not its shoulders). The topmost mapped node,
-a humanoid's hips, carries the position.
+a humanoid's hips, carries the position. `reparent` hangs a node from another, its
+rest pose kept, for a rig whose feet IK controls carry rather than its legs
+(Quaternius's animals): posed from joint angles alone, they would stay behind. The
+file is still bundled as received; the move is made where it is read, at build time
+and in the browser.
 
 ### 3. Fitted to the robot at build time
 

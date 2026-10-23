@@ -114,6 +114,12 @@ class SkinConfig:
     """A node map's arms and legs, as ``(upper, lower, end)`` keys of ``bones``:
     what ``retarget="hybrid"`` bends. A humanoid's come from its bones."""
 
+    reparent: Mapping[str, str] = field(default_factory=dict)
+    """``.glb`` only: node -> the node to hang it from instead, its rest pose kept, before
+    anything else reads the nesting. For a rig whose feet an IK control carries rather
+    than its legs, as Quaternius's animals do: posed from joint angles alone, the feet
+    would stay behind."""
+
     scale: float = 1.0
     """``.glb`` only: metres per unit of the file."""
 
@@ -216,6 +222,9 @@ class SkinConfig:
                 raise ValueError(
                     f"limbs names bones that bones does not map: {missing}."
                 )
+        looped = sorted(node for node, to in self.reparent.items() if node == to)
+        if looped:
+            raise ValueError(f"reparent hangs {looped} from themselves.")
         if self.facing not in FACING_TURNS:
             raise ValueError(
                 f"facing must be one of {sorted(FACING_TURNS)}, got {self.facing!r}."
@@ -250,6 +259,8 @@ class ResolvedSkin:
     """Bone -> ``[x, y, z, w]``: ``rest_pose`` and ``rest_offsets`` together."""
     root_height: float | None
     hips_offset: tuple[float, float, float]
+    reparent: list[tuple[int, int]] = field(default_factory=list)
+    """``(node, new parent)`` indices, in order, for the browser to nest as ``file`` is."""
 
     @property
     def path(self) -> str:
@@ -267,7 +278,7 @@ def resolve_skin(config: SkinConfig, model: mujoco.MjModel | None) -> ResolvedSk
     a URL that does not download, and :class:`ValueError` for a file or a map that does
     not fit.
     """
-    file = read_skin_file(_local_source(config))
+    file, reparent = _reparented(config, read_skin_file(_local_source(config)))
     rig, nodes, root = _bones(config, file)
     springs = [_spring(chain, file) for chain in config.springs]
     limbs = _limbs(config, rig)
@@ -324,7 +335,34 @@ def resolve_skin(config: SkinConfig, model: mujoco.MjModel | None) -> ResolvedSk
         rest_offsets=turns,
         root_height=root_height,
         hips_offset=hips,
+        reparent=reparent,
     )
+
+
+def _reparented(
+    config: SkinConfig, file: SkinFile
+) -> tuple[SkinFile, list[tuple[int, int]]]:
+    """*file* nested as ``reparent`` says, and the moves as node indices.
+
+    Only the nesting changes: ``rest`` holds each node where it stands in the file,
+    which a move that keeps the rest pose leaves alone. A VRM is refused by ``_bones``.
+    """
+    if not config.reparent or file.format == "vrm":
+        return file, []
+    parents = list(file.parents)
+    moves = []
+    for name, parent_name in config.reparent.items():
+        node, parent = file.node(name), file.node(parent_name)
+        above: int | None = parent
+        while above is not None:
+            if above == node:
+                raise ValueError(
+                    f"reparent hangs {name!r} from {parent_name!r}, which hangs from it."
+                )
+            above = parents[above]
+        parents[node] = parent
+        moves.append((node, parent))
+    return replace(file, parents=tuple(parents)), moves
 
 
 def _local_source(config: SkinConfig) -> Path:
@@ -346,6 +384,7 @@ def _local_source(config: SkinConfig) -> Path:
 _GLTF_ONLY = (
     "humanoid",
     "limbs",
+    "reparent",
     "scale",
     "facing",
     "springs",
@@ -365,7 +404,7 @@ def _bones(
             name
             for name in _GLTF_ONLY
             if getattr(config, name) != defaults[name]
-            and getattr(config, name) not in (None, (), [])
+            and getattr(config, name) not in (None, (), [], {})
         ]
         if set_here:
             raise ValueError(

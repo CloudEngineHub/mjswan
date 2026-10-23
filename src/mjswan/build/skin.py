@@ -21,6 +21,7 @@ def skin_entry(skin: ResolvedSkin) -> dict[str, Any]:
         "bones": dict(config.bones),
         **({"nodes": skin.nodes} if skin.nodes else {}),
         **({"limbs": [list(limb) for limb in skin.limbs]} if skin.limbs else {}),
+        **({"reparent": [list(m) for m in skin.reparent]} if skin.reparent else {}),
         **({"scale": config.scale} if config.scale != 1 else {}),
         **({"facing": config.facing} if config.facing != "+z" else {}),
         **({"springs": skin.springs} if skin.springs else {}),

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import math
+from dataclasses import replace
 from pathlib import Path
 
 import mujoco
@@ -299,6 +300,7 @@ class TestSkinConfig:
             ("height_ratio", -1.0),
             ("facing", "up"),
             ("retarget", "ik"),
+            ("reparent", {"hips": "hips"}),
         ],
     )
     def test_rejects(self, field, value):
@@ -351,6 +353,11 @@ class TestResolve:
                 resolve_skin(
                     SkinConfig(bones=BONES, source=str(vrm), **{field: value}), robot
                 )
+        with pytest.raises(ValueError, match="is a VRM.*Remove reparent"):
+            resolve_skin(
+                SkinConfig(bones=BONES, source=str(vrm), reparent={"leftHand": "hips"}),
+                robot,
+            )
 
     def test_a_vrm_is_mapped_by_vrm_bone_from_its_hips(self, robot, vrm):
         with pytest.raises(ValueError, match="leftElbow"):
@@ -411,6 +418,42 @@ class TestResolve:
             SkinConfig(bones=BONES, source=str(path), humanoid=humanoid), robot
         )
         assert ("leftUpperArm", "leftLowerArm", "leftHand") in skin.limbs
+
+    def test_reparent_hangs_a_node_from_another_where_it_rests(self, robot, tmp_path):
+        from mjswan.build.skin import skin_entry
+
+        # A foot an IK control carries, as in Quaternius's animals: here the hand, hung
+        # from the hips where it rests, which the arm would pose without it.
+        gltf = fx.skeleton_gltf()
+        nodes = gltf["nodes"]
+        index = {node["name"]: i for i, node in enumerate(nodes)}
+        hand, forearm, hips = index["leftHand"], index["leftLowerArm"], index["hips"]
+        rest = read_skin_file(fx.write_glb(tmp_path / "a.glb", gltf)).rest
+        nodes[forearm]["children"].remove(hand)
+        nodes[hips]["children"].append(hand)
+        nodes[hand]["translation"] = list(rest[hand] - rest[hips])
+        path = fx.write_glb(tmp_path / "ik.glb", gltf)
+        humanoid = {bone: bone for bone in BONES}
+        with pytest.raises(ValueError, match="not a chain"):
+            resolve_skin(
+                SkinConfig(bones=BONES, source=str(path), humanoid=humanoid), robot
+            )
+
+        config = SkinConfig(
+            bones=BONES,
+            source=str(path),
+            humanoid=humanoid,
+            reparent={"leftHand": "leftLowerArm"},
+        )
+        skin = resolve_skin(config, robot)
+        assert skin.file.parents[hand] == forearm
+        assert np.allclose(skin.file.rest, rest)
+        assert ("leftUpperArm", "leftLowerArm", "leftHand") in skin.limbs
+        assert skin_entry(skin)["reparent"] == [[hand, forearm]]
+        with pytest.raises(ValueError, match="'hips' from 'leftHand', which hangs"):
+            resolve_skin(replace(config, reparent={"hips": "leftHand"}), robot)
+        with pytest.raises(ValueError, match="no node 'leftHnd'.*leftHand"):
+            resolve_skin(replace(config, reparent={"leftHnd": "hips"}), robot)
 
     def test_a_glb_humanoid_is_carried_by_its_hips(self, robot, tmp_path):
         gltf = fx.skeleton_gltf()

@@ -91,16 +91,19 @@ const FACING = { '+z': 0, '+x': Math.PI / 2, '-z': Math.PI, '-x': -Math.PI / 2 }
 /**
  * The skeleton as a plain .glb, no VRM extension: `units` of the file to the metre, turned
  * to face `facing`, its nodes named `<bone>_node`. `armOnHips` hangs the left arm from the
- * hips rather than the chest, as VRM never nests it.
+ * hips rather than the chest, as VRM never nests it; `handOnHips` the left hand, where it
+ * rests, as an IK control holds a foot.
  */
 function gltfFile(
-  options: { units?: number; facing?: keyof typeof FACING; armOnHips?: boolean } = {},
+  options: { units?: number; facing?: keyof typeof FACING; armOnHips?: boolean; handOnHips?: boolean } = {},
 ): { data: ArrayBuffer; nodes: Record<string, number> } {
-  const { units = 1, facing = '+z', armOnHips = false } = options;
+  const { units = 1, facing = '+z', armOnHips = false, handOnHips = false } = options;
   const turn = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), FACING[facing]);
-  const skeleton = SKELETON.map(([name, parent, offset]): [string, string | null, [number, number, number]] =>
-    armOnHips && name === 'leftUpperArm' ? [name, 'hips', [0.2, 0.4, 0]] : [name, parent, offset],
-  );
+  const skeleton = SKELETON.map(([name, parent, offset]): [string, string | null, [number, number, number]] => {
+    if (armOnHips && name === 'leftUpperArm') return [name, 'hips', [0.2, 0.4, 0]];
+    if (handOnHips && name === 'leftHand') return [name, 'hips', [0.7, 0.4, 0]];
+    return [name, parent, offset];
+  });
   const index = new Map(skeleton.map(([name], i) => [name, i]));
   const nodes = skeleton.map(([name, , offset]) => ({
     name: `${name}_node`,
@@ -287,6 +290,15 @@ describe('Skin', () => {
       rest_offsets: Object.fromEntries(Object.entries(CONFIG.rest_offsets!).map(([bone, q]) => [`${bone}_node`, q])),
     });
     turns(skin, Object.keys(nodes)).forEach((turn, i) => expect(turn.angleTo(vrm[i])).toBeLessThan(1e-6));
+  });
+
+  it('carries a hand hung from the hips once reparent hangs it from its forearm', async () => {
+    const vrm = await handPosition('1', 0.4, -1.1);
+    const file = gltfFile({ handOnHips: true });
+    const left = await gltfSkin(file);
+    expect(posedHand(left, 'leftHand_node', bodies(0.4, -1.1)).distanceTo(vrm)).toBeGreaterThan(0.1);
+    const carried = await gltfSkin(file, { reparent: [[file.nodes.leftHand, file.nodes.leftLowerArm]] });
+    expect(posedHand(carried, 'leftHand_node', bodies(0.4, -1.1)).distanceTo(vrm)).toBeLessThan(1e-6);
   });
 
   it('hides the robot it follows, and nothing else, unless hide_robot is false', async () => {
