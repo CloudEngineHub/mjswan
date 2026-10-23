@@ -131,18 +131,34 @@ def _add_mjlab_tasks(builder: mjswan.Builder) -> None:
     repo_onnx = hf.list_repo_onnx(HF_REPO)
 
     for task_id in MJLAB_TASKS:
-        env_cfg = load_env_cfg(task_id, play=True)
-        scene = project.add_scene_mjlab(task_id, env_cfg=env_cfg)
-        # Only the files are named here: the MDP and the action order come from
-        # `env_cfg`, the rest pose from each `.onnx`'s mjlab metadata, else from the
-        # model's keyframe (cartpole's exports carry none).
-        scene.add_policy_hf(HF_REPO, filename=_checkpoints_for(task_id, repo_onnx))
+        add_mjlab_task(project, task_id, repo_onnx)
 
-    _add_tracking_scene(project, repo_onnx)
+    add_tracking_scene(project, repo_onnx)
 
 
-def _add_tracking_scene(project: mjswan.ProjectHandle, repo_onnx: list[str]) -> None:
-    """G1 Spinkick: the one task whose policy needs a reference motion beside it."""
+def add_mjlab_task(
+    project: mjswan.ProjectHandle, task_id: str, repo_onnx: list[str]
+) -> mjswan.SceneHandle:
+    """One of mjlab's tasks, as mjlab gives it, driven by its mirrored checkpoints.
+
+    Shared with ``go1_avatar.py``, which runs the Go1 velocity tasks on their own.
+    """
+    env_cfg = load_env_cfg(task_id, play=True)
+    scene = project.add_scene_mjlab(task_id, env_cfg=env_cfg)
+    # Only the files are named here: the MDP and the action order come from
+    # `env_cfg`, the rest pose from each `.onnx`'s mjlab metadata, else from the
+    # model's keyframe (cartpole's exports carry none).
+    scene.add_policy_hf(HF_REPO, filename=_checkpoints_for(task_id, repo_onnx))
+    return scene
+
+
+def add_tracking_scene(
+    project: mjswan.ProjectHandle, repo_onnx: list[str]
+) -> mjswan.SceneHandle:
+    """G1 Spinkick: the one task whose policy needs a reference motion beside it.
+
+    Shared with ``spinkick_avatar.py``, which runs this scene on its own.
+    """
     env_cfg = load_env_cfg(TRACKING_TASK, play=True)
     motion_term = env_cfg.commands["motion"]
     scene = project.add_scene_mjlab(TRACKING_TASK, env_cfg=env_cfg)
@@ -176,6 +192,7 @@ def _add_tracking_scene(project: mjswan.ProjectHandle, repo_onnx: list[str]) -> 
             body_names=list(motion_term.body_names),
             default=True,
         )
+    return scene
 
 
 # Project B: Showcase
