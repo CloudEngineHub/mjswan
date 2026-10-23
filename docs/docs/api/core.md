@@ -517,6 +517,18 @@ Set the camera, tracking mode, and rendering options for the scene. See [`Viewer
 
 Returns `self` for chaining.
 
+### SceneHandle.add_skin
+
+```python
+def add_skin(name: str, config: SkinConfig) -> SkinHandle
+```
+
+Add a rigged character (a `.vrm`, or a `.glb`), posed every frame from the robot's bodies, to the scene's **Skin** menu (ADR 0010). The scene's physics, collision and policy are unchanged: the skin's spring bones (hair, a tail) are simulated by MuJoCo in a model of their own, which the robot never touches. A scene may carry several skins; the viewer shows one at a time, the first added by default, and the menu can clear it. `name` is shown in the menu; its id, `name2id(name)`, is unique within the scene (a clash is suffixed, with a warning).
+
+The skin is resolved here, so a mistake surfaces at once: a URL `source` is downloaded, the file is checked, every bone is found in it and every body in the scene's model, and its rest offsets, root height and hips placement are measured against the robot at `rest_pose`. A missing file raises `FileNotFoundError`, a URL that does not download `urllib.error.URLError`, and anything that does not fit `ValueError`: a `.gltf` (export it as glTF Binary), a file pointing outside itself, a compressed one (Draco, meshopt, KTX2/Basis: export it again without compression), a bone, node, body, joint or keyframe that is not there. The build copies the file unmodified to `assets/<skin-id>.vrm` or `.glb`, so a VRM's embedded license ships as its author wrote it; a `.glb`'s `license` and `notice` are written beside the scene as `LICENSE.skin-<skin-id>` and `NOTICE.skin-<skin-id>`. While a skin is shown, Debug Viz lists a **Skin** switch and, with `hide_robot`, a **Robot** switch that draws the robot see-through over it. See [`SkinConfig`](#skinconfig).
+
+**Returns:** `SkinHandle`
+
 ### SceneHandle.set_events
 
 ```python
@@ -792,6 +804,22 @@ Set a metadata entry for the splat. Returns `self` for chaining.
 
 ---
 
+## SkinHandle
+
+Returned by `SceneHandle.add_skin`. Its config is frozen; to change a skin, add a new one.
+
+### SkinHandle properties
+
+| Property | Type | Description |
+|---|---|---|
+| `name` | `str` | Shown in the Skin menu. |
+| `id` | `str` | `name2id(name)`, unique within the scene; the bundled file's stem. |
+| `source` | `str \| None` | The local file the build bundles (a URL source's download). |
+| `format` | `"vrm" \| "gltf"` | What the file is, read from its content. |
+| `config` | `SkinConfig` | The config as added, its `source` a local file. |
+
+---
+
 ## MotionHandle
 
 Returned by `PolicyHandle.add_motion()`, `add_motion_wandb()` and `add_motion_hf()`.
@@ -864,6 +892,100 @@ def from_position(
 ```
 
 Build a `ViewerConfig` from explicit Cartesian viewer/target positions — `lookat`, `distance`, `elevation`, and `azimuth` are computed.
+
+## SkinConfig
+
+```python
+@dataclass(frozen=True)
+class mjswan.SkinConfig(
+    bones: Mapping[str, str],
+    source: str | None = None,
+    humanoid: Mapping[str, str] | str | None = None,
+    limbs: Sequence[tuple[str, str, str]] = (),
+    scale: float = 1.0,
+    facing: Literal["+z", "-z", "+x", "-x"] = "+z",
+    springs: Sequence[SpringChain] = (),
+    material: ToonShading | None = None,
+    rest_pose: str | Mapping[str, float] | None = None,
+    rest_offsets: Mapping[str, tuple[float, float, float]] = {},
+    height_ratio: float | None = None,
+    offset: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    hips_offset: tuple[float, float, float] | None = None,
+    hide_robot: bool = True,
+    brightness: float = 1.0,
+    mujoco_springs: bool = True,
+    retarget: Literal["rotation", "position", "hybrid"] = "hybrid",
+    license: str | None = None,
+    notice: str | None = None,
+)
+```
+
+Everything one skin needs, so swapping characters swaps only this object. Frames: `offset` and `hips_offset` are MuJoCo's (x forward, y left, z up); `rest_offsets` are in the character's frame as VRM 1.0 defines it (y up, facing +z, its left toward +x), whatever the file is. A VRM brings its humanoid, springs, units, materials and license itself, so the fields marked `.glb` are refused for one.
+
+| Field | Description |
+|---|---|
+| `bones` | Bone to robot body. A bone is a VRM humanoid bone name (`"leftUpperArm"`) for a `.vrm` or a `.glb` given `humanoid`, else one of the `.glb`'s node names. Several bones may share a body; a body name may leave out its entity prefix. A humanoid's `hips`, or a node map's topmost node, carries the position. |
+| `source` | Local path or http(s) URL of the `.vrm` or `.glb`. |
+| `humanoid` | `.glb` only: VRM humanoid bone to node name, or a preset (`"mixamo"`, matched with or without Mixamo's `mixamorig:` prefix). A four-legged animal maps its front legs as arms. `None` keys `bones` by node name. |
+| `limbs` | A node map's arms and legs, as `(upper, lower, end)` bones, each the nearest mapped node below the one before: what `"hybrid"` bends. A humanoid's come from its bones. |
+| `scale` | `.glb` only: metres per unit of the file. |
+| `facing` | `.glb` only: the axis the model faces (glTF's convention is `+z`). |
+| `springs` | `.glb` only: chains that swing as a VRM's spring bones do. See [`SpringChain`](#springchain). |
+| `material` | `.glb` only: draw its PBR materials as MToon, balanced against the scene's lights as a VRM's are. See [`ToonShading`](#toonshading). |
+| `rest_pose` | The robot's pose while the character holds its own rest pose: a keyframe's name, or joint to value (radians, metres) over the zero pose. Every VRM rests in a T-pose, so for a humanoid robot this holds its arms out straight (`examples/demo/spinkick_avatar.py` has the G1's). `None`: the zero pose. |
+| `rest_offsets` | Bone to a turn, in degrees about the character's x, then y, then z axis, on top of `rest_pose`, for what the robot's joints cannot pose. |
+| `height_ratio` | Scale from the robot root's height to the character's root bone height, both above the ground under the robot (the first geom in group 0 straight below that is not the robot's, as mjlab's height scan sees the terrain). `None` takes the root bone's height above the character's lowest point at rest, over the robot root's above its soles at `rest_pose`. |
+| `offset` | Added to the character's position, in metres: it moves where the robot moves, this far aside. `(0, 1, 0)` stands it 1 m to the robot's left. |
+| `hips_offset` | Where the root bone sits on its body, in that body's frame, metres. `None` centres the character's limbs over the robot's across the floor, as a fox's pelvis sits behind a Go1's mid-trunk origin. |
+| `hide_robot` | Stop drawing the robot, so the character is drawn in its place. A hidden robot is still simulated, collides and can be grabbed, and Debug Viz's **Robot** switch draws it through the skin. |
+| `brightness` | Scales the toon (MToon) colours, which the viewer first divides by the scene's summed light when that exceeds 1: a toon shader takes every light it faces in full, so MuJoCo's several lights would clip it to white. |
+| `mujoco_springs` | Simulate the spring bones as MuJoCo bodies, in a model the robot never touches, every 1/240 s. `False` leaves them to three-vrm, which costs less per frame. |
+| `retarget` | `"hybrid"` turns each bone the way its body has turned since `rest_pose`, keeping the character's proportions, then bends each arm and leg (two-bone IK) so its hand or foot lands on the robot's, the whole character lowered as far as the feet it stands on need. `"rotation"` only turns the bones. `"position"` fixes every bone to its body, for a model made to the robot's proportions; on another the mesh stretches, and `add_skin` warns. |
+| `license` | `.glb` only: a path to its license text, or a generatable SPDX id (`"CC-BY-4.0"`), written as `LICENSE.skin-<id>`. |
+| `notice` | `.glb` only: its attribution, a path or the text itself, written as `NOTICE.skin-<id>`. |
+
+### SpringChain
+
+```python
+@dataclass(frozen=True)
+class mjswan.SpringChain(
+    root: str,
+    stiffness: float = 1.0,
+    drag: float = 0.4,
+    gravity: float = 0.0,
+    gravity_dir: tuple[float, float, float] = (0.0, -1.0, 0.0),
+    hit_radius: float = 0.02,
+    tip: float | None = None,
+    colliders: tuple[SpringCollider, ...] = (),
+)
+```
+
+A `.glb` node and each first child below it, each swinging toward the next as a VRM spring does, with VRM's settings. `tip` (metres) gives the last node something to point along, so it swings too; without it the last node only ends the chain. A chain may not swing a bone `bones` poses.
+
+### SpringCollider
+
+```python
+@dataclass(frozen=True)
+class mjswan.SpringCollider(
+    node: str,
+    radius: float,
+    offset: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    tail: tuple[float, float, float] | None = None,
+)
+```
+
+A sphere on a `.glb` node, or with `tail` a capsule, that its chain stays out of. Lengths in metres, along the node's own axes.
+
+### ToonShading
+
+```python
+@dataclass(frozen=True)
+class mjswan.ToonShading(shade: float = 0.6, toony: float = 0.5, shift: float = 0.0)
+```
+
+A `.glb`'s PBR materials drawn as MToon: `shade` is the shaded side's share of the lit colour, `toony` how sharply the two meet (0 soft, 1 hard), `shift` where they meet.
+
+`examples/demo/spinkick_avatar.py` puts VRMs on the G1, and `examples/demo/go1_avatar.py` two `.glb` animals on the Go1: the Khronos sample Fox, with a tail spring, and a pug in toon shading. `mjswan skin map` drafts a config for a new file; see the [CLI](../getting-started/cli.md).
 
 ---
 
@@ -1274,7 +1396,8 @@ dist/
         ├── policy/<policy-id>.onnx    ← the trained network, one per policy
         ├── assets/
         │   ├── <motion-id>.npz        ← one per distinct clip, shared by the scene's policies
-        │   └── <splat-id>.spz         ← only when source= is used
+        │   ├── <splat-id>.spz         ← only when source= is used
+        │   └── <skin-id>.vrm | .glb   ← only with add_skin, copied unmodified
         ├── LICENSE.<component>        ← a third-party component's license (detected or add_attribution)
         └── NOTICE.<component>         ← its notice
 ```

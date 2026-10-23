@@ -14,6 +14,31 @@ shortcuts.
 
 ### Added
 
+- **Skins: a rigged character drawn over the robot** (ADR 0010, **document format 7**).
+  `SceneHandle.add_skin(name, mjswan.SkinConfig(...))` adds a `.vrm` or a `.glb` to the
+  scene's **Skin** menu, posed every frame from the robot's bodies while physics,
+  collision and the policy stay the robot's. The file is bundled as received (a VRM's
+  license travels with it); a `.gltf`, a file pointing outside itself, or a compressed
+  one (Draco, meshopt, KTX2/Basis) is refused with how to export it again. A VRM names
+  its own bones; a `.glb` is mapped by `humanoid` (VRM bone to node name, or the
+  `"mixamo"` preset; a four-legged animal's front legs as arms) or, for any other
+  skeleton, by node name with `limbs`. `rest_pose`, a keyframe or a few joints, is the
+  robot's pose while the character rests: the rest offsets, root height and hips
+  placement are measured from it at build time. `retarget="hybrid"`, the default,
+  turns each bone as its body has, then bends each limb so the hand or foot lands on
+  the robot's; `"position"` warns when the limbs are not the robot's lengths. A `.glb`
+  takes `scale`, `facing`, `springs` (`SpringChain`, `SpringCollider`) and toon
+  `material` (`ToonShading`), and `license` / `notice` as a component's. Spring bones
+  are simulated by MuJoCo in a model of their own. The robot is undrawn by default;
+  Debug Viz's **Robot** switch draws it see-through over the character.
+  `mjswan publish` takes skins: it refuses a VRM whose license forbids redistribution,
+  asks before sending one only its author or someone they licensed may use, and warns
+  on one for non-commercial use. `mjswan skin map <file> --robot <...>` drafts the maps
+  and writes a `SkinConfig` to check, and `mjswan info` lists each skin with its
+  license. `examples/demo/spinkick_avatar.py` puts VRMs on the G1 Spinkick, and
+  `examples/demo/go1_avatar.py` the Khronos sample Fox (tail spring included) and a pug
+  from Quaternius's Farm Animals (CC0, committed as `examples/demo/assets/pug.glb`,
+  made by `make_pug.py`) on the Go1 velocity tasks.
 - **A task's own action class runs in the browser** (ADR 0009, **document format 6**). An
   mjlab action class mjswan has no class of its own for, such as in-hand rotation's
   `JointPositionDeltaAction` or luwu's `HeldJointPositionAction`, was skipped with a
