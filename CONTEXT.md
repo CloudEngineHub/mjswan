@@ -63,7 +63,9 @@ src/mjswan/          Python package source: the object model at the root, one pa
 
 examples/            Runnable examples. Python only: assets are fetched at run time
   demo/                main.py (the deployed app: mjlab Tasks + Showcase, everything
-                       from mjlab or the Hub, skins included), simple.py (one task,
+                       from mjlab or the Hub, skins included, but WBC-Mjlab's policy
+                       and clips, from its deploy repo at a pinned commit; the `demo`
+                       extra is what it imports), simple.py (one task,
                        one checkpoint), minimum_policy.py (the smallest complete
                        policy) and mujoco_models.py (a gallery, no policy). `mjswan demo` runs
                        the three named ones; minimum_policy.py is read, not run

@@ -185,6 +185,7 @@ Add a MuJoCo scene. Provide exactly one of `model` or `spec`.
 def add_scene_mjlab(
     task_id: str,
     *,
+    name: str | None = None,
     play: bool | None = None,
     env_cfg: Any | None = None,
     events: Mapping[str, Any] | None = None,
@@ -198,6 +199,7 @@ Load an mjlab task's MuJoCo spec from the task registry and add it as a scene. N
 | Name | Type | Default | Description |
 |---|---|---|---|
 | `task_id` | `str` | required | mjlab task identifier (e.g. `"Mjlab-Velocity-Flat-Unitree-G1"`). |
+| `name` | `str \| None` | `None` | Display name in the scene list; its id is the `?scene=` value. Defaults to the task id. |
 | `play` | `bool \| None` | `None` | Which of the task's two registered configs to load. mjlab keeps them as `env_cfg` (training) and `play_env_cfg`; this selects between them exactly as its `load_env_cfg(task_id, play=...)` does. **Unset means play — the opposite of mjlab's own default, deliberately**: that one serves training scripts, and this is a playback tool. mjlab's training config sets `episode_length_s` to 10–20 s, which mjswan serializes into the browser's `time_out` termination, so a viewer built from it resets the robot every few seconds; it also keeps `push_robot` and the terrain-bounds termination, and lacks `randomize_terrain`. Pass `False` to reproduce training-time conditions. **Mutually exclusive with `env_cfg`** — passing both raises. |
 | `env_cfg` | `Any \| None` | `None` | Pre-loaded (and possibly edited) env config to use instead of loading `task_id` fresh. Load it with the `play` you want — `load_env_cfg(task_id, play=True)` — since `play` here then has nothing left to select. The scene keeps whichever config it used, and policies added to it default their term sets to it. A tracking task does not need this: mjlab registers it with `commands["motion"].motion_file = ""`, and the builder points that at the clip it bundles. |
 | `events` | `Mapping[str, Any] \| None` | `None` | Scene events, overriding the task's own `env_cfg.events`. Omit to take the task's; pass `{}` for a scene with none. |
@@ -986,7 +988,7 @@ class mjswan.ToonShading(shade: float = 0.6, toony: float = 0.5, shift: float = 
 
 A `.glb`'s PBR materials drawn as MToon: `shade` is the shaded side's share of the lit colour, `toony` how sharply the two meet (0 soft, 1 hard), `shift` where they meet.
 
-The demo's Showcase (`examples/demo/main.py`) puts VRM avatars on the G1 Spinkick, and four `.glb` animals on the Go1: Quaternius's Shiba Inu and fox from Poly Pizza, their feet hung from their legs by `reparent`, the Khronos sample Fox, and a pug in toon shading. Their files are on the Hugging Face Hub, in `skins/` of [`ttktjmt/mjswan`](https://huggingface.co/ttktjmt/mjswan), each with its license. `mjswan skin map` drafts a config for a new file; see the [CLI](../getting-started/cli.md).
+The demo's Showcase (`examples/demo/main.py`) has two skins scenes: **Humanoid skins**, VRM avatars on WBC-Mjlab's G1 tracking any of its clips, and **Quadruped skins**, four `.glb` animals on the Go1: Quaternius's Shiba Inu and fox from Poly Pizza, their feet hung from their legs by `reparent`, the Khronos sample Fox, and a pug in toon shading. Their files are on the Hugging Face Hub, in `skins/` of [`ttktjmt/mjswan`](https://huggingface.co/ttktjmt/mjswan), each with its license. `mjswan skin map` drafts a config for a new file; see the [CLI](../getting-started/cli.md).
 
 ---
 

@@ -8,10 +8,11 @@ Two projects:
   ``add_scene_mjlab`` plus trained checkpoints; nothing is hand-written.
 - **Showcase**: what mjswan adds on top of the same engine, namely a Gaussian Splat
   background, a model mjlab has no task for, muscle actuators, and skins: characters
-  drawn over the G1 Spinkick and the Go1.
+  drawn over a humanoid and a quadruped.
 
 No asset is stored in this repository. Models come from mjlab or the Hugging Face Hub,
-policies and skins from the Hub. The Hub repository is public, so a build needs no
+policies and skins from the Hub, and WBC-Mjlab's policy and clips from its deploy
+repository on GitHub at a pinned commit. Both are public, so a build needs no
 credentials.
 """
 
@@ -25,6 +26,7 @@ from typing import Any
 
 import mujoco
 import onnx
+import yaml
 from mjlab.envs.mdp import observations as obs_fns
 from mjlab.envs.mdp import terminations as term_fns
 from mjlab.managers.scene_entity_config import SceneEntityCfg
@@ -36,7 +38,7 @@ from mjswan.envs.mdp.actions import MuscleActivationActionCfg
 from mjswan.managers.observation_manager import ObservationGroupCfg, ObservationTermCfg
 from mjswan.managers.termination_manager import TerminationTermCfg
 from mjswan.mjlab.env import build_single_entity_trace_env
-from mjswan.source import hf
+from mjswan.source import hf, url
 
 #: Every asset this demo does not get from mjlab. Public, so the build is anonymous.
 HF_REPO = "ttktjmt/mjswan"
@@ -140,11 +142,14 @@ def _add_mjlab_tasks(builder: mjswan.Builder, repo_onnx: list[str]) -> None:
 
 
 def _add_mjlab_task(
-    project: mjswan.ProjectHandle, task_id: str, checkpoints: list[str]
+    project: mjswan.ProjectHandle,
+    task_id: str,
+    checkpoints: list[str],
+    name: str | None = None,
 ) -> mjswan.SceneHandle:
     """One of mjlab's tasks, as mjlab gives it, driven by ``checkpoints``."""
     env_cfg = load_env_cfg(task_id, play=True)
-    scene = project.add_scene_mjlab(task_id, env_cfg=env_cfg)
+    scene = project.add_scene_mjlab(task_id, name=name, env_cfg=env_cfg)
     # Only the files are named here: the MDP and the action order come from
     # `env_cfg`, the rest pose from each `.onnx`'s mjlab metadata, else from the
     # model's keyframe (cartpole's exports carry none).
@@ -439,7 +444,7 @@ G1_T_POSE = {
 #: Every VRM rests in a T-pose, so one map and one rest pose fit them all.
 G1_VRM = mjswan.SkinConfig(bones=G1_BONES, rest_pose=G1_T_POSE)
 
-#: The Spinkick's skins, in the Skin menu's order; the first is shown on load.
+#: The humanoid's skins, in the Skin menu's order; the first is shown on load.
 G1_SKINS = {
     "VRM1 Constraint Twist Sample": "skins/pixiv/VRM1_Constraint_Twist_Sample.vrm",
     "AvatarSample_A": "skins/pixiv/AvatarSample_A.vrm",
@@ -656,13 +661,62 @@ def _skin_file(path: str) -> str:
     return str(hf.fetch_file(HF_REPO, path))
 
 
-def _add_g1_spinkick(project: mjswan.ProjectHandle, repo_onnx: list[str]) -> None:
-    """The Spinkick under VRM avatars, on its final checkpoint alone.
+#: WBC-Mjlab's G1 (https://github.com/wbc-mjlab/wbc-mjlab): one whole-body tracking
+#: policy over a library of clips, as mjswan_playground's `wbc` task runs it. The
+#: `wbc-mjlab` package registers the task; the policy and clips are its deploy repo's.
+WBC_TASK = "Wbc-G1"
+WBC_DEPLOY = (
+    "https://raw.githubusercontent.com/wbc-mjlab/wbc-g1-deploy/"
+    "6dabf86fddc2b7b429b09e74999732fcde3441f9"
+)
 
-    mjlab Tasks shows the whole training run; here only the skins change.
-    """
-    checkpoints = _checkpoints_for(TRACKING_TASK, repo_onnx)[-1:]
-    scene = _add_tracking_scene(project, checkpoints)
+
+def _wbc_file(path: str) -> Path:
+    """A file of wbc-g1-deploy at the pinned commit."""
+    return url.fetch_file(f"{WBC_DEPLOY}/{path}")
+
+
+def _add_humanoid_skins(project: mjswan.ProjectHandle) -> None:
+    """WBC-Mjlab's G1 under VRM avatars, tracking any of its clips."""
+    contract = yaml.safe_load(
+        _wbc_file("config/policy/wbc/params/config.yaml").read_text()
+    )
+    env_cfg = load_env_cfg(WBC_TASK, play=True)
+    # Training-only events the deploy runtime does not apply either.
+    for training_only in ("assistive_wrench", "pull_robot"):
+        env_cfg.events.pop(training_only, None)
+    # The browser runs the PD alone, so UnitreeActuator's friction terms become the
+    # joints' own frictionloss and damping, which the exported scene carries.
+    for actuator in env_cfg.scene.entities["robot"].articulation.actuators:
+        actuator.frictionloss, actuator.viscous_damping = actuator.fs, actuator.fd
+        actuator.fs = actuator.fd = 0.0
+    scene = project.add_scene_mjlab(WBC_TASK, name="Humanoid skins", env_cfg=env_cfg)
+
+    policy = scene.add_policy(
+        name="WBC Tracking",
+        policy=onnx.load(str(_wbc_file("config/policy/wbc/params/policy.onnx"))),
+        policy_joint_names=[f"robot/{joint}" for joint in contract["joint_names"]],
+        default_joint_pos=[float(v) for v in contract["default_joint_pos"]],
+    )
+    manifest = yaml.safe_load(_wbc_file("config/clips/manifest.yaml").read_text())
+    # The manifest's default first: the viewer opens on it.
+    clips = sorted(
+        manifest["clips"], key=lambda clip: clip["name"] != manifest["default"]
+    )
+    for clip in clips:
+        policy.add_motion(
+            name=clip["name"],
+            source=str(_wbc_file(f"config/clips/{clip['file']}")),
+            fps=50.0,
+            anchor_body_name=contract["tracking"]["anchor_body_name"],
+            body_names=env_cfg.commands["motion"].body_names,
+            dataset_joint_names=list(contract["joint_names"]),
+            default=clip is clips[0],
+        )
+    scene.add_attribution(
+        "wbc-g1-deploy", license=_wbc_file("LICENSE"), notice=_wbc_file("NOTICE")
+    )
+
     for name, path in G1_SKINS.items():
         scene.add_skin(name, replace(G1_VRM, source=_skin_file(path)))
     scene.add_attribution(
@@ -670,10 +724,10 @@ def _add_g1_spinkick(project: mjswan.ProjectHandle, repo_onnx: list[str]) -> Non
     )
 
 
-def _add_go1_velocity(project: mjswan.ProjectHandle, repo_onnx: list[str]) -> None:
+def _add_quadruped_skins(project: mjswan.ProjectHandle, repo_onnx: list[str]) -> None:
     """The Go1 on rough terrain under four animals, on its final checkpoint alone."""
     checkpoints = _checkpoints_for(GO1_TASK, repo_onnx)[-1:]
-    scene = _add_mjlab_task(project, GO1_TASK, checkpoints)
+    scene = _add_mjlab_task(project, GO1_TASK, checkpoints, name="Quadruped skins")
     for name, (path, config) in GO1_SKINS.items():
         scene.add_skin(name, replace(config, source=_skin_file(path)))
 
@@ -682,8 +736,8 @@ def _add_showcase(builder: mjswan.Builder, repo_onnx: list[str]) -> None:
     project = builder.add_project(name="Showcase")
     _add_g1_on_street(project)
     _add_myofinger(project)
-    _add_g1_spinkick(project, repo_onnx)
-    _add_go1_velocity(project, repo_onnx)
+    _add_humanoid_skins(project)
+    _add_quadruped_skins(project, repo_onnx)
 
 
 def setup_builder() -> mjswan.Builder:

@@ -36,11 +36,17 @@ shortcuts.
   license forbids redistribution, asks before sending one only its author or someone
   they licensed may use, and warns on one for non-commercial use.
   `mjswan skin map <file> --robot <...>` drafts the maps and writes a `SkinConfig` to
-  check, and `mjswan info` lists each skin with its license. The demo's Showcase puts
-  six VRM avatars on the G1 Spinkick, and four animals on the Go1 on rough terrain:
-  Quaternius's Shiba Inu and fox from Poly Pizza, their feet hung from their legs by
-  `reparent`, the Khronos sample Fox (both foxes' tails on springs) and a pug from
-  Quaternius's Farm Animals. Every file is fetched from the Hub's `skins/`.
+  check, and `mjswan info` lists each skin with its license. The demo's Showcase gains
+  two scenes. **Humanoid skins** puts six VRM avatars on WBC-Mjlab's G1, whose one
+  tracking policy runs any of its clips (idle, three dances, a fight combo, a walk, a
+  run, a flip and a sprint). **Quadruped skins** puts four animals on the Go1 on rough
+  terrain: Quaternius's Shiba Inu and fox from Poly Pizza, their feet hung from their
+  legs by `reparent`, the Khronos sample Fox (both foxes' tails on springs) and a pug
+  from Quaternius's Farm Animals. Every skin is fetched from the Hub's `skins/`.
+- **`ProjectHandle.add_scene_mjlab(name=...)`** names the scene other than by its task
+  id; the scene's id, and so its `?scene=` value, follow the name. The demo's skins
+  scenes use it, and the new `demo` extra is what `examples/demo/main.py` imports:
+  `hf`, `mjlab` and `wbc-mjlab`, which registers WBC-Mjlab's tasks.
 - **A task's own action class runs in the browser** (ADR 0009, **document format 6**). An
   mjlab action class mjswan has no class of its own for, such as in-hand rotation's
   `JointPositionDeltaAction` or luwu's `HeldJointPositionAction`, was skipped with a
