@@ -8,7 +8,7 @@ import { signalReady, signalError } from './core/utils/readySignal';
 import { createEngine } from './engine';
 import type { EnginePlugins, MjswanEngine, MjswanEngineState, SceneInput } from './engine';
 import { parseManifest, sanitizeName, type Catalog, type ProjectCatalog, type ByteSource } from './manifest';
-import { applyUrlState, DEBUG_PARAM, PANEL_PARAM, POLICY_PARAM, PROJECT_PARAM, SCENE_PARAM } from './urlState';
+import { applyUrlState, DEBUG_PARAM, PANEL_PARAM, POLICY_PARAM, PROJECT_PARAM, SCENE_PARAM, SKIN_PARAM } from './urlState';
 import './App.css';
 
 function paramFlag(param: string): boolean {
@@ -41,9 +41,9 @@ async function loadCatalog(base: string): Promise<Catalog> {
 }
 
 /**
- * Resolve a `?project=` / `?scene=` / `?policy=` value against the entries' ids. The
- * query is sanitized too, so a hand-typed display name still lands, but nothing matches
- * on the raw name (ADR 0006 §4).
+ * Resolve a `?project=` / `?scene=` / `?policy=` / `?skin=` value against the entries'
+ * ids. The query is sanitized too, so a hand-typed display name still lands, but nothing
+ * matches on the raw name (ADR 0006 §4).
  */
 function pickById<T extends { id: string }>(
   items: T[],
@@ -104,13 +104,16 @@ function AppContent() {
           ? pickById(scene.policies, params.get(POLICY_PARAM), scene.policies.find((p) => p.default) ?? scene.policies[0])
           : undefined;
         const motion = policy?.motions.find((m) => m.default) ?? policy?.motions[0];
+        // An empty `?skin=` is the menu's None.
+        const skinId = params.get(SKIN_PARAM);
+        const skin = skinId === '' ? undefined : pickById(scene?.skins ?? [], skinId, scene?.skins[0]);
         setCatalog(cat);
         setProjectName(project?.name ?? null);
         setSceneName(scene?.name ?? null);
         setPolicyName(policy?.name ?? null);
         setMotionName(motion?.name ?? null);
         setSplatName(scene?.splats[0]?.name ?? null);
-        setSkinName(scene?.skins[0]?.name ?? null);
+        setSkinName(skin?.name ?? null);
       })
       .catch((err) => {
         setError(err instanceof Error ? err.message : String(err));
@@ -196,17 +199,19 @@ function AppContent() {
     // URL values are ids, but the UI state holds display names, so look each one up.
     const proj = catalog.projects.find((p) => p.name === projectName);
     const scene = proj?.scenes.find((s) => s.name === sceneName);
+    const skins = scene?.skins ?? [];
     const search = applyUrlState(window.location.search, {
       // Pin ?project only once more than one exists (single-project builds stay clean).
       project: catalog.projects.length > 1 ? (proj?.id ?? null) : null,
       scene: scene?.id ?? null,
       policy: scene?.policies.find((p) => p.name === policyName)?.id ?? null,
+      skin: skins.length ? (skins.find((s) => s.name === skinName)?.id ?? '') : null,
       panel: panelVisible,
       debug: debugVisEnabled,
     });
     const url = `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`;
     window.history.replaceState({}, '', url);
-  }, [catalog, projectName, sceneName, policyName, panelVisible, debugVisEnabled]);
+  }, [catalog, projectName, sceneName, policyName, skinName, panelVisible, debugVisEnabled]);
 
   const loadScene = useCallback(async (scene: ProjectCatalog['scenes'][number]) => {
     const engine = engineRef.current;

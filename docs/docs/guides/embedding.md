@@ -90,6 +90,7 @@ and chrome you mean rather than the first thing in the build:
 | `project` | Select a project by id — its sanitized name, `newton_s_cradle` for `"Newton's Cradle"`. The display name works too; it is sanitized the same way. Defaults to the project marked `default=True`. |
 | `scene` | Select a scene by id. |
 | `policy` | Select a policy by id. Defaults to the one marked `default=True`. |
+| `skin` | Select a skin by id. Defaults to the scene's first; `skin=` (empty) opens on none. |
 | `panel` | `panel=0` starts with the control panel hidden. Useful in a small iframe. |
 | `debug` | `debug=0` starts with the panel's Debug Viz **Enabled** checkbox off, hiding every debug drawing (the motion-tracking ghost, velocity arrows, height-scan hits). |
 | `manifest` | Load a `manifest.json` from another URL entirely, relative to the page. |

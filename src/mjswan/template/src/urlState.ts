@@ -3,6 +3,7 @@
 export const PROJECT_PARAM = 'project';
 export const SCENE_PARAM = 'scene';
 export const POLICY_PARAM = 'policy';
+export const SKIN_PARAM = 'skin';
 export const PANEL_PARAM = 'panel';
 export const DEBUG_PARAM = 'debug';
 
@@ -11,6 +12,8 @@ export interface UrlState {
   project: string | null;
   scene: string | null;
   policy: string | null;
+  /** As above, or `''` while the Skin menu is set to None. */
+  skin: string | null;
   panel: boolean;
   /** Debug Viz "Enabled". */
   debug: boolean;
@@ -24,6 +27,7 @@ export function applyUrlState(search: string, state: UrlState): string {
   set(PROJECT_PARAM, state.project);
   set(SCENE_PARAM, state.scene);
   set(POLICY_PARAM, state.policy);
+  set(SKIN_PARAM, state.skin);
   // Booleans are written only when off, so a default view keeps a bare URL.
   set(PANEL_PARAM, state.panel ? null : '0');
   set(DEBUG_PARAM, state.debug ? null : '0');
