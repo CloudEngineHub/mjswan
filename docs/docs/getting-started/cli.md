@@ -99,7 +99,7 @@ runs, while `mujoco` fetches MuJoCo's gallery at the `3.11.0` tag again each tim
 
 | Demo | Source | Needs |
 |---|---|---|
-| `main` | `examples/demo/main.py`, the demo deployed to GitHub Pages | `mjswan[hf,mjlab]` |
+| `main` | `examples/demo/main.py`, the demo deployed to GitHub Pages | `mjswan[demo]` (`hf`, `mjlab` and `wbc-mjlab`) |
 | `simple` | `examples/demo/simple.py`, one mjlab task, one checkpoint | `mjswan[hf,mjlab]` |
 | `mujoco` | `examples/demo/mujoco_models.py`, MuJoCo's `<replicate>` gallery, no policy | core only |
 
