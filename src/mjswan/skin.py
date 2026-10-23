@@ -165,7 +165,7 @@ class SkinConfig:
     hide_robot: bool = True
     """Stop drawing the robot the skin follows, so the character is drawn in its place.
     ``False`` draws both, as when ``offset`` stands it beside the robot. A hidden robot
-    is still simulated, collides and can be grabbed, and Debug Viz's Robot switch draws
+    is still simulated, collides and can be grabbed, and Debug Viz's Xray switch draws
     it through the skin."""
 
     brightness: float = 1.0

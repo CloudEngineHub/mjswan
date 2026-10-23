@@ -194,16 +194,6 @@ export class Skin {
     return new Skin(await loadSkinModel(data, config), config);
   }
 
-  get shown(): boolean {
-    return this.root.visible;
-  }
-
-  /** Hidden, it is not posed either; shown again, its springs start from the pose. */
-  setShown(shown: boolean): void {
-    this.root.visible = shown;
-    this.lastTime = null;
-  }
-
   /** Resolve the bone map against a (re)built model. Unresolved bones are left at rest. */
   bind(mujoco: MainModule, mjModel: MjModel): void {
     // First, while the avatar is still at rest: the spring model is built from that pose.
@@ -419,7 +409,7 @@ export class Skin {
    */
   update(bodies: Record<number, THREE.Object3D>, time: number, mjData?: MjData): void {
     const rig = this.rig;
-    if (!rig || !this.shown) return;
+    if (!rig) return;
     const elapsed = this.lastTime === null ? 0 : (time - this.lastTime) / 1000;
     const dt = Math.min(elapsed, MAX_FRAME_SECONDS);
     this.lastTime = time;

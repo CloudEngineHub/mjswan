@@ -66,7 +66,9 @@ The browser receives indices and turns, and reads no names.
 
 Spring bones (hair, a tail) are simulated by MuJoCo in a model of their own, which the
 scene's model never sees. With the robot hidden (`hide_robot`, the default), Debug
-Viz's **Robot** switch draws it see-through over the character, to check the fit.
+Viz's **Xray** switch (`?xray=1`) draws it see-through over the character, to check the
+fit. The skin itself is not a debug drawing: Debug Viz's **Enabled** leaves it shown,
+and the Skin menu's None is how to see the robot without it.
 
 ### 5. Published with its license checked
 
@@ -103,7 +105,7 @@ so `DOCUMENT_FORMAT` is 7.
 
 ## Consequences
 
-- A scene's look is no longer its model's; the Robot switch is how to see the model.
+- A scene's look is no longer its model's; the Xray switch is how to see the model.
 - `rig/` holds what fits a skin to a robot (`humanoid`, `pose`, `guess`); `cloud/`
   reads skins through `document/skin.py` and `license/vrm.py` alone.
 - An older engine refuses every format-7 document, skins or not, as for any bump.

@@ -31,7 +31,7 @@ shortcuts.
   limbs are not the robot's lengths. A `.glb` takes `scale`, `facing`, `springs`
   (`SpringChain`, `SpringCollider`) and toon `material` (`ToonShading`), and `license` /
   `notice` as a component's. Spring bones are simulated by MuJoCo in a model of their
-  own. The robot is undrawn by default; Debug Viz's **Robot** switch draws it
+  own. The robot is undrawn by default; Debug Viz's **Xray** switch (`?xray=1`) draws it
   see-through over the character. `mjswan publish` takes skins: it refuses a VRM whose
   license forbids redistribution, asks before sending one only its author or someone
   they licensed may use, and warns on one for non-commercial use.

@@ -9,6 +9,7 @@ const SELECTED: UrlState = {
   skin: null,
   panel: true,
   debug: true,
+  xray: false,
 };
 
 describe('applyUrlState', () => {
@@ -42,6 +43,11 @@ describe('applyUrlState', () => {
     );
     // A scene with no skins.
     expect(applyUrlState('?skin=fox', SELECTED)).toBe('project=demo_two&scene=humanoid&policy=walk');
+  });
+
+  it('pins xray only when it is on', () => {
+    expect(applyUrlState('', { ...SELECTED, xray: true })).toBe('project=demo_two&scene=humanoid&policy=walk&xray=1');
+    expect(applyUrlState('?xray=1', SELECTED)).toBe('project=demo_two&scene=humanoid&policy=walk');
   });
 
   it('pins the chrome flags only when they are off', () => {

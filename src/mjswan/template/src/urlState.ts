@@ -6,6 +6,7 @@ export const POLICY_PARAM = 'policy';
 export const SKIN_PARAM = 'skin';
 export const PANEL_PARAM = 'panel';
 export const DEBUG_PARAM = 'debug';
+export const XRAY_PARAM = 'xray';
 
 export interface UrlState {
   /** Id of the active entry, or null to leave the parameter off. */
@@ -17,6 +18,8 @@ export interface UrlState {
   panel: boolean;
   /** Debug Viz "Enabled". */
   debug: boolean;
+  /** Debug Viz "Xray": the robot drawn see-through over its skin. */
+  xray: boolean;
 }
 
 /** Rewrite a query string to carry `state`, leaving unrelated parameters alone. */
@@ -28,8 +31,9 @@ export function applyUrlState(search: string, state: UrlState): string {
   set(SCENE_PARAM, state.scene);
   set(POLICY_PARAM, state.policy);
   set(SKIN_PARAM, state.skin);
-  // Booleans are written only when off, so a default view keeps a bare URL.
+  // Booleans are written only off their default, so a default view keeps a bare URL.
   set(PANEL_PARAM, state.panel ? null : '0');
   set(DEBUG_PARAM, state.debug ? null : '0');
+  set(XRAY_PARAM, state.xray ? '1' : null);
   return params.toString();
 }

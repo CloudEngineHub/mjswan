@@ -92,11 +92,12 @@ and chrome you mean rather than the first thing in the build:
 | `policy` | Select a policy by id. Defaults to the one marked `default=True`. |
 | `skin` | Select a skin by id. Defaults to the scene's first; `skin=` (empty) opens on none. |
 | `panel` | `panel=0` starts with the control panel hidden. Useful in a small iframe. |
-| `debug` | `debug=0` starts with the panel's Debug Viz **Enabled** checkbox off, hiding every debug drawing (the motion-tracking ghost, velocity arrows, height-scan hits). |
+| `debug` | `debug=0` starts with the panel's Debug Viz **Enabled** checkbox off, hiding every debug drawing (the motion-tracking ghost, velocity arrows, height-scan hits, the robot under a skin). A skin stays shown. |
+| `xray` | `xray=1` starts with Debug Viz's **Xray** switch on, drawing the robot see-through over its skin. |
 | `manifest` | Load a `manifest.json` from another URL entirely, relative to the page. |
 
-`panel` and `debug` are booleans read as "off only when exactly `0`", and the app writes the
-current state back into the URL — so you can arrange a view by hand and copy the address
+`panel` and `debug` are booleans read as "off only when exactly `0`", `xray` as "on only when
+exactly `1`", and the app writes the current state back into the URL — so you can arrange a view by hand and copy the address
 bar into your `src`.
 
 ```html

@@ -315,26 +315,6 @@ describe('Skin', () => {
     expect(beside.hiddenBodies).toEqual([]);
   });
 
-  it('is not posed while hidden, and takes up the pose when shown again', async () => {
-    const skin = await Skin.load(vrmFile('1'), CONFIG);
-    skin.bind(mujoco, robot);
-    const hand = () => {
-      skin.root.updateMatrixWorld(true);
-      return skin.root.getObjectByName('leftHand')!.getWorldPosition(new THREE.Vector3());
-    };
-    skin.update(bodies(0, 0), 0);
-    const atRest = hand();
-
-    skin.setShown(false);
-    skin.update(bodies(0, -1.2), 16);
-    expect(skin.root.visible).toBe(false);
-    expect(hand().distanceTo(atRest)).toBeLessThan(1e-9);
-
-    skin.setShown(true);
-    skin.update(bodies(0, -1.2), 32);
-    expect(hand().distanceTo(atRest)).toBeGreaterThan(0.1);
-  });
-
   it('draws a .glb in MToon when asked, its shade a share of its colour', async () => {
     const file = gltfFile();
     const json = JSON.parse(new TextDecoder().decode(new Uint8Array(file.data, 20)).trim());

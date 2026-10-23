@@ -1,6 +1,6 @@
 /**
  * Meshes drawn see-through, over whatever is in front of them and casting no shadow,
- * until put back: how the Robot switch shows the robot a skin hides through the skin.
+ * until put back: how the Xray switch shows the robot a skin hides through the skin.
  */
 import * as THREE from 'three';
 

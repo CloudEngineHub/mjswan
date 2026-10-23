@@ -121,10 +121,10 @@ export interface CommandControls {
 
 /**
  * One of mjlab's Debug Viz switches: a command term's, raycast sensor's or reward term's
- * drawing; or a viewer switch, `skin` or `robot`, which "Enabled" hides alike.
+ * drawing; or the viewer's `xray`, which "Enabled" hides alike.
  */
 export interface DebugVisDescriptor {
-  /** `command:<term>`, `sensor:<name>`, `reward:<term>`, `skin` or `robot`; the id {@link DebugVisControls.set} takes. */
+  /** `command:<term>`, `sensor:<name>`, `reward:<term>` or `xray`; the id {@link DebugVisControls.set} takes. */
   id: string;
   /** As mjlab's checkbox reads: a command term capitalized, a sensor or reward term as named. */
   label: string;

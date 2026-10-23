@@ -8,8 +8,20 @@ import { signalReady, signalError } from './core/utils/readySignal';
 import { createEngine } from './engine';
 import type { EnginePlugins, MjswanEngine, MjswanEngineState, SceneInput } from './engine';
 import { parseManifest, sanitizeName, type Catalog, type ProjectCatalog, type ByteSource } from './manifest';
-import { applyUrlState, DEBUG_PARAM, PANEL_PARAM, POLICY_PARAM, PROJECT_PARAM, SCENE_PARAM, SKIN_PARAM } from './urlState';
+import {
+  applyUrlState,
+  DEBUG_PARAM,
+  PANEL_PARAM,
+  POLICY_PARAM,
+  PROJECT_PARAM,
+  SCENE_PARAM,
+  SKIN_PARAM,
+  XRAY_PARAM,
+} from './urlState';
 import './App.css';
+
+/** The engine's Debug Viz switch that `?xray=` keeps. */
+const XRAY_SWITCH = 'xray';
 
 function paramFlag(param: string): boolean {
   return new URLSearchParams(window.location.search).get(param) !== '0';
@@ -67,6 +79,7 @@ function AppContent() {
   const [skinName, setSkinName] = useState<string | null>(null);
   const [debugVisEnabled, setDebugVisEnabled] = useState(() => paramFlag(DEBUG_PARAM));
   const [panelVisible, setPanelVisible] = useState(() => paramFlag(PANEL_PARAM));
+  const [xray, setXray] = useState(() => new URLSearchParams(window.location.search).get(XRAY_PARAM) === '1');
   const [engineState, setEngineState] = useState<MjswanEngineState | null>(null);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -208,10 +221,18 @@ function AppContent() {
       skin: skins.length ? (skins.find((s) => s.name === skinName)?.id ?? '') : null,
       panel: panelVisible,
       debug: debugVisEnabled,
+      xray: xray && skins.length > 0,
     });
     const url = `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`;
     window.history.replaceState({}, '', url);
-  }, [catalog, projectName, sceneName, policyName, skinName, panelVisible, debugVisEnabled]);
+  }, [catalog, projectName, sceneName, policyName, skinName, panelVisible, debugVisEnabled, xray]);
+
+  // The engine lists the switch only while a skin hides the robot: set it each time it
+  // appears, so `?xray=1` holds from the first skin that has it.
+  const xrayListed = engineState?.debugVis.some((d) => d.id === XRAY_SWITCH) ?? false;
+  useEffect(() => {
+    if (xrayListed) engineRef.current?.debugVis.set(XRAY_SWITCH, xray);
+  }, [xray, xrayListed]);
 
   const loadScene = useCallback(async (scene: ProjectCatalog['scenes'][number]) => {
     const engine = engineRef.current;
@@ -318,6 +339,11 @@ function AppContent() {
     }
   }, [sceneEntry, showLoading, hideLoading]);
 
+  const handleDebugVisChange = useCallback((id: string, enabled: boolean) => {
+    if (id === XRAY_SWITCH) setXray(enabled);
+    engineRef.current?.debugVis.set(id, enabled);
+  }, []);
+
   const handleDebugVisEnabledChange = useCallback((enabled: boolean) => {
     setDebugVisEnabled(enabled);
     engineRef.current?.debugVis.setEnabled(enabled);
@@ -389,7 +415,7 @@ function AppContent() {
             onEventFire={(name) => engineRef.current?.events.fire(name)}
             onEventArmedChange={(name, armed) => engineRef.current?.events.setArmed(name, armed)}
             debugVis={engineState?.debugVis ? [...engineState.debugVis] : []}
-            onDebugVisChange={(id, enabled) => engineRef.current?.debugVis.set(id, enabled)}
+            onDebugVisChange={handleDebugVisChange}
             debugVisEnabled={debugVisEnabled}
             onDebugVisEnabledChange={handleDebugVisEnabledChange}
             viewerGui={catalog.viewerGui}

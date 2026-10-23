@@ -91,9 +91,8 @@ import { SeededRng } from '../rng';
 /** Fixed rather than time-derived, so a plain page load replays identically. */
 const DEFAULT_TERM_SEED = 0x5eed;
 
-/** The skin's Debug Viz switches, listed after mjlab's drawings and under "Enabled" alike. */
-const SKIN_SWITCH = 'skin';
-const ROBOT_SWITCH = 'robot';
+/** The skin's Debug Viz switch, listed after mjlab's drawings and under "Enabled" alike. */
+const XRAY_SWITCH = 'xray';
 
 
 /**
@@ -355,25 +354,19 @@ export class mjswanRuntime {
   private currentSplatTransform: SplatTransform;
   /** The skin on show, posed from the robot's bodies; outside the model. */
   private skin: Skin | null = null;
-  /** One switch for every skin, so turning it off holds when the menu picks another. */
-  private readonly skinSwitch: ViewerSwitch = {
-    label: 'Skin',
-    enabled: true,
-    apply: (visible) => {
-      this.skin?.setShown(visible);
-      this.drawRobotUnderSkin();
-    },
-  };
-  /** Draws the robot a skin hides through it, to see how the two line up. */
-  private readonly robotSwitch: ViewerSwitch = {
-    label: 'Robot',
+  /**
+   * Draws the robot a skin hides through it, to see how the two line up. One switch for
+   * every skin, so it holds when the menu picks another.
+   */
+  private readonly xraySwitch: ViewerSwitch = {
+    label: 'Xray',
     enabled: false,
     apply: (visible) => {
-      this.robotXray = visible;
+      this.xray = visible;
       this.drawRobotUnderSkin();
     },
   };
-  private robotXray = false;
+  private xray = false;
   private readonly robotThrough = new SeeThrough();
   private cameraState: ViewerState;
   /** mjviser's "Track camera": whether the view follows the tracked body. */
@@ -875,8 +868,8 @@ export class mjswanRuntime {
       skin.bind(this.mujoco, this.mjModel);
       this.scene.add(skin.root);
       this.skin = skin;
-      this.debugVizSet.addSwitch(SKIN_SWITCH, this.skinSwitch);
-      if (skin.hiddenBodies.length) this.debugVizSet.addSwitch(ROBOT_SWITCH, this.robotSwitch);
+      this.drawRobotUnderSkin();
+      if (skin.hiddenBodies.length) this.debugVizSet.addSwitch(XRAY_SWITCH, this.xraySwitch);
     } catch (error) {
       console.warn('[mjswanRuntime] skin not loaded; the scene runs without it:', error);
     }
@@ -886,21 +879,20 @@ export class mjswanRuntime {
     const skin = this.skin;
     if (!skin) return;
     this.skin = null;
-    this.debugVizSet.removeSwitch(SKIN_SWITCH);
-    this.debugVizSet.removeSwitch(ROBOT_SWITCH);
+    this.debugVizSet.removeSwitch(XRAY_SWITCH);
     this.robotThrough.restore();
     this.drawRobot(skin.hiddenBodies, true);
     skin.dispose();
   }
 
-  /** With `hide_robot`, the robot is drawn only while its skin is not, or through it. */
+  /** With `hide_robot`, the robot is drawn under its skin only see-through. */
   private drawRobotUnderSkin(): void {
     const skin = this.skin;
     if (!skin) return;
-    const through = skin.shown && this.robotXray && !!this.bodies;
+    const through = this.xray && !!this.bodies;
     if (through) this.robotThrough.apply(skin.hiddenBodies.map((b) => this.bodies![b]));
     else this.robotThrough.restore();
-    this.drawRobot(skin.hiddenBodies, !skin.shown || through);
+    this.drawRobot(skin.hiddenBodies, through);
   }
 
   /**
