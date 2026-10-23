@@ -5,8 +5,10 @@
  */
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
+import { MToonMaterial } from '@pixiv/three-vrm';
 import type { MainModule, MjData, MjModel } from 'mujoco';
 import { Skin, geomBottom, type SkinConfig } from '../skin';
+import { asPainted } from '../skinModel';
 
 /** Bone, parent, offset from the parent in VRM 1.0's frame (facing +z, left at +x). */
 const SKELETON: Array<[string, string | null, [number, number, number]]> = [
@@ -47,6 +49,9 @@ function glb(json: object, bin?: Uint8Array): ArrayBuffer {
   }
   return out.buffer;
 }
+
+/** Linear `rgb` as a skin's colour is stored: sRGB, as painted. */
+const painted = (...rgb: [number, number, number]) => new THREE.Color(...rgb).convertLinearToSRGB().toArray();
 
 /** The VRM 1.0 file with one triangle drawn in MToon: lit (1, 0.8, 0.6), shade (0.5, 0.4, 0.3). */
 function toonFile(): ArrayBuffer {
@@ -357,8 +362,8 @@ describe('Skin', () => {
     const toon = await material({ shade: 0.5, toony: 0.7, shift: 0 });
     expect(toon.isMToonMaterial).toBe(true);
     // The test robot has no lights: nothing to divide by.
-    expect(toon.color.toArray()).toEqual([1, 0.8, 0.6].map((c) => expect.closeTo(c, 6)));
-    expect(toon.shadeColorFactor.toArray()).toEqual([0.5, 0.4, 0.3].map((c) => expect.closeTo(c, 6)));
+    expect(toon.color.toArray()).toEqual(painted(1, 0.8, 0.6).map((c) => expect.closeTo(c, 6)));
+    expect(toon.shadeColorFactor.toArray()).toEqual(painted(1, 0.8, 0.6).map((c) => expect.closeTo(c / 2, 6)));
     expect(toon.shadingToonyFactor).toBeCloseTo(0.7, 6);
   });
 
@@ -386,12 +391,33 @@ describe('Skin', () => {
     };
     const near = (a: number[], b: number[]) => a.forEach((x, i) => expect(x).toBeCloseTo(b[i], 5));
 
+    const [front, back] = [painted(1, 0.8, 0.6), painted(0.5, 0.4, 0.3)];
     const [color, shade] = await colours(lit(1.4));
-    near(color, [1 / 2.3, 0.8 / 2.3, 0.6 / 2.3]);
-    near(shade, [0.5 / 2.3, 0.4 / 2.3, 0.3 / 2.3]);
-    near((await colours(lit(1.4, 1.5)))[0], [1.5 / 2.3, 1.2 / 2.3, 0.9 / 2.3]);
+    near(color, front.map((c) => c / 2.3));
+    near(shade, back.map((c) => c / 2.3));
+    near((await colours(lit(1.4, 1.5)))[0], front.map((c) => (c * 1.5) / 2.3));
     // 0.1 + 0.6 + 0.3 = 1: nothing to take away.
-    near((await colours(lit(0.1)))[0], [1, 0.8, 0.6]);
+    near((await colours(lit(0.1)))[0], front);
+  });
+
+  it('stores a skin as painted: its sRGB textures read raw, its linear colours encoded', () => {
+    const texture = () => Object.assign(new THREE.Texture(), { colorSpace: THREE.SRGBColorSpace });
+    const grey = () => new THREE.Color(0.2, 0.2, 0.2);
+    const toon = new MToonMaterial({ map: texture(), color: grey(), shadeColorFactor: grey() });
+    const standard = new THREE.MeshStandardMaterial({ map: texture(), color: grey() });
+    // One material on two meshes, and twice on one: encoded once.
+    const scene = new THREE.Group().add(
+      new THREE.Mesh(undefined, toon),
+      new THREE.Mesh(undefined, standard),
+      new THREE.Mesh(undefined, [standard, standard]),
+    );
+    asPainted(scene);
+    const [encoded] = painted(0.2, 0.2, 0.2);
+    for (const material of [toon, standard]) {
+      expect(material.map!.colorSpace).toBe(THREE.NoColorSpace);
+      expect(material.color.r).toBeCloseTo(encoded, 6);
+    }
+    expect(toon.shadeColorFactor.r).toBeCloseTo(encoded, 6);
   });
 
   it('sits the hips at hips_offset in the body frame, turning with the robot', async () => {

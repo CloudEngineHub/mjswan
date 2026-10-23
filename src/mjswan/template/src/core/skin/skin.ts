@@ -177,15 +177,6 @@ export class Skin {
       for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) materials.add(material);
     });
     for (const material of materials) {
-      // Read raw, as MuJoCo's textures are: mjswan draws to a linear target unencoded, so a
-      // decoded texture would reach the screen darker than it was painted.
-      for (const value of Object.values(material)) {
-        const texture = value as THREE.Texture | null;
-        if (texture?.isTexture && texture.colorSpace === THREE.SRGBColorSpace) {
-          texture.colorSpace = THREE.NoColorSpace;
-          texture.needsUpdate = true;
-        }
-      }
       const toon = material as ToonMaterial;
       if (toon.isMToonMaterial) {
         this.toon.push({ material: toon, lit: toon.color.clone(), shade: toon.shadeColorFactor.clone() });

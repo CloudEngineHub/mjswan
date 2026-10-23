@@ -558,19 +558,15 @@ PUG_HUMANOID = {
 }
 
 #: Quaternius's flat colours as toon shading: the shaded side 60% of the lit one, the two
-#: blending softly, as the sources' do, lifted where MuJoCo's lights, shared out, leave
-#: them darker than the sources'.
-QUATERNIUS_LOOK = {
-    "material": mjswan.ToonShading(shade=0.6, toony=0.5),
-    "brightness": 1.25,
-}
+#: blending softly, as the sources' do.
+QUATERNIUS_TOON = mjswan.ToonShading(shade=0.6, toony=0.5)
 
 #: The Pug of Quaternius's Farm Animals.
 PUG = mjswan.SkinConfig(
     bones={bone: GO1_BONES[bone] for bone in PUG_HUMANOID},
     humanoid=PUG_HUMANOID,
     rest_pose="init_state",
-    **QUATERNIUS_LOOK,
+    material=QUATERNIUS_TOON,
     license="CC0-1.0",
     notice=(
         "Pug: from Farm Animals Animated by Quaternius (CC0 1.0), "
@@ -614,7 +610,7 @@ POLY_PIZZA = mjswan.SkinConfig(
     humanoid=POLY_PIZZA_HUMANOID,
     reparent=POLY_PIZZA_FEET,
     rest_pose="init_state",
-    **QUATERNIUS_LOOK,
+    material=QUATERNIUS_TOON,
     license="CC0-1.0",
 )
 

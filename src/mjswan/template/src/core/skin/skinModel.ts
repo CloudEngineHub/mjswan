@@ -40,7 +40,36 @@ export async function loadSkinModel(data: ArrayBuffer, config: SkinConfig): Prom
   const loader = new GLTFLoader();
   if (config.format === 'vrm') loader.register((parser) => new VRMLoaderPlugin(parser));
   const gltf = await loader.parseAsync(data, '');
+  asPainted(gltf.scene);
   return config.format === 'vrm' ? fromVrm(gltf) : fromGltf(gltf, config);
+}
+
+/**
+ * mjswan draws to a linear target unencoded, as MuJoCo does, so a colour reaches the
+ * screen as stored. glTF stores its colours linear and three.js decodes sRGB textures:
+ * left so, a skin is drawn darker than it was painted.
+ */
+export function asPainted(scene: THREE.Object3D): void {
+  const materials = new Set<THREE.Material>();
+  scene.traverse((object) => {
+    const { material } = object as THREE.Mesh;
+    for (const each of material ? [material].flat() : []) materials.add(each);
+  });
+  for (const material of materials) {
+    // MToon keeps its colours and textures in uniforms, behind getters.
+    const { uniforms } = material as THREE.ShaderMaterial;
+    const values: unknown[] = uniforms ? Object.values(uniforms).map((uniform) => uniform.value) : Object.values(material);
+    for (const value of values) {
+      const texture = value as THREE.Texture | null;
+      const colour = value as THREE.Color | null;
+      if (texture?.isTexture && texture.colorSpace === THREE.SRGBColorSpace) {
+        texture.colorSpace = THREE.NoColorSpace;
+        texture.needsUpdate = true;
+      } else if (colour?.isColor) {
+        colour.convertLinearToSRGB();
+      }
+    }
+  }
 }
 
 function fromVrm(gltf: GLTF): SkinModel {
