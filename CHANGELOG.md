@@ -36,7 +36,7 @@ shortcuts.
   sending one only its author or someone they licensed may use, and warns on one for
   non-commercial use. `mjswan skin map <file> --robot <...>` drafts the maps and writes
   a `SkinConfig` to check, and `mjswan info` lists each skin with its license. The
-  demo's Showcase puts eight VRM avatars on the G1 Spinkick, and four animals on the Go1
+  demo's Showcase puts six VRM avatars on the G1 Spinkick, and four animals on the Go1
   on rough terrain: Quaternius's Shiba Inu and fox from Poly Pizza, their feet hung
   from their legs by `reparent`, the Khronos sample Fox (both foxes' tails on
   springs) and a pug from Quaternius's Farm Animals. Every file is fetched from the

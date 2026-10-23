@@ -445,8 +445,6 @@ G1_SKINS = {
     "AvatarSample_A": "skins/pixiv/AvatarSample_A.vrm",
     "AvatarSample_B": "skins/pixiv/AvatarSample_B.vrm",
     "AvatarSample_C": "skins/pixiv/AvatarSample_C.vrm",
-    "Sendagaya Shino": "skins/pixiv/Sendagaya_Shino.vrm",
-    "Sendagaya Shibu": "skins/pixiv/Sendagaya_Shibu.vrm",
     "Crimsom": "skins/100avatars/100Avatars_001_Crimsom.vrm",
     "Cool Banana": "skins/100avatars/100Avatars_024_CoolBanana.vrm",
 }
