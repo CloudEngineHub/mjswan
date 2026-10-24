@@ -145,8 +145,7 @@ checkbox reads, and whether it is `enabled`:
 | `command:<term>` | The term name capitalized (`Twist`, `Motion`) | The term's `_debug_vis_impl`: a velocity command's arrows, a tracking command's ghost (or body frames in `viz.mode="frames"`), and any drawing a binding's `viz` declares. |
 | `sensor:<name>` | The sensor name | A raycast sensor with `debug_vis`: a sphere at each hit, plus the rays and surface normals when its `viz` asks for them. |
 | `reward:<term>` | The term name | mjlab's `upright` reward: the fitted terrain normal and the body's up axis, when it rates tilt against terrain sensors. |
-| `skin` | `Skin` | The skin on show, listed after the drawings while one is loaded. Off, or under **Enabled** off, the skin is hidden and a robot it replaces (`hide_robot`) is drawn again. Its state holds as `setSkin` swaps skins. |
-| `robot` | `Robot` | With a skin that replaces the robot (`hide_robot`): on, the robot is drawn see-through over the skin, to check how the two line up. Off by default. |
+| `xray` | `Xray` | The viewer's own switch, listed after the drawings while a skin hides the robot (`hide_robot`): on, the robot is drawn see-through over the skin, to check how the two line up. Off by default. **Enabled** off hides it as it does a drawing, never the skin itself. Its state holds as `setSkin` swaps skins. |
 
 `state.debugVisEnabled` is the folder's **Enabled**. mjlab's **All envs** has no
 counterpart: the browser runs one env. The bundled app draws the folder inside mjlab's

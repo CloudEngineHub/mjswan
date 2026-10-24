@@ -123,14 +123,14 @@ Each `*Handle` wraps a `*Config` dataclass — the handle is the fluent API, the
 - `control_dt` — seconds per control step (mjlab's `timestep * decimation`). The model carries only the physics timestep, and a wrong control rate raises nothing at playback, so the builder requires it. `add_scene_mjlab` fills it in from the task.
 - a **trace env** — tracing needs a live env to read shapes from and resolve `SceneEntityCfg` regexes against. `add_scene_mjlab` builds one at build time; a plain `add_scene` scene with traced terms needs `set_trace_env(build_single_entity_trace_env(spec_fn))` or the build raises.
 
-The package's `__init__.py` is the canonical public API. Re-exports cover: `Builder` / `MjswanApp`; the five `*Handle` and `*Config` pairs; mjlab-compatible MDP cfgs (`ObservationGroupCfg`, `ObservationTermCfg`, `ActionTermCfg`, `JointPositionActionCfg`, `JointEffortActionCfg`, `TerminationTermCfg`); command UI (`SliderConfig`/`ButtonConfig`/`CheckboxConfig` and their `Slider`/`Button`/`Checkbox` aliases, `SliderRangeConfig`, `CommandTermConfig`, `CommandBinding`, `CommandUiConfig`, `ui_command`, `velocity_command`); the `MdpBinding` umbrella type and the `register_observation` / `register_event` / `register_termination` / `register_command` hooks; and `build_single_entity_trace_env`.
+The package's `__init__.py` is the canonical public API. Re-exports cover: `Builder` / `MjswanApp`; the six `*Handle` and `*Config` pairs, with the skin's `SpringChain`, `SpringCollider` and `ToonShading`; mjlab-compatible MDP cfgs (`ObservationGroupCfg`, `ObservationTermCfg`, `ActionTermCfg`, `JointPositionActionCfg`, `JointEffortActionCfg`, `TerminationTermCfg`); command UI (`SliderConfig`/`ButtonConfig`/`CheckboxConfig` and their `Slider`/`Button`/`Checkbox` aliases, `SliderRangeConfig`, `CommandTermConfig`, `CommandBinding`, `CommandUiConfig`, `ui_command`, `velocity_command`); the `MdpBinding` umbrella type and the `register_observation` / `register_event` / `register_termination` / `register_command` hooks; and `build_single_entity_trace_env`.
 
 
 ## Key modules
 
 Five layers, and imports only point downward ([ADR 0008](./docs/adr/0008-package-layout.md)):
 `cli.py` → `app.py` / `cloud/` → the object model at the root → `build/` → `compile/` →
-`mjlab/` · `source/` → `managers/` · `envs/mdp/` · `document/` · `license/`. The root imports
+`mjlab/` · `source/` · `rig/` → `managers/` · `envs/mdp/` · `document/` · `license/`. The root imports
 the build pipeline and `compile/` lazily, and `mjlab/` imports mjlab only inside its
 functions, so `import mjswan` never costs a Node build and, in a core install, loads no
 source backend (`tests/test_core_install.py`). With the `mjlab` extra installed it does
@@ -159,7 +159,7 @@ Wraps a built `dist/` directory: the engine plus the expanded simulation documen
 The built tree (`manifest.json` over `<project-id>/<scene-id>/`) *is* the document; `.swn` is that tree as a ZIP (manifest first, `.mjz`/`.npz`/`.spz` stored, the rest deflated). `container.py`: `document_files()` lists it off the manifest, never off what else is on disk, so the SPA's `assets/` is never mistaken for data; `unpack_document()` confines entries to the target; `as_directory()` gives `publish` and `mjswan info` one code path for either form (ADR 0006 §8). `manifest.py`: `DOCUMENT_FORMAT`, `MANIFEST_NAME` and the slot defaults (`DEFAULT_IN_KEYS`, `DEFAULT_OUT_KEYS`, `RUNTIME_INPUT_SLOTS`): the format constants `build/` writes and `app`/`cloud` read. `ids.py`: `name2id()` is the lowercase-underscore slug every project / scene / MDP / policy id derives from, `unique_id` the scoped `_N` suffix, `assign_name` the rename every listed object takes (name and id together, with a RuntimeWarning), and `assign_id` the id-only form MDP ids take (ADR 0006 §4).
 
 ### `cloud/`: mjswan Cloud
-`publish.py`: `publish_dist()` takes a built directory or a `.swn` and uploads only *data* files (`.json`, `.mjz`, `.onnx`, `.npz`, `.ply`, `.spz`; 50 MB/file, 200 MB total, 64 files) via a presigned-upload protocol, never the compiled JS, since Cloud loads a pinned engine from its own CDN. It refuses a build with `uses_custom_js: true`, which Cloud cannot render. It also admits license files by name (`<project-id>/LICENSE` / `NOTICE`, `<project-id>/<scene-id>/LICENSE.<component>` / `NOTICE.<component>`; never the root `LICENSE`, the engine's) as `text/plain`, prints each with its identified license, warns for a restricted one and refuses one that forbids redistribution before any network call (ADR 0007 §3). `auth.py` is a `gh`-style loopback PKCE OAuth flow against Supabase's GitHub OAuth, persisting a rotating refresh token locally; `MJSWAN_TOKEN` bypasses it for CI. `transport.py` holds the user agent both send.
+`publish.py`: `publish_dist()` takes a built directory or a `.swn` and uploads only *data* files (`.json`, `.mjz`, `.onnx`, `.npz`, `.ply`, `.spz`, and the skins' `.vrm` / `.glb`; 50 MB/file, 100 MB total, 200 files) via a presigned-upload protocol, never the compiled JS, since Cloud loads a pinned engine from its own CDN. It refuses a build with `uses_custom_js: true`, which Cloud cannot render. Each skin is checked as Cloud checks it at commit (the file, its extension, and a VRM's license and meta, read by `license/vrm.py`), and a VRM only its author may use is sent only once `attest` says the publisher may. It also admits license files by name (`<project-id>/LICENSE` / `NOTICE`, `<project-id>/<scene-id>/LICENSE.<component>` / `NOTICE.<component>`; never the root `LICENSE`, the engine's) as `text/plain`, prints each with its identified license, warns for a restricted one and refuses one that forbids redistribution before any network call (ADR 0007 §3). `auth.py` is a `gh`-style loopback PKCE OAuth flow against Supabase's GitHub OAuth, persisting a rotating refresh token locally; `MJSWAN_TOKEN` bypasses it for CI. `transport.py` holds the user agent both send.
 
 ### `license/`: license files in the build
 `path.py` is the naming rule, `spdx.py` the identifier (first-line tag, else the standard texts' headers, else the recognised non-redistributable licenses, else `LicenseRef-custom`) and the tier table (`notice` / `restricted` / `blocked`), kept in step by hand with mjswan Cloud's `@mjswan/licenses`, plus the six generatable SPDX texts under `templates/`. `attribution.py`: `detect_attributions(spec_asset_directories(spec))` copies `LICENSE*` / `COPYING*` / `NOTICE*` found beside a model or its meshes (nearest level wins, two parents at most, de-duplicated by content); `KNOWN_ASSETS` generates a tagged text for models that ship no file (Unitree, ANYbotics). `Attribution` is what a scene carries and the build writes; `declare()` is what `publish` and `info` read back (ADR 0007).
@@ -260,8 +260,9 @@ The primary CLI is `mjswan` (Typer-based, defined in `cli.py:app`). Subcommands:
 | `mjswan serve <dist-dir \| document.swn>` | Serve a pre-built `dist/` directory, or a `.swn` document |
 | `mjswan new <name> [--template hello-world\|policy\|mjlab]` | Scaffold a new project from a template |
 | `mjswan demo [name]` | List the built-in demos, or run one (`main`, `simple`, `mujoco`) |
-| `mjswan info <dist-dir \| document.swn>` | Show a tree of projects/scenes/policies and asset sizes |
+| `mjswan info <dist-dir \| document.swn>` | Show a tree of projects/scenes/policies and asset sizes, each skin with its license |
 | `mjswan publish <dist-dir>` | Upload a built dist's data files to mjswan Cloud (rejects custom-TS builds) |
+| `mjswan skin map <file> [--robot <xml \| mjb \| task>]` | Draft a skin's bone maps against a robot, as a `SkinConfig` to check |
 | `mjswan login` / `whoami` / `logout` | mjswan Cloud session (loopback GitHub OAuth) |
 | `mjswan version` / `--version` | Print the installed mjswan version |
 
@@ -306,7 +307,7 @@ Rollout parity **replays** mjlab's states rather than co-simulating: mjlab integ
 
 Core: `mujoco==3.11.0`, `onnx>=1.20.0`, `nodeenv>=1.9.1`, `rich>=13.0.0`, `typer>=0.12.0`.
 Tooling pins (the `check` extra): `ruff==0.16.0` and `ty==0.0.77` exactly, `pyright` floored.
-Extras, one per asset source plus tooling: `wandb`, `hf` (`huggingface-hub`), `mjlab` (`mjlab==1.6.0` + `torch>=2.9.1`), `check` (ruff/ty/pyright), `dev` (`check` + every source + pytest/pre-commit), `examples` (the sources + `onnxruntime`).
+Extras, one per asset source plus tooling: `wandb`, `hf` (`huggingface-hub`), `mjlab` (`mjlab==1.6.0` + `torch>=2.9.1`), `check` (ruff/ty/pyright), `dev` (`check` + every source + pytest/pre-commit), `demo` (`hf` + `mjlab` + `wbc-mjlab`: what `examples/demo/main.py` imports), `examples` (`wandb` + `demo` + `onnxruntime`).
 
 **`mjlab` + `torch` are build-time requirements for any policy carrying traced MDP terms** — tracing runs `torch.onnx.export` against a live mjlab env. Neither ships to the browser, and a model-only scene needs neither. `onnxruntime` (not `onnxruntime-web`) is the parity harness's runtime.
 
@@ -319,7 +320,7 @@ the `h5py` override beside it are gone and the pytest matrix runs 3.13.
 
 ## Deployment
 
-The demo app is built by `examples/demo/main.py` and deployed to GitHub Pages via the `deploy.yml` workflow on every push to `main` that touches relevant paths. It installs only the `hf` and `mjlab` extras and needs no credentials: models and checkpoints come from the public Hub repository `ttktjmt/mjswan`, and the comment beside `HF_REPO` in `main.py` lists how to mirror a task's W&B checkpoints there. The `MJSWAN_BASE_PATH` and `MJSWAN_NO_LAUNCH` env vars, which `main.py` reads, control the build. Cloudflare Pages builds a preview of the same demo for every pull request. The GentleHumanoid and MuscleMimic demos are deployed to Cloudflare Pages too; their sources left this repository with `examples/mjlab/` and `examples/demo/gentle_humanoid/`. `mjswan publish` is the alternative to hosting a `dist/` at all.
+The demo app is built by `examples/demo/main.py` and deployed to GitHub Pages via the `deploy.yml` workflow on every push to `main` that touches relevant paths. It installs only the `demo` extra and needs no credentials: models, checkpoints and skins come from the public Hub repository `ttktjmt/mjswan` (the comment beside `HF_REPO` in `main.py` lists how to mirror a task's W&B checkpoints there), and WBC-Mjlab's policy and clips from its deploy repository on GitHub at a pinned commit. The `MJSWAN_BASE_PATH` and `MJSWAN_NO_LAUNCH` env vars, which `main.py` reads, control the build. Cloudflare Pages builds a preview of the same demo for every pull request. The GentleHumanoid and MuscleMimic demos are deployed to Cloudflare Pages too; their sources left this repository with `examples/mjlab/` and `examples/demo/gentle_humanoid/`. `mjswan publish` is the alternative to hosting a `dist/` at all.
 
 
 ## Design records

@@ -525,7 +525,7 @@ Returns `self` for chaining.
 def add_skin(name: str, config: SkinConfig) -> SkinHandle
 ```
 
-Add a rigged character (a `.vrm`, or a `.glb`), posed every frame from the robot's bodies, to the scene's **Skin** menu (ADR 0010). The scene's physics, collision and policy are unchanged: the skin's spring bones (hair, a tail) are simulated by MuJoCo in a model of their own, which the robot never touches. A scene may carry several skins; the viewer shows one at a time, the first added by default, and the menu can clear it. `name` is shown in the menu; its id, `name2id(name)`, is unique within the scene (a clash is suffixed, with a warning) and is the `?skin=` value that opens the scene on it.
+Add a rigged character (a `.vrm`, or a `.glb`), posed every frame from the robot's bodies, to the scene's **Skin** menu (ADR 0010). The scene's physics, collision and policy are unchanged: the skin's spring bones (hair, a tail) swing by three-vrm, or with `mujoco_springs` in a MuJoCo model of their own, and the scene's model sees neither. A scene may carry several skins; the viewer shows one at a time, the first added by default, and the menu can clear it. `name` is shown in the menu; its id, `name2id(name)`, is unique within the scene (a clash is suffixed, with a warning) and is the `?skin=` value that opens the scene on it.
 
 The skin is resolved here, so a mistake surfaces at once: a URL `source` is downloaded, the file is checked, every bone is found in it and every body in the scene's model, and its rest offsets, root height and hips placement are measured against the robot at `rest_pose`. A missing file raises `FileNotFoundError`, a URL that does not download `urllib.error.URLError`, and anything that does not fit `ValueError`: a `.gltf` (export it as glTF Binary), a file pointing outside itself, a compressed one (Draco, meshopt, KTX2/Basis: export it again without compression), a bone, node, body, joint or keyframe that is not there. The build copies the file unmodified to `assets/<skin-id>.vrm` or `.glb`, so a VRM's embedded license ships as its author wrote it; a `.glb`'s `license` and `notice` are written beside the scene as `LICENSE.skin-<skin-id>` and `NOTICE.skin-<skin-id>`. With `hide_robot`, Debug Viz lists an **Xray** switch that draws the robot see-through over the skin, and `?xray=1` opens with it on; Debug Viz's **Enabled** hides it, never the skin. See [`SkinConfig`](#skinconfig).
 
@@ -904,6 +904,7 @@ class mjswan.SkinConfig(
     source: str | None = None,
     humanoid: Mapping[str, str] | str | None = None,
     limbs: Sequence[tuple[str, str, str]] = (),
+    reparent: Mapping[str, str] = {},
     scale: float = 1.0,
     facing: Literal["+z", "-z", "+x", "-x"] = "+z",
     springs: Sequence[SpringChain] = (),
