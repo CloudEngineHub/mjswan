@@ -14,6 +14,34 @@ shortcuts.
 
 ### Added
 
+- **Skins: a rigged character drawn over the robot** (ADR 0010, **document format 7**).
+  `SceneHandle.add_skin(name, mjswan.SkinConfig(...))` adds a `.vrm` or a `.glb` to the
+  scene's **Skin** menu, posed every frame from the robot's bodies while physics,
+  collision and the policy stay the robot's; `?skin=<id>` opens on one, `?skin=` on
+  none. The file is bundled as received, so a VRM's license travels with it; a `.gltf`,
+  a file pointing outside itself, or a compressed one (Draco, meshopt, KTX2/Basis) is
+  refused with how to export it again. A VRM names its own bones; a `.glb` is mapped by
+  `humanoid` (VRM bone to node name, or the `"mixamo"` preset; a four-legged animal's
+  front legs as arms) or by node name with `limbs`, and `reparent` hangs a node from
+  another, for feet IK controls carry. `rest_pose` (a keyframe or a few joints) is the
+  robot's pose while the character rests; the build measures the rest offsets, root
+  height and hips placement from it. `retarget="hybrid"`, the default, turns each bone
+  as its body has, then bends each limb so the hand or foot lands on the robot's. A
+  `.glb` takes `scale`, `facing`, `springs` (`SpringChain`, `SpringCollider`), toon
+  `material` (`ToonShading`), and `license` / `notice` as a component's. Spring bones
+  swing by three-vrm, or with `mujoco_springs` in a MuJoCo model of their own. The robot
+  is undrawn by default; Debug Viz's **Xray** switch (`?xray=1`) draws it see-through
+  over the character. `mjswan publish` refuses a VRM whose license forbids
+  redistribution, asks before sending one only its author or someone they licensed may
+  use, and warns on one for non-commercial use. `mjswan skin map <file> --robot <...>`
+  drafts the maps as a `SkinConfig` to check, and `mjswan info` lists each skin with its
+  license. The demo's Showcase gains **Humanoid skins** (six VRM avatars on WBC-Mjlab's
+  G1, tracking any of its clips) and **Quadruped skins** (three of Quaternius's animals
+  on the Go1 on rough terrain), every skin fetched from the Hub's `skins/`.
+- **`ProjectHandle.add_scene_mjlab(name=...)`** names the scene other than by its task
+  id; the scene's id, and so its `?scene=` value, follow the name.
+- **A `demo` extra**: what `examples/demo/main.py` imports (`hf`, `mjlab` and
+  `wbc-mjlab`, which registers WBC-Mjlab's tasks).
 - **A task's own action class runs in the browser** (ADR 0009, **document format 6**). An
   mjlab action class mjswan has no class of its own for, such as in-hand rotation's
   `JointPositionDeltaAction` or luwu's `HeldJointPositionAction`, was skipped with a
@@ -804,6 +832,11 @@ shortcuts.
   the registries held `ts_src` terms described the design they replaced.
 
 ### Fixed
+
+- **The npm package, the wheel and every build carry the licenses of the packages the
+  engine bundles**, in `THIRD_PARTY_LICENSES.md` beside it. Minifying had dropped the
+  notices in their code (three, three-vrm, ONNX Runtime Web, MuJoCo, JSZip, React,
+  Mantine and the rest), and no file carried them instead.
 
 - **A tracking task's `ReferenceJointPositionActionCfg` holds the default pose until its
   clip loads.** It targeted 0 rad on every joint.
