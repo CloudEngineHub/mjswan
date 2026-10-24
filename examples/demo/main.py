@@ -454,12 +454,12 @@ G1_SKINS = {
     "Cool Banana": "skins/100avatars/100Avatars_024_CoolBanana.vrm",
 }
 
-# 100Avatars' VRMs and release notes say CC0, but its repository's license file is
-# CC BY 4.0, so the scene credits Polygonal Mind as that asks.
+# 100Avatars dedicates each VRM to CC0, in its meta and release notes; the CC BY 4.0
+# file at its repository's root came with the 2020 release, before the VRMs. The credit
+# is a courtesy.
 HUNDRED_AVATARS_NOTICE = (
-    "Crimsom and Cool Banana: from 100Avatars by Polygonal Mind, "
-    "https://github.com/PolygonalMind/100Avatars (CC BY 4.0, "
-    "https://creativecommons.org/licenses/by/4.0/)\n"
+    "Crimsom and Cool Banana: from 100Avatars by Polygonal Mind (CC0 1.0), "
+    "https://github.com/PolygonalMind/100Avatars\n"
 )
 
 GO1_TASK = "Mjlab-Velocity-Rough-Unitree-Go1"
@@ -482,64 +482,6 @@ GO1_BONES = {
         )
     },
 }
-
-#: VRM humanoid bone -> the Fox's node. Its front legs are already named as arms.
-FOX_HUMANOID = {
-    "hips": "b_Hip_01",
-    "spine": "b_Spine01_02",
-    "chest": "b_Spine02_03",
-    "neck": "b_Neck_04",
-    "head": "b_Head_05",
-    "leftUpperArm": "b_LeftUpperArm_09",
-    "leftLowerArm": "b_LeftForeArm_010",
-    "leftHand": "b_LeftHand_011",
-    "rightUpperArm": "b_RightUpperArm_06",
-    "rightLowerArm": "b_RightForeArm_07",
-    "rightHand": "b_RightHand_08",
-    "leftUpperLeg": "b_LeftLeg01_015",
-    "leftLowerLeg": "b_LeftLeg02_016",
-    "leftFoot": "b_LeftFoot01_017",
-    "leftToes": "b_LeftFoot02_018",
-    "rightUpperLeg": "b_RightLeg01_019",
-    "rightLowerLeg": "b_RightLeg02_020",
-    "rightFoot": "b_RightFoot01_021",
-    "rightToes": "b_RightFoot02_022",
-}
-
-#: The Khronos glTF sample Fox, its tail a spring.
-FOX = mjswan.SkinConfig(
-    bones=GO1_BONES,
-    humanoid=FOX_HUMANOID,
-    # Its shoulders and hips then sit 0.37 m apart, as the Go1's front and rear hips do.
-    scale=0.0078,
-    rest_pose="init_state",
-    springs=[
-        mjswan.SpringChain(
-            root="b_Tail01_012",
-            stiffness=1.5,
-            drag=0.3,
-            gravity=0.1,
-            hit_radius=0.03,
-            tip=0.16,
-            # The pelvis and the hind thighs, which the tail must not swing through.
-            colliders=(
-                mjswan.SpringCollider("b_Hip_01", radius=0.06),
-                *(
-                    mjswan.SpringCollider(thigh, radius=0.035, tail=(0.147, 0.0, 0.0))
-                    for thigh in ("b_LeftLeg01_015", "b_RightLeg01_019")
-                ),
-            ),
-        )
-    ],
-    # The rig and animation's CC BY 4.0 asks for this credit wherever the Fox is shown.
-    license="CC-BY-4.0",
-    notice=(
-        "Fox: low-poly model by PixelMannen (CC0 1.0), rigged and animated by "
-        "@tomkranis (CC BY 4.0, https://creativecommons.org/licenses/by/4.0/), glTF "
-        "conversion by @AsoboStudio and @scurest. "
-        "https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/Fox\n"
-    ),
-)
 
 #: VRM humanoid bone -> the Pug's bone. Its hips bone is mid-body, as the Go1's trunk
 #: origin is; it has no toes.
@@ -650,9 +592,8 @@ QUATERNIUS_FOX = replace(
 #: their front legs named as arms, resting as the Go1 stands in its keyframe.
 GO1_SKINS = {
     "Shiba Inu": ("skins/quaternius/shiba_inu.glb", SHIBA_INU),
-    "Fox (Quaternius)": ("skins/quaternius/fox.glb", QUATERNIUS_FOX),
+    "Fox": ("skins/quaternius/fox.glb", QUATERNIUS_FOX),
     "Pug": ("skins/quaternius/pug.glb", PUG),
-    "Fox (Khronos)": ("skins/khronos/Fox.glb", FOX),
 }
 
 
@@ -720,12 +661,12 @@ def _add_humanoid_skins(project: mjswan.ProjectHandle) -> None:
     for name, path in G1_SKINS.items():
         scene.add_skin(name, replace(G1_VRM, source=_skin_file(path)))
     scene.add_attribution(
-        "100avatars", license="CC-BY-4.0", notice=HUNDRED_AVATARS_NOTICE
+        "100avatars", license="CC0-1.0", notice=HUNDRED_AVATARS_NOTICE
     )
 
 
 def _add_quadruped_skins(project: mjswan.ProjectHandle, repo_onnx: list[str]) -> None:
-    """The Go1 on rough terrain under four animals, on its final checkpoint alone."""
+    """The Go1 on rough terrain under three animals, on its final checkpoint alone."""
     checkpoints = _checkpoints_for(GO1_TASK, repo_onnx)[-1:]
     scene = _add_mjlab_task(project, GO1_TASK, checkpoints, name="Quadruped skins")
     for name, (path, config) in GO1_SKINS.items():
