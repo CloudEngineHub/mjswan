@@ -1385,6 +1385,7 @@ dist/
 ├── manifest.json            ← the document's one descriptor: format, version, projects
 ├── assets/                  ← compiled JS / CSS / WASM — the engine, never uploaded
 ├── LICENSE                  ← the engine's Apache-2.0, never the work's; never uploaded
+├── THIRD_PARTY_LICENSES.md  ← the licenses of the packages the engine bundles; never uploaded
 ├── _headers                 ← only when Builder(mt=True)
 ├── coi-serviceworker.js     ← only when Builder(mt=True)
 └── <project-id>/            ← name2id(project name), e.g. my_robots/

@@ -840,6 +840,11 @@ shortcuts.
 
 ### Fixed
 
+- **The npm package, the wheel and every build carry the licenses of the packages the
+  engine bundles**, in `THIRD_PARTY_LICENSES.md` beside it. Minifying had dropped the
+  notices in their code (three, three-vrm, ONNX Runtime Web, MuJoCo, JSZip, React,
+  Mantine and the rest), and no file carried them instead.
+
 - **A tracking task's `ReferenceJointPositionActionCfg` holds the default pose until its
   clip loads.** It targeted 0 rad on every joint.
 

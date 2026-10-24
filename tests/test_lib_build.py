@@ -351,6 +351,20 @@ class TestDistDeduplication:
         assert not stray, f"WASM emitted outside dist/assets/: {stray}"
 
 
+@pytest.mark.slow
+class TestThirdPartyLicenses:
+    """Minify drops the notices bundled packages carry, so `dist/` carries them in a file.
+
+    The build itself fails when a bundled package has no license text (vite.config.ts).
+    """
+
+    def test_bundled_packages_keep_their_notices(self, full_dist: Path):
+        text = (full_dist / "THIRD_PARTY_LICENSES.md").read_text()
+        assert "pixiv Inc." in text  # @pixiv/three-vrm's own LICENSE
+        assert "Copyright (c) Microsoft Corporation" in text  # licenses/onnxruntime-web
+        assert not (full_dist / ".vite").exists()
+
+
 @pytest.fixture(scope="class")
 def manifest_dist() -> Path:
     """Build the `mjswan/manifest` CDN bundle once for the whole test class."""

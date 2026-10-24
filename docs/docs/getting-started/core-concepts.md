@@ -357,6 +357,7 @@ dist/
 ├── _headers                 ← only when Builder(mt=True)
 ├── coi-serviceworker.js     ← only when Builder(mt=True)
 ├── LICENSE                  ← the engine's Apache-2.0; never the work's
+├── THIRD_PARTY_LICENSES.md  ← the licenses of the packages the engine bundles
 └── <project-id>/            ← name2id(project name), e.g. my_robots/
     ├── LICENSE                ← the work's license, when declared (see Licenses)
     ├── NOTICE                 ← the work's notice, when declared

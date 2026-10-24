@@ -88,8 +88,61 @@ function gtmPlugin(gtmId: string | undefined) {
   };
 }
 
+// What `build.license` writes, for thirdPartyLicensesPlugin to read and drop.
+const LICENSES_JSON = '.vite/licenses.json';
+
+interface BundledLicense {
+  name: string;
+  version: string;
+  identifier?: string;
+  text?: string;
+}
+
+// Minify drops the notices bundled packages carry, so dist/ carries them in one file. A
+// package that publishes no LICENSE takes its text from licenses/<package>/LICENSE.
+function thirdPartyLicensesPlugin(): Plugin {
+  return {
+    name: 'mjswan-third-party-licenses',
+    apply: 'build',
+    generateBundle: {
+      // vite:license emits LICENSES_JSON from its own generateBundle.
+      order: 'post',
+      handler(_options, bundle) {
+        const json = bundle[LICENSES_JSON];
+        if (json?.type !== 'asset') this.error(`build.license emitted no ${LICENSES_JSON}`);
+        delete bundle[LICENSES_JSON];
+        const source =
+          typeof json.source === 'string' ? json.source : Buffer.from(json.source).toString('utf-8');
+        const missing: string[] = [];
+        const sections = (JSON.parse(source) as BundledLicense[]).map(
+          ({ name, version, identifier, text }) => {
+            const own = path.resolve(__dirname, 'licenses', name, 'LICENSE');
+            text ??= fs.existsSync(own) ? fs.readFileSync(own, 'utf-8').trim() : undefined;
+            if (!text) missing.push(name);
+            return `## ${name} ${version}${identifier ? ` (${identifier})` : ''}\n\n${text}\n`;
+          }
+        );
+        if (missing.length) {
+          this.error(`No license text for ${missing.join(', ')}: add it as licenses/<package>/LICENSE`);
+        }
+        this.emitFile({
+          type: 'asset',
+          fileName: 'THIRD_PARTY_LICENSES.md',
+          source: `# Third-party licenses\n\nThe packages bundled into this build, with their licenses.\n\n${sections.join('\n')}`,
+        });
+      },
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react(), vanillaExtractPlugin(), mtPlugin(isMt), gtmPlugin(process.env.MJSWAN_GTM_ID)],
+  plugins: [
+    react(),
+    vanillaExtractPlugin(),
+    mtPlugin(isMt),
+    gtmPlugin(process.env.MJSWAN_GTM_ID),
+    thirdPartyLicensesPlugin(),
+  ],
   base: process.env.MJSWAN_BASE_PATH || '/',
   define: {
     __APP_VERSION__: JSON.stringify(getVersionFromPython()),
@@ -119,6 +172,7 @@ export default defineConfig({
     assetsDir: 'assets',
     sourcemap: false,
     chunkSizeWarningLimit: 11000,
+    license: { fileName: LICENSES_JSON },
     rollupOptions: {
       input: path.resolve(__dirname, 'index.html'),
       output: { minify },

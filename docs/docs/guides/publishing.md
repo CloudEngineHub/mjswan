@@ -25,7 +25,7 @@ simulation with its own pinned copy of the engine, loaded from a CDN.
 | traced graphs (`mdp/<mdp-id>/{obs,term,command,event}/`) | |
 | `assets/<motion-id>.npz`, `assets/<splat-id>.spz`, `.ply` colliders | |
 | `assets/<skin-id>.vrm`, `assets/<skin-id>.glb` | |
-| `<project-id>/LICENSE`, `NOTICE` and each scene's `LICENSE.<component>`, `NOTICE.<component>` (64 KB each at most) | the root `LICENSE`, the engine's own |
+| `<project-id>/LICENSE`, `NOTICE` and each scene's `LICENSE.<component>`, `NOTICE.<component>` (64 KB each at most) | the root `LICENSE` and `THIRD_PARTY_LICENSES.md`, the engine's own |
 
 What travels is exactly the [simulation document](../getting-started/core-concepts.md#output-structure),
 so a `.swn` written by `app.save_document()` publishes the same file set as the directory
