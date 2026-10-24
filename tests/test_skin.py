@@ -6,6 +6,7 @@ Layer: L1 (no Node build, no network; a URL source is faked).
 
 from __future__ import annotations
 
+import io
 import json
 import math
 from dataclasses import replace
@@ -378,6 +379,24 @@ class TestResolve:
         skin = resolve_skin(SkinConfig(bones=BONES, source=url), robot)
         assert fetched == [url]
         assert skin.config.source == str(vrm)
+
+    def test_a_download_times_out_and_goes_at_exit(self, monkeypatch):
+        from mjswan.source import url
+
+        timeouts, at_exit = [], []
+        monkeypatch.setattr(
+            url.urllib.request,
+            "urlopen",
+            lambda _, timeout: timeouts.append(timeout) or io.BytesIO(b"glTF"),
+        )
+        monkeypatch.setattr(
+            url.atexit, "register", lambda *call, **kw: at_exit.append((call, kw))
+        )
+        path = url.fetch_file("https://example.com/skins/fox.glb")
+        assert (path.name, path.read_bytes(), timeouts) == ("fox.glb", b"glTF", [60])
+        (remove, *args), kwargs = at_exit[0]
+        remove(*args, **kwargs)
+        assert not path.parent.exists()
 
     def test_a_body_the_model_lacks(self, robot, vrm):
         with pytest.raises(ValueError, match="head_link"):
