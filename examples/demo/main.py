@@ -442,7 +442,9 @@ G1_T_POSE = {
 }
 
 #: Every VRM rests in a T-pose, so one map and one rest pose fit them all.
-G1_VRM = mjswan.SkinConfig(bones=G1_BONES, rest_pose=G1_T_POSE, retarget="rotation")
+G1_VRM = mjswan.SkinConfig(
+    bones=G1_BONES, rest_pose=G1_T_POSE, retarget="rotation", mujoco_springs=False
+)
 
 #: The humanoid's skins, in the Skin menu's order; the first is shown on load.
 G1_SKINS = {
