@@ -988,7 +988,7 @@ class mjswan.ToonShading(shade: float = 0.6, toony: float = 0.5, shift: float = 
 
 A `.glb`'s PBR materials drawn as MToon: `shade` is the shaded side's share of the lit colour, `toony` how sharply the two meet (0 soft, 1 hard), `shift` where they meet.
 
-The demo's Showcase (`examples/demo/main.py`) has two skins scenes: **Humanoid skins**, VRM avatars on WBC-Mjlab's G1 tracking any of its clips, and **Quadruped skins**, three of Quaternius's `.glb` animals on the Go1: the Shiba Inu and the fox from Poly Pizza, their feet hung from their legs by `reparent`, and a pug in toon shading. Their files are on the Hugging Face Hub, in `skins/` of [`ttktjmt/mjswan`](https://huggingface.co/ttktjmt/mjswan), each with its license. `mjswan skin map` drafts a config for a new file; see the [CLI](../getting-started/cli.md).
+The demo's Showcase (`examples/demo/main.py`) has two skins scenes: **Humanoid skins**, VRM avatars on WBC-Mjlab's G1 tracking any of its clips, their bones only turned (`retarget="rotation"`), and **Quadruped skins**, three of Quaternius's `.glb` animals on the Go1: the Shiba Inu and the fox from Poly Pizza, their feet hung from their legs by `reparent`, and a pug in toon shading. Their files are on the Hugging Face Hub, in `skins/` of [`ttktjmt/mjswan`](https://huggingface.co/ttktjmt/mjswan), each with its license. `mjswan skin map` drafts a config for a new file; see the [CLI](../getting-started/cli.md).
 
 ---
 
