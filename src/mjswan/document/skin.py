@@ -57,6 +57,8 @@ class SkinFile:
     """A VRM's ``meta`` as written. Empty for a glTF."""
     joints: frozenset[int] = frozenset()
     """Its skeleton: the nodes its skins deform the meshes by."""
+    json_bytes: int = 0
+    """The length of its JSON chunk, which mjswan Cloud bounds."""
 
     def node(self, name: str) -> int:
         """The one node called *name*; the error names the closest ones."""
@@ -106,18 +108,30 @@ def read_skin_file(path: Path) -> SkinFile:
     """
     with path.open("rb") as f:
         header = f.read(20)
-        if header[:4] != _MAGIC:
+        if len(header) < 20 or header[:4] != _MAGIC:
             raise ValueError(_not_binary(path, header))
-        version, _, length, kind = struct.unpack_from("<IIII", header, 4)
+        version, declared, length, kind = struct.unpack_from("<IIII", header, 4)
         if version != 2 or kind != _JSON_CHUNK:
             raise ValueError(f"{path.name} is not a glTF 2.0 binary file.")
+        if declared > path.stat().st_size or 20 + length > declared:
+            raise ValueError(
+                f"{path.name} is truncated: its header describes more bytes than it "
+                "holds."
+            )
         gltf = json.loads(f.read(length))
+    try:
+        return _skin_file(path, gltf, length)
+    except (AttributeError, IndexError, KeyError, TypeError, RecursionError) as exc:
+        # JSON that parses but is not shaped as glTF.
+        raise ValueError(f"{path.name} is not a valid glTF ({exc!r}).") from None
 
+
+def _skin_file(path: Path, gltf: dict[str, Any], json_bytes: int) -> SkinFile:
     outside = [
         f"{kind}[{i}]"
         for kind in ("buffers", "images")
         for i, item in enumerate(gltf.get(kind, []))
-        if "uri" in item and not str(item["uri"]).startswith("data:")
+        if "uri" in item and not str(item["uri"]).lower().startswith("data:")
     ]
     if outside:
         raise ValueError(
@@ -159,41 +173,48 @@ def read_skin_file(path: Path) -> SkinFile:
     )
 
     extensions = gltf.get("extensions", {})
+    version: Literal["0", "1"]
     if "VRMC_vrm" in extensions:
-        vrm = extensions["VRMC_vrm"]
+        vrm, version = extensions["VRMC_vrm"], "1"
         bones = {
             b: v["node"]
             for b, v in vrm.get("humanoid", {}).get("humanBones", {}).items()
         }
-        return SkinFile(
-            path,
-            "vrm",
-            "1",
-            names,
-            tuple(parents),
-            rest,
-            bones,
-            vrm.get("meta", {}),
-            joints,
-        )
-    if "VRM" in extensions:
-        vrm = extensions["VRM"]
+    elif "VRM" in extensions:
+        vrm, version = extensions["VRM"], "0"
         bones = {
             _VRM0_THUMBS.get(str(b["bone"]), str(b["bone"])): int(b["node"])
             for b in vrm.get("humanoid", {}).get("humanBones", [])
         }
+    else:
         return SkinFile(
             path,
-            "vrm",
-            "0",
+            "gltf",
+            None,
             names,
             tuple(parents),
             rest,
-            bones,
-            vrm.get("meta", {}),
-            joints,
+            joints=joints,
+            json_bytes=json_bytes,
         )
-    return SkinFile(path, "gltf", None, names, tuple(parents), rest, joints=joints)
+    absent = sorted(bone for bone, node in bones.items() if not 0 <= node < len(nodes))
+    if absent:
+        raise ValueError(
+            f"{path.name}'s humanoid puts {', '.join(absent)} on nodes it does not have."
+        )
+    meta = vrm.get("meta")
+    return SkinFile(
+        path,
+        "vrm",
+        version,
+        names,
+        tuple(parents),
+        rest,
+        bones,
+        meta if isinstance(meta, dict) else {},
+        joints,
+        json_bytes=json_bytes,
+    )
 
 
 #: VRM 0.x's thumb bones -> VRM 1.0's, as three-vrm maps them.

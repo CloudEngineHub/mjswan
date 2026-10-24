@@ -44,31 +44,42 @@ class VrmLicense:
         return self.avatar_use != "everyone"
 
 
+def _text(value: Any) -> str | None:
+    """A meta string as mjswan Cloud reads it: anything but a non-empty string is unset."""
+    return value if isinstance(value, str) and value else None
+
+
 def vrm_license(meta: Mapping[str, Any], version: Literal["0", "1"]) -> VrmLicense:
     if version == "1":
+        authors = meta.get("authors")
         return VrmLicense(
             version="1",
-            name=meta.get("name"),
-            authors=tuple(meta.get("authors") or ()),
-            license=meta.get("licenseUrl"),
-            other_license_url=meta.get("otherLicenseUrl"),
+            name=_text(meta.get("name")),
+            authors=tuple(filter(_text, authors)) if isinstance(authors, list) else (),
+            license=_text(meta.get("licenseUrl")),
+            other_license_url=_text(meta.get("otherLicenseUrl")),
             redistribution=meta.get("allowRedistribution") is True,
-            commercial=meta.get("commercialUsage", "personalNonProfit")
+            commercial=(_text(meta.get("commercialUsage")) or "personalNonProfit")
             != "personalNonProfit",
-            avatar_use=_AVATAR_USE_1.get(meta.get("avatarPermission", ""), "author"),
+            avatar_use=_AVATAR_USE_1.get(
+                _text(meta.get("avatarPermission")) or "", "author"
+            ),
             credit_required=meta.get("creditNotation") != "unnecessary",
         )
-    name = meta.get("licenseName")
+    name = _text(meta.get("licenseName"))
+    author = _text(meta.get("author"))
     return VrmLicense(
         version="0",
-        name=meta.get("title"),
-        authors=(meta["author"],) if meta.get("author") else (),
+        name=_text(meta.get("title")),
+        authors=(author,) if author else (),
         license=name,
-        other_license_url=meta.get("otherLicenseUrl"),
+        other_license_url=_text(meta.get("otherLicenseUrl")),
         redistribution=name != "Redistribution_Prohibited",
         commercial=meta.get("commercialUssageName") == "Allow"
         and "NC" not in (name or ""),
-        avatar_use=_AVATAR_USE_0.get(meta.get("allowedUserName", ""), "author"),
+        avatar_use=_AVATAR_USE_0.get(
+            _text(meta.get("allowedUserName")) or "", "author"
+        ),
         credit_required=(name or "").startswith("CC_BY") or name == "Other",
     )
 

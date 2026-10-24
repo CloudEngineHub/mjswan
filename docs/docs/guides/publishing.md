@@ -52,9 +52,12 @@ build.
 
 A skin is uploaded as it was bundled, and checked the way Cloud checks it at commit:
 
-- A file the engine cannot draw is refused locally: anything but one binary glTF with
-  everything embedded, or one compressed with Draco, meshopt or KTX2/Basis. Export it
-  again as glTF Binary, without compression.
+- A file the engine cannot draw is refused locally: anything but one whole binary glTF
+  with everything embedded, or one compressed with Draco, meshopt or KTX2/Basis. Export
+  it again as glTF Binary, without compression.
+- So is one Cloud does not take as it is: a `.vrm` with no VRM extension or a `.glb` with
+  one, a glTF JSON chunk over 8 MB, or a VRM meta longer than Cloud stores (256
+  characters a name, 32 authors, 2048 characters a URL).
 - A VRM's license is read from the file itself. One that forbids redistribution is
   refused: publishing hosts it for anyone to download.
 - A VRM only its author, or someone they licensed, may use as an avatar is sent only on

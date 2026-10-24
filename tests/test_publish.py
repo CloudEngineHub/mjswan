@@ -879,6 +879,30 @@ class TestSkins:
         with pytest.raises(PublishError, match="Export it again without compression"):
             plan_publish(dist)
 
+    def test_a_skin_named_as_the_other_format_is_refused(self, tmp_path: Path):
+        import skin_fixture as fx
+
+        plain = _make_dist(tmp_path / "plain")
+        fx.write_glb(plain / self.SKIN, fx.skeleton_gltf())
+        with pytest.raises(PublishError, match="no VRM extension"):
+            plan_publish(plain)
+        vrm = _make_dist(tmp_path / "vrm")
+        fx.write_vrm(vrm / "demo/humanoid/assets/a.glb")
+        with pytest.raises(PublishError, match=r"publish it as \.vrm"):
+            plan_publish(vrm)
+
+    def test_what_mjswan_cloud_does_not_store_is_refused(self, tmp_path, monkeypatch):
+        for case, meta in (
+            ("name", {"name": "x" * 257}),
+            ("authors", {"authors": [f"a{i}" for i in range(33)]}),
+            ("url", {"otherLicenseUrl": "https://example.com/" + "x" * 2048}),
+        ):
+            with pytest.raises(PublishError, match="longer than mjswan Cloud stores"):
+                plan_publish(self._dist(tmp_path / case, **meta))
+        monkeypatch.setattr("mjswan.cloud.publish.GLB_JSON_MAX_BYTES", 64)
+        with pytest.raises(PublishError, match="glTF JSON chunk; mjswan Cloud"):
+            plan_publish(self._dist(tmp_path / "json"))
+
     def test_a_non_commercial_vrm_warns_and_publishes(self, tmp_path: Path):
         dist = self._dist(tmp_path, commercialUsage="personalNonProfit")
         seen: list[str] = []

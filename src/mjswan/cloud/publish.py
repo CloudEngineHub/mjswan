@@ -59,6 +59,12 @@ DATA_EXTENSIONS: frozenset[str] = frozenset(
 )
 SKIN_EXTENSIONS: frozenset[str] = frozenset({".vrm", ".glb"})
 
+#: The most of a skin's glTF JSON mjswan Cloud reads, and of a VRM's meta it stores.
+GLB_JSON_MAX_BYTES: int = 8 * 1024 * 1024
+VRM_TEXT_MAX: int = 256
+VRM_URL_MAX: int = 2048
+VRM_AUTHORS_MAX: int = 32
+
 MAX_FILE_BYTES: int = 50 * 1024 * 1024
 MAX_TOTAL_BYTES: int = 100 * 1024 * 1024
 MAX_FILES: int = 200
@@ -348,15 +354,35 @@ def plan_publish(dist_dir: Path) -> PublishPlan:
 
 
 def _check_skin(plan: PublishPlan, rel: str, path: Path) -> None:
-    """Refuse a skin mjswan Cloud would: one the engine cannot draw, or a VRM it may not
-    host. A VRM's terms go in the plan."""
+    """Refuse a skin mjswan Cloud would: one the engine cannot draw, one named as the
+    other format, or a VRM it may not host or store. A VRM's terms go in the plan."""
     try:
         file = read_skin_file(path)
     except ValueError as exc:
         raise PublishError(str(exc), file=rel) from None
+    if (path.suffix.lower() == ".vrm") != (file.format == "vrm"):
+        raise PublishError(
+            f"{rel} is a VRM: publish it as .vrm, whose license is read from its meta."
+            if file.format == "vrm"
+            else f"{rel} has no VRM extension: a skin that is not a VRM is a .glb.",
+            file=rel,
+        )
+    if file.json_bytes > GLB_JSON_MAX_BYTES:
+        raise PublishError(
+            f"{rel} has a {file.json_bytes / 2**20:.1f} MB glTF JSON chunk; mjswan Cloud "
+            f"reads at most {GLB_JSON_MAX_BYTES // 2**20} MB.",
+            file=rel,
+        )
     if file.vrm_version is None:
         return
     terms = vrm_license(file.meta, file.vrm_version)
+    if _too_long(terms):
+        raise PublishError(
+            f"{rel} has a VRM meta longer than mjswan Cloud stores (at most "
+            f"{VRM_TEXT_MAX} characters per name, {VRM_AUTHORS_MAX} authors and "
+            f"{VRM_URL_MAX}-character URLs).",
+            file=rel,
+        )
     if not terms.redistribution:
         raise PublishError(
             f"{rel}: its VRM license forbids redistribution ({describe(terms)}), and "
@@ -364,6 +390,16 @@ def _check_skin(plan: PublishPlan, rel: str, path: Path) -> None:
             file=rel,
         )
     plan.vrms[rel] = terms
+
+
+def _too_long(terms: VrmLicense) -> bool:
+    # A VRM 0.x names its license, a VRM 1.0 links to it.
+    name, url = (terms.license, None) if terms.version == "0" else (None, terms.license)
+    return (
+        len(terms.authors) > VRM_AUTHORS_MAX
+        or any(len(s) > VRM_TEXT_MAX for s in (terms.name, name, *terms.authors) if s)
+        or any(len(s) > VRM_URL_MAX for s in (url, terms.other_license_url) if s)
+    )
 
 
 def _check_safe_path(rel: str) -> None:

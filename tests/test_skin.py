@@ -119,6 +119,36 @@ class TestSkinFile:
         with pytest.raises(ValueError, match="KHR_draco.*without compression"):
             read_skin_file(fx.write_glb(tmp_path / "a.glb", gltf))
 
+    def test_refuses_a_truncated_file(self, tmp_path, vrm):
+        short = tmp_path / "short.glb"
+        short.write_bytes(b"glTF" + bytes(4))
+        with pytest.raises(ValueError, match="not a binary glTF"):
+            read_skin_file(short)
+        cut = tmp_path / "cut.vrm"
+        cut.write_bytes(vrm.read_bytes()[:-8])
+        with pytest.raises(ValueError, match="truncated"):
+            read_skin_file(cut)
+
+    def test_a_humanoid_off_the_file_is_a_value_error(self, tmp_path):
+        def vrm_with(bones: dict) -> Path:
+            gltf = {
+                **fx.skeleton_gltf(),
+                "extensions": {"VRMC_vrm": {"humanoid": {"humanBones": bones}}},
+            }
+            return fx.write_glb(tmp_path / "a.vrm", gltf)
+
+        with pytest.raises(
+            ValueError, match=r"not a valid glTF \(KeyError\('node'\)\)"
+        ):
+            read_skin_file(vrm_with({"hips": {}}))
+        with pytest.raises(ValueError, match="puts hips on nodes it does not have"):
+            read_skin_file(vrm_with({"hips": {"node": 99}}))
+
+    def test_a_data_uri_is_embedded_in_any_case(self, tmp_path):
+        uri = "DATA:application/octet-stream;base64,AAAA"
+        gltf = {**fx.skeleton_gltf(), "buffers": [{"uri": uri, "byteLength": 3}]}
+        assert read_skin_file(fx.write_glb(tmp_path / "a.glb", gltf)).format == "gltf"
+
     def test_a_missing_node_names_the_closest(self, glb):
         with pytest.raises(ValueError, match="no node 'leftHnd'.*leftHand"):
             read_skin_file(glb).node("leftHnd")
@@ -216,6 +246,17 @@ class TestVrmLicense:
             "1",
         )
         assert not terms.commercial and terms.avatar_use == "licensed"
+
+    def test_reads_its_strings_as_mjswan_cloud_does(self):
+        # An empty or non-string value is unset: "" is not a commercial use.
+        meta = {
+            **fx.OPEN_META,
+            "commercialUsage": "",
+            "name": "",
+            "authors": ["A", "", 3],
+        }
+        terms = vrm_license(meta, "1")
+        assert not terms.commercial and terms.name is None and terms.authors == ("A",)
 
     @pytest.mark.parametrize(
         ("meta", "redistribution", "commercial", "avatar_use", "credit"),
