@@ -311,6 +311,7 @@ class TestSkinConfig:
         config = SkinConfig(bones=BONES)
         assert config.retarget == "hybrid" and config.hide_robot
         assert config.offset == (0.0, 0.0, 0.0) and config.hips_offset is None
+        assert not config.mujoco_springs
 
 
 class TestResolve:
@@ -732,13 +733,14 @@ class TestBuild:
             material=ToonShading(shade=0.5),
             retarget="rotation",
             hide_robot=False,
+            mujoco_springs=True,
             id="d",
             name="D",
         )
         entry = skin_entry(resolve_skin(styled, robot))
         assert entry["facing"] == "-x" and entry["retarget"] == "rotation"
         assert entry["material"] == {"toon": {"shade": 0.5, "toony": 0.5, "shift": 0.0}}
-        assert entry["hide_robot"] is False
+        assert entry["hide_robot"] is False and entry["mujoco_springs"] is True
 
     def test_a_glb_carries_its_license_beside_it(
         self, tmp_path, robot, glb, build_manifest

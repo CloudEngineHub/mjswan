@@ -38,7 +38,7 @@ export interface SkinConfig {
   hide_robot?: boolean;
   /** Scales the toon colours once they are divided by the scene's light. Absent: 1. */
   brightness?: number;
-  /** False leaves the spring bones to three-vrm instead of MuJoCo. Absent: true. */
+  /** True simulates the spring bones in MuJoCo instead of three-vrm. Absent: false. */
   mujoco_springs?: boolean;
   /**
    * `'rotation'` turns each bone as its body has, only the root placed; `'position'`

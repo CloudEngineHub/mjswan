@@ -2,8 +2,9 @@
 
 A skin is a ``.vrm``, which names its own bones, or a ``.glb``, whose bones are named by
 ``humanoid`` (a humanoid, or a four-legged animal with its front legs as arms) or, for
-any other skeleton, by node name. Its spring bones are simulated by MuJoCo in a model of
-their own, so the scene's physics, collision and policy never see it.
+any other skeleton, by node name. Its spring bones swing outside the scene's model, by
+three-vrm or in a MuJoCo model of their own, so the scene's physics, collision and policy
+never see them.
 """
 
 from __future__ import annotations
@@ -173,10 +174,10 @@ class SkinConfig:
     scene's summed light when that exceeds 1: a toon shader takes every light it faces in
     full, so MuJoCo's several lights would clip it to white."""
 
-    mujoco_springs: bool = True
+    mujoco_springs: bool = False
     """Simulate the spring bones as MuJoCo bodies, in a model beside the scene's that the
-    robot never touches. ``False`` leaves them to three-vrm's springs, for a device that
-    cannot spare the step."""
+    robot never touches. ``False``, the default, leaves them to three-vrm's springs, which
+    cost less per frame."""
 
     retarget: Literal["rotation", "position", "hybrid"] = "hybrid"
     """How the character follows the robot. ``"hybrid"`` turns each bone the way its body

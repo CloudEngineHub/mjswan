@@ -33,7 +33,7 @@ def skin_entry(skin: ResolvedSkin) -> dict[str, Any]:
         **({"hips_offset": list(skin.hips_offset)} if any(skin.hips_offset) else {}),
         **({} if config.hide_robot else {"hide_robot": False}),
         **({"brightness": config.brightness} if config.brightness != 1.0 else {}),
-        **({} if config.mujoco_springs else {"mujoco_springs": False}),
+        **({"mujoco_springs": True} if config.mujoco_springs else {}),
         **({"retarget": config.retarget} if config.retarget != "hybrid" else {}),
     }
 

@@ -254,7 +254,7 @@ describe('SpringPhysics', () => {
       });
     }
 
-    async function strandDrop(mujocoSprings: boolean, load?: () => Promise<Skin>) {
+    async function strandDrop(mujocoSprings: boolean | undefined, load?: () => Promise<Skin>) {
       const vrm = () =>
         Skin.load(vrmFile({ stiffness: 0, gravityPower: 0.3 }), {
           format: 'vrm',
@@ -275,23 +275,26 @@ describe('SpringPhysics', () => {
     }
 
     it('starts the springs over after a stall rather than whipping them through it', async () => {
-      const skin = await Skin.load(vrmFile({ stiffness: 0, gravityPower: 0.3 }), {
-        format: 'vrm',
-        bones: { hips: 'pelvis' },
-        offset: [0, 0, 0],
-      });
-      skin.bind(mujoco, robot);
-      const strand = () => {
-        skin.root.updateMatrixWorld(true);
-        const at = (name: string) => skin.root.getObjectByName(name)!.getWorldPosition(new THREE.Vector3());
-        return at('hair2').sub(at('hair0'));
-      };
-      for (let frame = 0; frame <= 120; frame++) skin.update({ 1: pelvis }, (frame * 1000) / 60);
-      expect(strand().y).toBeLessThan(-0.15);
-      skin.update({ 1: pelvis }, 2000 + 1000);
-      // Level and full length, as at rest.
-      expect(strand().y).toBeCloseTo(0, 4);
-      expect(strand().length()).toBeCloseTo(0.2, 4);
+      for (const mujoco_springs of [true, false]) {
+        const skin = await Skin.load(vrmFile({ stiffness: 0, gravityPower: 0.3 }), {
+          format: 'vrm',
+          bones: { hips: 'pelvis' },
+          offset: [0, 0, 0],
+          mujoco_springs,
+        });
+        skin.bind(mujoco, robot);
+        const strand = () => {
+          skin.root.updateMatrixWorld(true);
+          const at = (name: string) => skin.root.getObjectByName(name)!.getWorldPosition(new THREE.Vector3());
+          return at('hair2').sub(at('hair0'));
+        };
+        for (let frame = 0; frame <= 120; frame++) skin.update({ 1: pelvis }, (frame * 1000) / 60);
+        expect(strand().y).toBeLessThan(-0.15);
+        skin.update({ 1: pelvis }, 2000 + 1000);
+        // Level and full length, as at rest: MuJoCo's reset lands on it, three-vrm's steps one frame from it.
+        expect(strand().y).toBeCloseTo(0, mujoco_springs ? 4 : 1);
+        expect(strand().length()).toBeCloseTo(0.2, mujoco_springs ? 4 : 2);
+      }
     });
 
     it("swings a .glb's chains as the VRM's own springs, its last node only an end unless tipped", async () => {
@@ -301,18 +304,18 @@ describe('SpringPhysics', () => {
         expect(gltf.joints).toBe(vrm.joints);
         expect(gltf.drop).toBeCloseTo(vrm.drop, 6);
       }
-      const tipped = await strandDrop(true, () => gltfSkin({ tip: 0.1 }));
+      const tipped = await strandDrop(true, () => gltfSkin({ mujoco_springs: true, tip: 0.1 }));
       expect(tipped.joints).toBe(3);
       expect(tipped.drop).toBeGreaterThan(0.15);
     });
 
-    it('runs the springs in MuJoCo, or in three-vrm when told not to', async () => {
+    it('runs the springs in three-vrm, or in MuJoCo when asked to', async () => {
+      const vrmRun = await strandDrop(undefined);
+      expect(vrmRun.joints).toBe(0);
+      expect(vrmRun.drop).toBeGreaterThan(0.15);
       const mujocoRun = await strandDrop(true);
       expect(mujocoRun.joints).toBe(2);
       expect(mujocoRun.drop).toBeGreaterThan(0.15);
-      const vrmRun = await strandDrop(false);
-      expect(vrmRun.joints).toBe(0);
-      expect(vrmRun.drop).toBeGreaterThan(0.15);
     });
   });
 });

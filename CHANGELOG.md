@@ -30,17 +30,17 @@ shortcuts.
   bends each limb so the hand or foot lands on the robot's; `"position"` warns when the
   limbs are not the robot's lengths. A `.glb` takes `scale`, `facing`, `springs`
   (`SpringChain`, `SpringCollider`) and toon `material` (`ToonShading`), and `license` /
-  `notice` as a component's. Spring bones are simulated by MuJoCo in a model of their
-  own. The robot is undrawn by default; Debug Viz's **Xray** switch (`?xray=1`) draws it
-  see-through over the character. `mjswan publish` takes skins: it refuses a VRM whose
-  license forbids redistribution, asks before sending one only its author or someone
-  they licensed may use, and warns on one for non-commercial use.
+  `notice` as a component's. Spring bones swing by three-vrm, or with `mujoco_springs`
+  in a MuJoCo model of their own. The robot is undrawn by default; Debug Viz's **Xray**
+  switch (`?xray=1`) draws it see-through over the character. `mjswan publish` takes
+  skins: it refuses a VRM whose license forbids redistribution, asks before sending one
+  only its author or someone they licensed may use, and warns on one for non-commercial
+  use.
   `mjswan skin map <file> --robot <...>` drafts the maps and writes a `SkinConfig` to
   check, and `mjswan info` lists each skin with its license. The demo's Showcase gains
   two scenes. **Humanoid skins** puts six VRM avatars on WBC-Mjlab's G1, their bones
-  only turned (`retarget="rotation"`) and their springs left to three-vrm
-  (`mujoco_springs=False`), and the G1's one tracking policy runs any of its clips
-  (idle, three dances, a fight combo, a walk, a run, a flip and a sprint).
+  only turned (`retarget="rotation"`), and the G1's one tracking policy runs any of its
+  clips (idle, three dances, a fight combo, a walk, a run, a flip and a sprint).
   **Quadruped skins** puts three of Quaternius's animals on the Go1 on rough terrain:
   the Shiba Inu and the fox from Poly Pizza, their feet hung from their legs by
   `reparent` and the fox's tail on a spring, and a pug from Farm Animals. Every skin is

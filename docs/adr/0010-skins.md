@@ -64,11 +64,12 @@ The browser receives indices and turns, and reads no names.
 
 ### 4. Drawn only, and checkable
 
-Spring bones (hair, a tail) are simulated by MuJoCo in a model of their own, which the
-scene's model never sees. With the robot hidden (`hide_robot`, the default), Debug
-Viz's **Xray** switch (`?xray=1`) draws it see-through over the character, to check the
-fit. The skin itself is not a debug drawing: Debug Viz's **Enabled** leaves it shown,
-and the Skin menu's None is how to see the robot without it.
+Spring bones (hair, a tail) swing by three-vrm, or with `mujoco_springs` in a MuJoCo
+model of their own; the scene's model sees neither. With the robot hidden
+(`hide_robot`, the default), Debug Viz's **Xray** switch (`?xray=1`) draws it
+see-through over the character, to check the fit. The skin itself is not a debug
+drawing: Debug Viz's **Enabled** leaves it shown, and the Skin menu's None is how to
+see the robot without it.
 
 ### 5. Published with its license checked
 

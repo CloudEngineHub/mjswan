@@ -1,7 +1,7 @@
 /**
  * A skin: a rigged character (a VRM or a .glb) posed from the robot's bodies every frame,
- * outside the scene's model. Its spring bones are simulated by MuJoCo in a model of their
- * own (springs.ts).
+ * outside the scene's model. Its spring bones swing by three-vrm, or in a MuJoCo model of
+ * their own (springs.ts).
  *
  * The runtime imports this module only for a scene with a skin, so a scene without one
  * never fetches it, nor three-vrm and the modules that come with it. The file is parsed
@@ -377,10 +377,10 @@ export class Skin {
     return lowest;
   }
 
-  /** MuJoCo's springs, or null to leave them to three-vrm: asked to, none, or no model. */
+  /** MuJoCo's springs, or null to leave them to three-vrm: not asked for, none, or no model. */
   private buildSprings(mujoco: MainModule): SpringPhysics | null {
     const manager = this.model.springBoneManager;
-    if (this.config.mujoco_springs === false || !manager) return null;
+    if (!this.config.mujoco_springs || !manager) return null;
     try {
       return SpringPhysics.build(mujoco, manager, this.model.scene);
     } catch (error) {

@@ -915,7 +915,7 @@ class mjswan.SkinConfig(
     hips_offset: tuple[float, float, float] | None = None,
     hide_robot: bool = True,
     brightness: float = 1.0,
-    mujoco_springs: bool = True,
+    mujoco_springs: bool = False,
     retarget: Literal["rotation", "position", "hybrid"] = "hybrid",
     license: str | None = None,
     notice: str | None = None,
@@ -942,7 +942,7 @@ Everything one skin needs, so swapping characters swaps only this object. Frames
 | `hips_offset` | Where the root bone sits on its body, in that body's frame, metres. `None` centres the character's limbs over the robot's across the floor, as a fox's pelvis sits behind a Go1's mid-trunk origin. |
 | `hide_robot` | Stop drawing the robot, so the character is drawn in its place. A hidden robot is still simulated, collides and can be grabbed, and Debug Viz's **Xray** switch draws it through the skin. |
 | `brightness` | Scales the toon (MToon) colours, which the viewer first divides by the scene's summed light when that exceeds 1: a toon shader takes every light it faces in full, so MuJoCo's several lights would clip it to white. |
-| `mujoco_springs` | Simulate the spring bones as MuJoCo bodies, in a model the robot never touches, every 1/240 s. `False` leaves them to three-vrm, which costs less per frame. |
+| `mujoco_springs` | Simulate the spring bones as MuJoCo bodies, in a model the robot never touches, every 1/240 s. `False`, the default, leaves them to three-vrm, which costs less per frame. |
 | `retarget` | `"hybrid"` turns each bone the way its body has turned since `rest_pose`, keeping the character's proportions, then bends each arm and leg (two-bone IK) so its hand or foot lands on the robot's, the whole character lowered as far as the feet it stands on need. `"rotation"` only turns the bones. `"position"` fixes every bone to its body, for a model made to the robot's proportions; on another the mesh stretches, and `add_skin` warns. |
 | `license` | `.glb` only: a path to its license text, or a generatable SPDX id (`"CC-BY-4.0"`), written as `LICENSE.skin-<id>`. |
 | `notice` | `.glb` only: its attribution, a path or the text itself, written as `NOTICE.skin-<id>`. |
@@ -988,7 +988,7 @@ class mjswan.ToonShading(shade: float = 0.6, toony: float = 0.5, shift: float = 
 
 A `.glb`'s PBR materials drawn as MToon: `shade` is the shaded side's share of the lit colour, `toony` how sharply the two meet (0 soft, 1 hard), `shift` where they meet.
 
-The demo's Showcase (`examples/demo/main.py`) has two skins scenes: **Humanoid skins**, VRM avatars on WBC-Mjlab's G1 tracking any of its clips, their bones only turned (`retarget="rotation"`) and their springs left to three-vrm (`mujoco_springs=False`), and **Quadruped skins**, three of Quaternius's `.glb` animals on the Go1: the Shiba Inu and the fox from Poly Pizza, their feet hung from their legs by `reparent`, and a pug in toon shading. Their files are on the Hugging Face Hub, in `skins/` of [`ttktjmt/mjswan`](https://huggingface.co/ttktjmt/mjswan), each with its license. `mjswan skin map` drafts a config for a new file; see the [CLI](../getting-started/cli.md).
+The demo's Showcase (`examples/demo/main.py`) has two skins scenes: **Humanoid skins**, VRM avatars on WBC-Mjlab's G1 tracking any of its clips, their bones only turned (`retarget="rotation"`), and **Quadruped skins**, three of Quaternius's `.glb` animals on the Go1: the Shiba Inu and the fox from Poly Pizza, their feet hung from their legs by `reparent`, and a pug in toon shading. Their files are on the Hugging Face Hub, in `skins/` of [`ttktjmt/mjswan`](https://huggingface.co/ttktjmt/mjswan), each with its license. `mjswan skin map` drafts a config for a new file; see the [CLI](../getting-started/cli.md).
 
 ---
 

@@ -1,6 +1,7 @@
 /**
- * A skin's spring bones (hair, skirt, ...) simulated by MuJoCo, in a model of their own:
- * the scene's model, and so the robot and its policy, never see them.
+ * A skin's spring bones (hair, skirt, ...) simulated by MuJoCo, when the skin asks for it
+ * (`mujoco_springs`), in a model of their own: the scene's model, and so the robot and its
+ * policy, never see them.
  *
  * Each spring joint is a ball-jointed body with its mass at the bone's tail, hung from
  * the node the chain hangs from. That node, and each node carrying a VRM collider, is a
