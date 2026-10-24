@@ -31,8 +31,7 @@ export type { SkinConfig } from './config';
 
 /**
  * three-vrm's springs integrate at this fixed step, through poses interpolated between
- * frames: one large step whips a long chain (hair) through the body when the pose jumps,
- * as a spinkick's does at 30 fps.
+ * frames: one large step whips a long chain (hair) through the body when the pose jumps.
  */
 const SPRING_STEP = 1 / 120;
 /** A frame longer than this is not caught up. */

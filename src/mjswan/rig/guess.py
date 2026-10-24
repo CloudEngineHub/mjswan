@@ -1,12 +1,11 @@
 """A first draft of a skin's maps, for its author to check; never used by a build.
 
-The skin's side is read from the skeleton's shape, its names only breaking ties: the
-hips are the joint that two mirrored chains reaching the floor hang from, the spine its
-chain toward the head, and the arms the mirrored pair reaching farthest to the side on
-the way (on a four-legged animal, the front legs). The robot's side is read from its
-bodies' names. ``rest_pose`` is not guessed: a robot's link origins sit off the joints
-they look like, so a solved T-pose comes out degrees wrong. The robots checked by hand
-are known instead.
+The skin's side is read from the skeleton's shape: the hips are the joint two mirrored
+chains reaching the floor hang from, the spine its chain toward the head, the arms the
+mirrored pair reaching farthest to the side on the way (a four-legged animal's front
+legs). The robot's side is read from its bodies' names. ``rest_pose`` is not guessed (a
+robot's link origins sit off the joints they look like, so a solved T-pose comes out
+degrees wrong); the robots checked by hand are known instead.
 """
 
 from __future__ import annotations

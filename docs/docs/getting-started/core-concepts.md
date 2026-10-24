@@ -50,7 +50,7 @@ project = builder.add_project(name="My Robots", default=True)
 demo = builder.add_project(name="Demo")  # ?project=demo
 ```
 
-Every project, scene, policy, splat and skin has an **id** derived from its name —
+Every project, scene, policy, splat and skin has an **id** derived from its name:
 lowercased, runs of anything but `a-z0-9` collapsed to `_`, edges trimmed, so
 `"Newton's Cradle"` becomes `newton_s_cradle`. The id names what the object is written
 as (a project's or scene's directory, `policy/<id>.onnx`, a bundled splat's

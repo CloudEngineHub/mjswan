@@ -402,13 +402,11 @@ def _add_myofinger(project: mjswan.ProjectHandle) -> None:
     )
 
 
-# Skins (ADR 0010): a character drawn over the robot and posed from its bodies, while
-# physics, collision and the policy stay the robot's. Each file sits under `skins/` in
-# HF_REPO with its license, and the repository's README says where it came from. The
-# build bundles each byte for byte, so a VRM keeps the license its meta states.
-# AvatarSample_A to C are not CC0: pixiv's terms let anyone use and redistribute them as
-# distributed, but never relabelled as CC0, sold, behind a paywall, with an editor for
-# their looks, or shown as if pixiv or VRoid endorse mjswan.
+# Skins (ADR 0010). Each file sits under `skins/` in HF_REPO with its license; the
+# repository's README says where it came from. AvatarSample_A to C are not CC0: pixiv's
+# terms let anyone use and redistribute them as distributed, but never relabelled as
+# CC0, sold, behind a paywall, with an editor for their looks, or shown as if pixiv or
+# VRoid endorse mjswan.
 
 #: The G1 body each VRM humanoid bone follows. The waist's yaw and roll go to spine and
 #: its pitch to chest; the G1 has no neck, so neck and head follow the torso.

@@ -35,9 +35,7 @@ jobs:
       with:
         python-version: '3.12'
 
-    # Only what `examples/demo/main.py` imports, the `demo` extra. `examples`
-    # additionally carries onnxruntime, which the numeric-parity checks need and this
-    # build does not.
+    # The `demo` extra alone: `examples` adds onnxruntime, which only the parity checks need.
     - name: Install Python dependencies
       run: uv sync --locked --extra demo
 

@@ -1,10 +1,8 @@
 """Skins: a rigged character posed from a robot's bodies, drawn only, never simulated.
 
-A skin is a ``.vrm``, which names its own bones, or a ``.glb``, whose bones are named by
-``humanoid`` (a humanoid, or a four-legged animal with its front legs as arms) or, for
-any other skeleton, by node name. Its spring bones swing outside the scene's model, by
-three-vrm or in a MuJoCo model of their own, so the scene's physics, collision and policy
-never see them.
+A ``.vrm`` names its own bones; a ``.glb``'s are named by ``humanoid`` or by node name.
+Spring bones swing outside the scene's model, so physics, collision and the policy never
+see them.
 """
 
 from __future__ import annotations
@@ -42,7 +40,7 @@ if TYPE_CHECKING:
 
 _URL = re.compile(r"^https?://", re.IGNORECASE)
 
-#: How far a limb may be from the robot's length before ``"position"`` is warned off.
+#: Relative limb-length mismatch past which ``retarget="position"`` warns.
 STRETCH_TOLERANCE = 0.1
 
 
@@ -87,7 +85,7 @@ class ToonShading:
 
 @dataclass(frozen=True)
 class SkinConfig:
-    """Everything one skin needs, so swapping characters swaps only this object.
+    """Everything one skin needs.
 
     Frames: ``offset`` and ``hips_offset`` are MuJoCo's (x forward, y left, z up).
     ``rest_offsets`` are in the character's own frame as VRM 1.0 defines it (y up,
@@ -146,11 +144,10 @@ class SkinConfig:
 
     height_ratio: float | None = None
     """Scale from the robot root's height to the character's root bone height, both above
-    the ground under the robot (the first geom in group 0 straight below that is not the
-    robot's, as mjlab's height scan sees the terrain), so a hill lifts both alike. Across
-    the floor the root bone follows the root exactly. ``None`` takes the root bone's
-    height above the character's lowest point at rest, over the robot root's above its
-    soles at ``rest_pose``."""
+    the ground under the robot (the first group-0 geom below it that is not the robot's),
+    so a hill lifts both alike. Across the floor the root bone follows the root exactly.
+    ``None``: the root bone's height above the character's lowest point at rest, over the
+    robot root's above its soles at ``rest_pose``."""
 
     offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
     """Added to the character's position, in metres: it moves where the robot moves,

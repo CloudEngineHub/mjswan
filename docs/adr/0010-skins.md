@@ -97,12 +97,12 @@ so `DOCUMENT_FORMAT` is 7.
 
 ## Considered options
 
-- **Convert every glTF to a VRM at build time.** The old example did. It rewrites the
-  author's file, and a VRM's license fields would then be ours, not theirs.
+- **Convert every glTF to a VRM at build time.** It rewrites the author's file, and a
+  VRM's license fields would then be ours, not theirs.
 - **Require VRM's nesting of a `.glb` humanoid.** three-vrm's rig assumes it; most
   animal rigs break it. `NodeRig` poses any nesting.
-- **Write rest offsets by hand.** The examples did, in degrees, per bone. `rest_pose`
-  reproduces those tables within 0.05° and reads as the pose it is.
+- **Write rest offsets by hand, in degrees per bone.** `rest_pose` reproduces such tables
+  within 0.05° and reads as the pose it is.
 
 ## Consequences
 

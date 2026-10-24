@@ -923,7 +923,7 @@ class mjswan.SkinConfig(
 )
 ```
 
-Everything one skin needs, so swapping characters swaps only this object. Frames: `offset` and `hips_offset` are MuJoCo's (x forward, y left, z up); `rest_offsets` are in the character's frame as VRM 1.0 defines it (y up, facing +z, its left toward +x), whatever the file is. A VRM brings its humanoid, springs, units, materials and license itself, so the fields marked `.glb` are refused for one.
+Everything one skin needs. Frames: `offset` and `hips_offset` are MuJoCo's (x forward, y left, z up); `rest_offsets` are in the character's frame as VRM 1.0 defines it (y up, facing +z, its left toward +x), whatever the file is. A VRM brings its humanoid, springs, units, materials and license itself, so the fields marked `.glb` are refused for one.
 
 | Field | Description |
 |---|---|
@@ -938,7 +938,7 @@ Everything one skin needs, so swapping characters swaps only this object. Frames
 | `material` | `.glb` only: draw its PBR materials as MToon, balanced against the scene's lights as a VRM's are. See [`ToonShading`](#toonshading). |
 | `rest_pose` | The robot's pose while the character holds its own rest pose: a keyframe's name, or joint to value (radians, metres) over the zero pose. Every VRM rests in a T-pose, so for a humanoid robot this holds its arms out straight (`examples/demo/main.py` has the G1's). `None`: the zero pose. |
 | `rest_offsets` | Bone to a turn, in degrees about the character's x, then y, then z axis, on top of `rest_pose`, for what the robot's joints cannot pose. |
-| `height_ratio` | Scale from the robot root's height to the character's root bone height, both above the ground under the robot (the first geom in group 0 straight below that is not the robot's, as mjlab's height scan sees the terrain). `None` takes the root bone's height above the character's lowest point at rest, over the robot root's above its soles at `rest_pose`. |
+| `height_ratio` | Scale from the robot root's height to the character's root bone height, both above the ground under the robot (the first group-0 geom below it that is not the robot's). `None`: the root bone's height above the character's lowest point at rest, over the robot root's above its soles at `rest_pose`. |
 | `offset` | Added to the character's position, in metres: it moves where the robot moves, this far aside. `(0, 1, 0)` stands it 1 m to the robot's left. |
 | `hips_offset` | Where the root bone sits on its body, in that body's frame, metres. `None` centres the character's limbs over the robot's across the floor, as a fox's pelvis sits behind a Go1's mid-trunk origin. |
 | `hide_robot` | Stop drawing the robot, so the character is drawn in its place. A hidden robot is still simulated, collides and can be grabbed, and Debug Viz's **Xray** switch draws it through the skin. |
@@ -989,7 +989,7 @@ class mjswan.ToonShading(shade: float = 0.6, toony: float = 0.5, shift: float = 
 
 A `.glb`'s PBR materials drawn as MToon: `shade` is the shaded side's share of the lit colour, `toony` how sharply the two meet (0 soft, 1 hard), `shift` where they meet.
 
-The demo's Showcase (`examples/demo/main.py`) has two skins scenes: **Humanoid skins**, VRM avatars on WBC-Mjlab's G1 tracking any of its clips, their bones only turned (`retarget="rotation"`), and **Quadruped skins**, three of Quaternius's `.glb` animals on the Go1: the Shiba Inu and the fox from Poly Pizza, their feet hung from their legs by `reparent`, and a pug in toon shading. Their files are on the Hugging Face Hub, in `skins/` of [`ttktjmt/mjswan`](https://huggingface.co/ttktjmt/mjswan), each with its license. `mjswan skin map` drafts a config for a new file; see the [CLI](../getting-started/cli.md).
+The demo's Showcase (`examples/demo/main.py`) has two skins scenes, VRM avatars on the G1 and `.glb` animals on the Go1, their files in `skins/` of [`ttktjmt/mjswan`](https://huggingface.co/ttktjmt/mjswan) on the Hugging Face Hub, each with its license. `mjswan skin map` drafts a config for a new file; see the [CLI](../getting-started/cli.md).
 
 ---
 

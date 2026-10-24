@@ -96,9 +96,9 @@ and chrome you mean rather than the first thing in the build:
 | `xray` | `xray=1` starts with Debug Viz's **Xray** switch on, drawing the robot see-through over its skin. |
 | `manifest` | Load a `manifest.json` from another URL entirely, relative to the page. |
 
-`panel` and `debug` are booleans read as "off only when exactly `0`", `xray` as "on only when
-exactly `1`", and the app writes the current state back into the URL — so you can arrange a view by hand and copy the address
-bar into your `src`.
+`panel` and `debug` are booleans read as "off only when exactly `0`", `xray` as "on only
+when exactly `1`", and the app writes the current state back into the URL, so you can
+arrange a view by hand and copy the address bar into your `src`.
 
 ```html
 <iframe src="https://ttktjmt.github.io/mjswan/?project=showcase&scene=g1_on_street&policy=locomotion&panel=0" …></iframe>

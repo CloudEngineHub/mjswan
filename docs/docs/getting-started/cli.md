@@ -113,8 +113,8 @@ mjswan info <dist-dir | document.swn>
 
 Print a tree summary of a built `dist/` directory or a `.swn` document: projects, scenes
 (with `.mjz`/`.mjb` size), each scene's skins (with a VRM's license), MDPs (with their
-traced graph count) and policies (with `.onnx` size). Useful for spotting which assets are pushing your build toward the
-GitHub Pages 1 GB limit.
+traced graph count) and policies (with `.onnx` size). Useful for spotting which assets
+are pushing your build toward the GitHub Pages 1 GB limit.
 
 Example output:
 
@@ -165,11 +165,10 @@ Draft the maps a [`SkinConfig`](../api/core.md#skinconfig) needs, for you to che
 line. For a `.glb`, `humanoid` is read from the skeleton's shape: the hips are the joint
 two mirrored chains reaching the floor hang from, the spine its chain toward the head,
 and the arms the mirrored pair reaching farthest to the side (a four-legged animal's
-front legs). Names only break ties. With `--robot`, `bones` is read from the robot's body
-names (a G1's `hip_pitch`, `hip_roll` and `hip_yaw` links give its yaw), and a `.glb`'s
-`scale` from the robot's size. Chains no bone takes are offered as `springs`, and a
-skeleton that is neither humanoid nor four-legged gets its floor-reaching chains as
-`limbs` candidates.
+front legs). With `--robot`, `bones` is read from the robot's body names (a G1's
+`hip_pitch`, `hip_roll` and `hip_yaw` links give its yaw), and a `.glb`'s `scale` from
+the robot's size. Chains no bone takes are offered as `springs`, and a skeleton that is
+neither humanoid nor four-legged gets its floor-reaching chains as `limbs` candidates.
 
 `rest_pose` is not guessed: a robot's link origins sit off the joints they look like, so
 a solved T-pose comes out degrees wrong. The command lists the keyframes and each arm
