@@ -3,7 +3,7 @@
  * mirrored the way each version faces, and the same skeleton as plain .glb files, scaled,
  * turned or nested otherwise. Driven by the same robot pose, all must pose alike.
  */
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { MToonMaterial } from '@pixiv/three-vrm';
 import type { MainModule, MjData, MjModel } from 'mujoco';
@@ -458,7 +458,7 @@ describe('Skin', () => {
     skin.bind(withRay, model);
     const raised = bodies(0, 0);
     for (const body of Object.values(raised)) body.position.y = 1.9;
-    skin.update(raised, 0, {} as MjData);
+    skin.update(raised, 0, model, {} as MjData);
     skin.root.updateMatrixWorld(true);
     // 0.9 m above the step, twice that above it: not twice the pelvis's 1.9 m.
     expect(skin.root.getObjectByName('hips')!.getWorldPosition(new THREE.Vector3()).y).toBeCloseTo(1 + 1.8, 6);
@@ -657,5 +657,39 @@ describe('Skin', () => {
     });
     skin.bind(mujoco, robot);
     expect(() => skin.update(bodies(0, 0), 0)).not.toThrow();
+  });
+});
+
+describe('a model rebuilt under the skin', () => {
+  let real: MainModule;
+  beforeAll(async () => {
+    real = await (await import('mujoco')).default();
+  });
+
+  it('finds the ground in the model drawn now, the one it was bound to freed', async () => {
+    // A step 0.5 m high under a free pelvis 0.9 m up.
+    const xml = `<mujoco><worldbody>
+      <geom type="box" pos="0 0 0.25" size="1 1 0.25"/>
+      <body name="robot/pelvis" pos="0 0 0.9"><freejoint/><geom type="sphere" size="0.05" group="2"/></body>
+    </worldbody></mujoco>`;
+    const compile = () =>
+      (real as unknown as { MjModel: { from_xml_string(xml: string): MjModel } }).MjModel.from_xml_string(xml);
+    const skin = await Skin.load(vrmFile('1'), { ...CONFIG, bones: { hips: 'pelvis' }, height_ratio: 2 });
+    const bound = compile();
+    skin.bind(real, bound);
+    // As the runtime rebuilds a scene for XR hands: the old model freed, a new one drawn.
+    bound.delete();
+    const model = compile();
+    const data = new real.MjData(model);
+    real.mj_forward(model, data);
+    const pelvis = new THREE.Object3D();
+    pelvis.position.set(0, 0.9, 0);
+    skin.update({ 1: pelvis }, 0, model, data);
+    skin.root.updateMatrixWorld(true);
+    // 0.4 m above the step, twice that above it.
+    expect(skin.root.getObjectByName('hips')!.getWorldPosition(new THREE.Vector3()).y).toBeCloseTo(1.3, 6);
+    data.delete();
+    model.delete();
+    skin.dispose();
   });
 });

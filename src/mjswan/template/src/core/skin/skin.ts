@@ -140,7 +140,6 @@ export class Skin {
   private readonly restHeight: number;
   private heightRatio = 1;
   private mujoco: MainModule | null = null;
-  private mjModel: MjModel | null = null;
   private poses = new Map<number, BodyPose>();
   /** `hips_offset` in three.js axes, in the root body's frame. */
   private readonly hipsOffset = new THREE.Vector3();
@@ -203,7 +202,6 @@ export class Skin {
     }
     this.normalizeToon(mjModel);
     this.mujoco = mujoco;
-    this.mjModel = mjModel;
 
     const skeleton = this.model.rig;
     const mapped: Array<{ name: string; bodyId: number; ancestors: string[] }> = [];
@@ -405,9 +403,10 @@ export class Skin {
   /**
    * Pose from the bodies as drawn this frame, then step the springs. `time` in ms. The
    * last substep lands on this frame's pose, so the avatar is never behind the robot.
-   * `mjData` finds the ground under it; without it the ground is z = 0.
+   * The model and data just drawn find the ground under it; without them the ground is
+   * z = 0. They are passed every frame, never kept: the runtime frees a model it rebuilds.
    */
-  update(bodies: Record<number, THREE.Object3D>, time: number, mjData?: MjData): void {
+  update(bodies: Record<number, THREE.Object3D>, time: number, mjModel?: MjModel, mjData?: MjData): void {
     const rig = this.rig;
     if (!rig) return;
     const elapsed = this.lastTime === null ? 0 : (time - this.lastTime) / 1000;
@@ -422,7 +421,9 @@ export class Skin {
       const body = bodies[this.rootBody];
       this.rootTo.copy(this.hipsOffset).applyQuaternion(body.quaternion).add(body.position);
       // Bones fixed to their bodies need no ground.
-      if (mjData && !this.attached.length) this.groundTo = this.groundUnder(this.rootTo, mjData) ?? this.groundTo;
+      if (mjModel && mjData && !this.attached.length) {
+        this.groundTo = this.groundUnder(this.rootTo, mjModel, mjData) ?? this.groundTo;
+      }
     }
     const restart =
       dt === 0 || elapsed > STALL_SECONDS || this.rootTo.distanceTo(this.rootFrom) > TELEPORT_DISTANCE;
@@ -470,9 +471,8 @@ export class Skin {
    * in the terrain group, as mjlab's height scan sees it, that is not the robot's own.
    * Null where there is none.
    */
-  private groundUnder(point: THREE.Vector3, mjData: MjData): number | null {
+  private groundUnder(point: THREE.Vector3, model: MjModel, mjData: MjData): number | null {
     const mujoco = this.mujoco!;
-    const model = this.mjModel!;
     const origin = threeToMjcCoordinate(point).toArray();
     for (let hit = 0; hit < MAX_ROBOT_HITS; hit++) {
       const distance = mujoco.mj_ray(
