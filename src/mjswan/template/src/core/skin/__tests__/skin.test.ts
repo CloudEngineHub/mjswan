@@ -385,11 +385,13 @@ describe('Skin', () => {
     const grey = () => new THREE.Color(0.2, 0.2, 0.2);
     const toon = new MToonMaterial({ map: texture(), color: grey(), shadeColorFactor: grey() });
     const standard = new THREE.MeshStandardMaterial({ map: texture(), color: grey() });
-    // One material on two meshes, and twice on one: encoded once.
+    const coloured = new THREE.BufferGeometry();
+    coloured.setAttribute('color', new THREE.Float32BufferAttribute([0.2, 0.2, 0.2], 3));
+    // One material on two meshes, and twice on one, and one geometry on two: encoded once.
     const scene = new THREE.Group().add(
       new THREE.Mesh(undefined, toon),
-      new THREE.Mesh(undefined, standard),
-      new THREE.Mesh(undefined, [standard, standard]),
+      new THREE.Mesh(coloured, standard),
+      new THREE.Mesh(coloured, [standard, standard]),
     );
     asPainted(scene);
     const [encoded] = painted(0.2, 0.2, 0.2);
@@ -398,6 +400,7 @@ describe('Skin', () => {
       expect(material.color.r).toBeCloseTo(encoded, 6);
     }
     expect(toon.shadeColorFactor.r).toBeCloseTo(encoded, 6);
+    expect(coloured.getAttribute('color').getX(0)).toBeCloseTo(encoded, 6);
   });
 
   it('sits the hips at hips_offset in the body frame, turning with the robot', async () => {

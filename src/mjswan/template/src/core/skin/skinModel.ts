@@ -51,9 +51,11 @@ export async function loadSkinModel(data: ArrayBuffer, config: SkinConfig): Prom
  */
 export function asPainted(scene: THREE.Object3D): void {
   const materials = new Set<THREE.Material>();
+  const geometries = new Set<THREE.BufferGeometry>();
   scene.traverse((object) => {
-    const { material } = object as THREE.Mesh;
+    const { material, geometry } = object as THREE.Mesh;
     for (const each of material ? [material].flat() : []) materials.add(each);
+    if (geometry) geometries.add(geometry);
   });
   for (const material of materials) {
     // MToon keeps its colours and textures in uniforms, behind getters.
@@ -69,6 +71,17 @@ export function asPainted(scene: THREE.Object3D): void {
         colour.convertLinearToSRGB();
       }
     }
+  }
+  // Vertex colours are stored linear too.
+  const colour = new THREE.Color();
+  for (const geometry of geometries) {
+    const colours = geometry.getAttribute('color');
+    if (!colours) continue;
+    for (let i = 0; i < colours.count; i++) {
+      colour.setRGB(colours.getX(i), colours.getY(i), colours.getZ(i)).convertLinearToSRGB();
+      colours.setXYZ(i, colour.r, colour.g, colour.b);
+    }
+    colours.needsUpdate = true;
   }
 }
 
