@@ -31,7 +31,7 @@ a browser app.
 
 ## Requirements
 
-- `git` and Python 3.10 to 3.13. The agent installs mjswan itself. No GPU needed.
+- `git` and Python 3.11 to 3.13. The agent installs mjswan itself. No GPU needed.
 - Checkpoints: a W&B run, a Hugging Face repository, or `model_*.pt` files.
 
 !!! warning
