@@ -830,6 +830,9 @@ shortcuts.
   written those files since; the build stamped four empty registries out and the runtime
   spread four empty objects into the maps the plugins already filled. The comments claiming
   the registries held `ts_src` terms described the design they replaced.
+- **Python 3.10.** `requires-python` is `>=3.11`. 3.10 reached its end of life this month,
+  and the fixes for the Pillow and filelock advisories (Pillow 13, filelock 4.2.1) require
+  3.11, so a 3.10 install could only resolve the vulnerable releases.
 
 ### Fixed
 
@@ -1209,3 +1212,6 @@ shortcuts.
   where they used to fetch the CPU wheel outside the lock.
 - **Every GitHub Action is pinned to a commit SHA**, with its release tag in a comment: a
   moved tag no longer changes what a workflow runs.
+- **Pillow 13.0.0, filelock 4.2.4 and virtualenv 21.14.12 in `uv.lock`**, for the
+  Dependabot advisories against Pillow < 13.0.0, filelock 3.20.4 to 4.2.0 and virtualenv
+  < 21.14.10.
