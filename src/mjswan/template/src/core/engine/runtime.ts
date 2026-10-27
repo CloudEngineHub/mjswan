@@ -68,6 +68,7 @@ import {
   type OnnxActionProcessConfig,
 } from '../action/OnnxActionProcess';
 import { applyResetTerms } from './resetChain';
+import { nextDeadline } from './stepDeadline';
 import { yieldToBrowser } from './yieldToBrowser';
 import { TerminationManager } from '../termination/TerminationManager';
 import * as ort from 'onnxruntime-web/wasm';
@@ -1302,8 +1303,8 @@ export class mjswanRuntime {
   }
 
   private async runLoop(): Promise<void> {
+    let deadline = performance.now();
     while (this.running) {
-      const loopStart = performance.now();
       const target = this.timestep * this.decimation;
 
       if (this.mjModel && this.mjData) {
@@ -1352,10 +1353,10 @@ export class mjswanRuntime {
         }
       }
 
-      const elapsed = (performance.now() - loopStart) / 1000;
-      const sleepTime = Math.max(0, target - elapsed);
-      if (sleepTime > 0) {
-        await new Promise((resolve) => setTimeout(resolve, sleepTime * 1000));
+      const now = performance.now();
+      deadline = nextDeadline(deadline, now, target * 1000);
+      if (deadline > now) {
+        await new Promise((resolve) => setTimeout(resolve, deadline - now));
       } else {
         // Behind schedule: yield anyway, or rAF stops firing and the tab hangs at 100% CPU
         // (issue #103).
