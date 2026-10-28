@@ -5,7 +5,7 @@ import { MJSWAN_VERSION } from '../Version';
 
 const BASE = import.meta.env.BASE_URL || '/';
 
-// The engine's own: `install_spa` puts its LICENSE and THIRD_PARTY_LICENSES.md at every build's root.
+// `install_spa` puts the engine's LICENSE and THIRD_PARTY_LICENSES.md at every build's root.
 const ENGINE: LicenseEntry = {
   spdx: 'Apache-2.0',
   license: async () => {
@@ -15,8 +15,7 @@ const ENGINE: LicenseEntry = {
   },
 };
 
-/** What the About dialog's Credits tab lists besides the engine: the scene in view, its
- * skins, the work. */
+/** The Credits tab's scene part: the scene in view, its skins, the work. */
 export interface SceneCredits {
   scene: string;
   project: string;
