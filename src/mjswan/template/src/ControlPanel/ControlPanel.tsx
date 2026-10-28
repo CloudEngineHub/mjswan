@@ -25,7 +25,7 @@ const COMMAND_BUTTON_ICONS: Record<string, typeof IconSquareX> = {
 import type { SplatConfig } from '../core/scene/splat';
 import { MJSWAN_VERSION, GITHUB_CONTRIBUTORS, type Contributor } from '../Version';
 import { aboutButton } from './ControlPanel.css';
-import { CreditsPanel, hasCredits, type SceneCredits } from './CreditsPanel';
+import { CreditsPanel, type SceneCredits } from './CreditsPanel';
 import FloatingPanel from './FloatingPanel';
 import { LabeledInput } from './LabeledInput';
 import { CommandSection } from './CommandSection';
@@ -125,7 +125,7 @@ interface ControlPanelProps {
   onXrSessionPress?: (id: XrSessionId, active: boolean) => void;
   onHandTrackingChange?: (enabled: boolean) => void;
   /** The scene in view's third-party components and the work's license, for About. */
-  credits?: SceneCredits;
+  credits: SceneCredits;
 }
 
 function isEditableElement(element: Element | null): boolean {
@@ -405,21 +405,17 @@ function ControlPanel(props: ControlPanelProps) {
       <Text size="sm" c="dimmed">MuJoco Simulation on Web Assembly with Neural netwroks</Text>
       <Divider w="100%" />
       <Box>
-        {[
-          ['GitHub', 'https://github.com/ttktjmt/mjswan'],
-          ['Documentation', 'https://mjswan.readthedocs.io'],
-          ['Platform', 'https://mjswan.com'],
-          // The engine's own: `install_spa` puts both at the root of every build.
-          ['License', `${base}LICENSE`],
-          ['Third-party licenses', `${base}THIRD_PARTY_LICENSES.md`],
-        ].map(([label, href], index) => (
-          <span key={label}>
-            {index > 0 && <>&nbsp;&nbsp;&bull;&nbsp;&nbsp;</>}
-            <Anchor href={href} target="_blank" style={{ fontWeight: '600' }}>
-              {label}
-            </Anchor>
-          </span>
-        ))}
+        <Anchor href="https://github.com/ttktjmt/mjswan" target="_blank" style={{ fontWeight: '600' }}>
+          GitHub
+        </Anchor>
+        &nbsp;&nbsp;&bull;&nbsp;&nbsp;
+        <Anchor href="https://mjswan.readthedocs.io" target="_blank" style={{ fontWeight: '600' }}>
+          Documentation
+        </Anchor>
+        &nbsp;&nbsp;&bull;&nbsp;&nbsp;
+        <Anchor href="https://mjswan.com" target="_blank" style={{ fontWeight: '600' }}>
+          Platform
+        </Anchor>
       </Box>
       <Divider w="100%" />
       <Box
@@ -464,22 +460,18 @@ function ControlPanel(props: ControlPanelProps) {
         <Image src={`${base}logo.svg`} style={{ width: '8em', height: 'auto' }} />
         <Text size="xl" fw={700}>powered by mjswan</Text>
         <Text size="sm" c="dimmed">version {MJSWAN_VERSION}</Text>
-        {hasCredits(credits) ? (
-          <Tabs defaultValue="about" keepMounted={false} w="100%">
-            <Tabs.List justify="center">
-              <Tabs.Tab value="about">About</Tabs.Tab>
-              <Tabs.Tab value="credits">Credits</Tabs.Tab>
-            </Tabs.List>
-            <Tabs.Panel value="about" pt="md">
-              {about}
-            </Tabs.Panel>
-            <Tabs.Panel value="credits" pt="xs" style={{ textAlign: 'left' }}>
-              <CreditsPanel {...credits} />
-            </Tabs.Panel>
-          </Tabs>
-        ) : (
-          about
-        )}
+        <Tabs defaultValue="about" keepMounted={false} w="100%">
+          <Tabs.List justify="center">
+            <Tabs.Tab value="about">About</Tabs.Tab>
+            <Tabs.Tab value="credits">Credits</Tabs.Tab>
+          </Tabs.List>
+          <Tabs.Panel value="about" pt="md">
+            {about}
+          </Tabs.Panel>
+          <Tabs.Panel value="credits" pt="xs" style={{ textAlign: 'left' }}>
+            <CreditsPanel {...credits} />
+          </Tabs.Panel>
+        </Tabs>
       </Stack>
     </Modal>
     <FloatingPanel

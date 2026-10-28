@@ -18,8 +18,8 @@ shortcuts.
   key, which works with the panel hidden) has a **Credits** tab listing the scene in
   view: each third-party component with its license, its `NOTICE` in full and the license
   text on demand; every skin of the scene, the one on screen first, a VRM by its own
-  `meta`; and the work's own license. The About tab links the engine's license and
-  `THIRD_PARTY_LICENSES.md`, and the logo shows a hover background. The manifest names
+  `meta`; the work's own license; and the engine's, with `THIRD_PARTY_LICENSES.md`. The
+  logo shows a hover background. The manifest names
   the license files the build writes, since a static host lists no directory: a
   project's `work` and a scene's `credits` (each file's `spdx`, `restriction` and
   `copyright` line, and a summary of each VRM skin's `meta`), optional keys an older

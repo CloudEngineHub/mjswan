@@ -1,8 +1,22 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Anchor, Badge, Box, Button, Group, Stack, Text } from '@mantine/core';
 import type { CreditEntry, LicenseEntry } from '../manifest';
+import { MJSWAN_VERSION } from '../Version';
 
-/** What the About dialog's Credits tab lists: the scene in view, its skins, the work. */
+const BASE = import.meta.env.BASE_URL || '/';
+
+// The engine's own: `install_spa` puts its LICENSE and THIRD_PARTY_LICENSES.md at every build's root.
+const ENGINE: LicenseEntry = {
+  spdx: 'Apache-2.0',
+  license: async () => {
+    const response = await fetch(`${BASE}LICENSE`);
+    if (!response.ok) throw new Error(`LICENSE: ${response.status}`);
+    return response.text();
+  },
+};
+
+/** What the About dialog's Credits tab lists besides the engine: the scene in view, its
+ * skins, the work. */
 export interface SceneCredits {
   scene: string;
   project: string;
@@ -12,10 +26,6 @@ export interface SceneCredits {
   skins: Array<{ id: string; name: string }>;
   /** The skin on screen, by id. */
   skin: string | null;
-}
-
-export function hasCredits(credits: SceneCredits | undefined): credits is SceneCredits {
-  return !!credits && (credits.credits.length > 0 || !!credits.work);
 }
 
 /** A VRM's meta is the author's text: link it only when it is a web address. */
@@ -98,14 +108,15 @@ function LicenseBadges({ spdx, restriction }: { spdx?: string; restriction?: str
   );
 }
 
-function CreditRow({ title, mono, entry, suffix, onScreen, vrm }: {
+function CreditRow({ title, mono, entry, suffix, onScreen, vrm, children }: {
   title: string;
   mono: boolean;
   entry: LicenseEntry;
-  /** `.<component>`, or empty for the work's own files; names the file in a load error. */
+  /** `.<component>`, or empty for a bare `LICENSE`; names the file in a load error. */
   suffix: string;
   onScreen?: boolean;
   vrm?: CreditEntry['vrm'];
+  children?: ReactNode;
 }) {
   const [full, setFull] = useState(false);
   return (
@@ -143,6 +154,7 @@ function CreditRow({ title, mono, entry, suffix, onScreen, vrm }: {
           {vrm.otherLicenseUrl && <> · Other terms: {webLink(vrm.otherLicenseUrl)}</>}
         </Text>
       )}
+      {children}
       <TextBlock load={entry.notice} name={`NOTICE${suffix}`} wanted />
       <TextBlock load={entry.license} name={`LICENSE${suffix}`} wanted={full} long />
     </Stack>
@@ -196,6 +208,13 @@ export function CreditsPanel({ scene, project, credits, work, skins, skin }: Sce
           <CreditRow title={project} mono={false} entry={work} suffix="" />
         </CreditGroup>
       )}
+      <CreditGroup label="mjswan">
+        <CreditRow title={`mjswan ${MJSWAN_VERSION}`} mono={false} entry={ENGINE} suffix="">
+          <Anchor href={`${BASE}THIRD_PARTY_LICENSES.md`} target="_blank" size="xs">
+            Third-party licenses
+          </Anchor>
+        </CreditRow>
+      </CreditGroup>
     </Stack>
   );
 }
