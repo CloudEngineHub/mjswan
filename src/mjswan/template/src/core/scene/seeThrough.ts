@@ -5,9 +5,8 @@
 import * as THREE from 'three';
 
 const OPACITY = 0.4;
-// Without a depth test, whatever is drawn later paints over it. three orders transparent
-// meshes by the depth of their origins, and a splat is one mesh for all its points, so
-// it can come after.
+// Drawn without a depth test, so it must come last: three sorts transparent meshes by
+// their origins' depth, and a splat is one mesh for all its points.
 const LAST = Number.MAX_SAFE_INTEGER;
 
 function seeThrough(material: THREE.Material): THREE.Material {
