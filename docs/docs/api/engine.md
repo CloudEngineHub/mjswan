@@ -325,11 +325,17 @@ only when named.
 | Type | Shape |
 |---|---|
 | `Catalog` | `{ projects: ProjectCatalog[], pluginsPath?: string }` |
-| `ProjectCatalog` | `{ id, name, default, scenes }` |
-| `SceneEntry` | `{ id, name, camera?, splatSection, policies, splats, skins, buildScene(opts?) }` |
+| `ProjectCatalog` | `{ id, name, default, work?, scenes }` |
+| `SceneEntry` | `{ id, name, camera?, splatSection, policies, splats, skins, credits, buildScene(opts?) }` |
 | `PolicyEntry` | `{ id, name, default, motions, build() }` |
 | `SplatEntry` | `{ id, name, control, transform, build() }` |
 | `SkinEntry` | `{ id, name, build() }` |
+| `CreditEntry` | `{ component, skin?, vrm?, spdx?, restriction?, copyright?, license?(), notice?() }` |
+| `LicenseEntry` | `{ spdx?, restriction?, copyright?, license?(), notice?() }`, a project's `work` |
+
+`credits` are the scene's third-party components and every skin's terms, in manifest
+order; `license()` and `notice()` fetch a file's text only when called. An app with its own
+UI shows them itself, as the bundled app does in About › Credits.
 
 Every entry carries its `id` — `name2id(name)`, the directory it lives in and the value
 the bundled app's `?project=` / `?scene=` / `?policy=` parameters take. `sanitizeName(name)`

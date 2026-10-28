@@ -14,6 +14,18 @@ shortcuts.
 
 ### Added
 
+- **Credits in the viewer.** The About dialog (the control panel's logo, or the new `I`
+  key, which works with the panel hidden) has a **Credits** tab listing the scene in
+  view: each third-party component with its license, its `NOTICE` in full and the license
+  text on demand; every skin of the scene, the one on screen first, a VRM by its own
+  `meta`; and the work's own license. The About tab links the engine's license and
+  `THIRD_PARTY_LICENSES.md`, and the logo shows a hover background. The manifest names
+  the license files the build writes, since a static host lists no directory: a
+  project's `work` and a scene's `credits` (each file's `spdx`, `restriction` and
+  `copyright` line, and a summary of each VRM skin's `meta`), optional keys an older
+  engine ignores, so `format` stays 7. `mjswan/manifest` exposes them as
+  `ProjectCatalog.work` and `SceneEntry.credits`, fetching a text only when asked.
+  `mjswan.license.copyright_line` reads a license text's holder line.
 - **Skins: a rigged character drawn over the robot** (ADR 0010, **document format 7**).
   `SceneHandle.add_skin(name, mjswan.SkinConfig(...))` adds a `.vrm` or a `.glb` to the
   scene's **Skin** menu, posed every frame from the robot's bodies while physics,

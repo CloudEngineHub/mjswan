@@ -66,6 +66,26 @@ def identify_license(text: str) -> Identification:
     return Identification(spdx, tier_of(spdx))
 
 
+_COPYRIGHT = re.compile(r"^\s*(?:Copyright\s+(?:\(c\)|©|\d)|©).*$", re.I | re.M)
+# Left unfilled in a template; Apache-2.0's appendix keeps one in every copy.
+_PLACEHOLDER = re.compile(
+    r"\[yyyy\]|\[name of copyright owner\]|<year>|<owner>|<copyright holders>", re.I
+)
+
+
+def copyright_line(text: str) -> str | None:
+    """The first line of a license text that names a holder (``Copyright (c) 2024
+    Unitree``, ``Copyright 2024 …``, ``© …``), or ``None``. A template's placeholder line
+    and a line with no holder after the mark are not one."""
+    for match in _COPYRIGHT.finditer(text):
+        line = match.group(0).strip()
+        if _PLACEHOLDER.search(line):
+            continue
+        if re.sub(r"copyright|\(c\)|©|[\s.,]", "", line, flags=re.I):
+            return line
+    return None
+
+
 def _search(pattern: str, t: str) -> re.Match[str] | None:
     return re.search(pattern, t, re.IGNORECASE)
 
@@ -269,6 +289,7 @@ __all__ = [
     "Identification",
     "Tier",
     "blocked_refusal",
+    "copyright_line",
     "display_name",
     "generate_license_text",
     "identify_license",

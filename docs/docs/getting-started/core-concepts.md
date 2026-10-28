@@ -306,7 +306,8 @@ policy.add_motion_hf(
 
 A build carries its license files as files, beside the data they cover
 ([ADR 0007](https://github.com/ttktjmt/mjswan/blob/main/docs/adr/0007-license-files-in-the-build.md)).
-There are two kinds, and `manifest.json` never mentions either:
+There are two kinds. `manifest.json` lists both (a project's `work`, a scene's
+`credits`), since a static host cannot list a directory for the viewer to look in:
 
 - **The work's own**: `<project-id>/LICENSE` and `NOTICE`. Declare them once on the
   builder, or per project:
@@ -335,6 +336,13 @@ There are two kinds, and `manifest.json` never mentions either:
   scene.add_attribution("clip", notice="Retargeted from ...")
   scene.clear_attributions()  # when a detection is wrong
   ```
+
+The viewer shows them in its About dialog (the logo at the control panel's top left, or
+the `I` key, which works with the panel hidden too). Its **Credits** tab lists the scene in
+view: each component with its license, its `NOTICE` in full and the license text on
+demand; every skin of the scene, the one on screen first, a `.glb` by the files above and
+a VRM by its own `meta`; and the work's own license. The About tab links the engine's
+license and the licenses of the packages it bundles.
 
 The root `dist/LICENSE` is the engine's own Apache-2.0 and stays out of every publish.
 `mjswan info` lists the files it finds with the license each one is; `mjswan publish`

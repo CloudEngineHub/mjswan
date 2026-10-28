@@ -8,7 +8,6 @@ copy are mocked by ``build_manifest``.
 from __future__ import annotations
 
 import hashlib
-import json
 from pathlib import Path
 
 import mujoco
@@ -26,6 +25,7 @@ from mjswan.license import (
     Attribution,
     blocked_refusal,
     component_id,
+    copyright_line,
     declare,
     detect_attributions,
     generate_license_text,
@@ -182,6 +182,25 @@ class TestIdentification:
         assert warning.startswith("demo/go2/LICENSE.lafan1 is CC-BY-NC-ND-4.0 (")
         assert "non-commercial use only" in warning
         assert "no sharing of adapted material" in warning
+
+    def test_the_copyright_line_names_a_holder(self):
+        bsd = 'Copyright (c) 2016-2024 HangZhou YuShu ("Unitree Robotics")\n\nRedist'
+        assert (
+            copyright_line(bsd)
+            == 'Copyright (c) 2016-2024 HangZhou YuShu ("Unitree Robotics")'
+        )
+        assert (
+            copyright_line("x\n  Copyright 2023 DeepMind\n")
+            == "Copyright 2023 DeepMind"
+        )
+        mit = generate_license_text("MIT", "2026 Jo <jo@example.com>")
+        assert copyright_line(mit) == "Copyright (c) 2026 Jo <jo@example.com>"
+
+    def test_placeholders_and_prose_are_not_a_copyright_line(self):
+        # Apache-2.0's appendix, an unfilled holder, and CC BY's defined term.
+        assert copyright_line(license_template("Apache-2.0")) is None
+        assert copyright_line(generate_license_text("BSD-3-Clause")) is None
+        assert copyright_line(license_template("CC-BY-4.0")) is None
 
     def test_blocked_refusal_names_the_file_and_the_license(self):
         message = blocked_refusal("demo/go2/LICENSE.amass", "LicenseRef-AMASS")
@@ -497,31 +516,71 @@ class TestBuildOutput:
         with pytest.raises(ValueError, match="Component 'has space'"):
             scene.add_attribution("has space", notice="n")
 
-    def test_detected_files_are_written_and_the_manifest_does_not_change(
+    def test_detected_files_are_written_and_listed_in_the_manifest(
         self, tmp_path, minimal_model, build_manifest
     ):
         model_dir = tmp_path / "unitree_go2"
         xml = _write_model(model_dir, mesh=False)
-        (model_dir / "LICENSE").write_bytes(_BSD)
-
-        plain = Builder()
-        plain.add_project(name="Demo").add_scene(name="S", model=minimal_model)
-        plain_manifest = build_manifest(plain, tmp_path / "plain")
-
-        licensed = Builder(license="Apache-2.0", copyright="x")
-        licensed.add_project(name="Demo").add_scene(
+        bsd = _BSD.replace(b"<year> <owner>", b"2024 Unitree")
+        (model_dir / "LICENSE").write_bytes(bsd)
+        builder = Builder(license="Apache-2.0", copyright="x")
+        builder.add_project(name="Demo").add_scene(
             name="S", spec=mujoco.MjSpec.from_file(str(xml))
         )
-        licensed_manifest = build_manifest(licensed, tmp_path / "licensed")
+        manifest = build_manifest(builder, tmp_path / "dist")
 
-        written = tmp_path / "licensed" / "demo" / "s" / "LICENSE.unitree_go2"
-        assert written.read_bytes() == _BSD
-        # The scene asset differs (.mjb vs .mjz); license files are not manifest keys,
-        # so everything else is the same.
-        for m in (plain_manifest, licensed_manifest):
-            m["projects"][0]["scenes"][0].pop("scene")
-        assert plain_manifest == licensed_manifest
-        assert "license" not in json.dumps(licensed_manifest).lower()
+        scene_dir = tmp_path / "dist" / "demo" / "s"
+        assert (scene_dir / "LICENSE.unitree_go2").read_bytes() == bsd
+        project = manifest["projects"][0]
+        assert project["work"] == {
+            "license": "LICENSE",
+            "spdx": "Apache-2.0",
+            "copyright": "Copyright (c) x",
+        }
+        assert project["scenes"][0]["credits"] == [
+            {
+                "component": "unitree_go2",
+                "license": "LICENSE.unitree_go2",
+                "spdx": "BSD-3-Clause",
+                "copyright": "Copyright (c) 2024 Unitree.",
+            }
+        ]
+
+    def test_the_manifest_lists_exactly_the_files_written(
+        self, tmp_path, minimal_model, build_manifest
+    ):
+        builder = Builder()
+        project, scene = _project_with_scene(builder, minimal_model)
+        project.set_notice("Built with mjswan.")
+        lafan = tmp_path / "LICENSE.lafan1"
+        lafan.write_text("SPDX-License-Identifier: CC-BY-NC-ND-4.0\n\nterms\n")
+        scene.add_attribution("lafan1", license=lafan, notice="LAFAN1.")
+        scene.add_attribution("clip", notice="Retargeted by us.")
+        manifest = build_manifest(builder, tmp_path / "dist")
+
+        project_entry = manifest["projects"][0]
+        assert project_entry["work"] == {"notice": "NOTICE"}
+        credits = project_entry["scenes"][0]["credits"]
+        assert credits[0]["spdx"] == "CC-BY-NC-ND-4.0"
+        assert credits[0]["restriction"] == "Non-commercial"
+        assert credits[1] == {"component": "clip", "notice": "NOTICE.clip"}
+        scene_dir = tmp_path / "dist" / "demo" / "humanoid"
+        listed = {e[k] for e in credits for k in ("license", "notice") if k in e}
+        on_disk = {
+            p.name
+            for p in scene_dir.iterdir()
+            if p.name.startswith(("LICENSE", "NOTICE"))
+        }
+        assert listed == on_disk == {"LICENSE.lafan1", "NOTICE.lafan1", "NOTICE.clip"}
+
+    def test_no_credit_keys_without_license_files(
+        self, tmp_path, minimal_model, build_manifest
+    ):
+        builder = Builder()
+        _project_with_scene(builder, minimal_model)
+        project = build_manifest(builder, tmp_path / "dist")["projects"][0]
+        assert "work" not in project
+        assert "credits" not in project["scenes"][0]
 
     def test_the_document_carries_the_files_and_publish_takes_them(
         self, tmp_path, minimal_spec, build_manifest

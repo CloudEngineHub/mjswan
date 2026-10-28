@@ -440,6 +440,14 @@ function AppContent() {
             }}
             onHandTrackingChange={(enabled) => engineRef.current?.xr.setHandTracking(enabled)}
             onReset={() => engineRef.current?.reset()}
+            credits={{
+              scene: sceneEntry.name,
+              project: project?.name ?? '',
+              credits: sceneEntry.credits,
+              work: project?.work,
+              skins: sceneEntry.skins.map(({ id, name }) => ({ id, name })),
+              skin: sceneEntry.skins.find((s) => s.name === skinName)?.id ?? null,
+            }}
           />
         )}
         <div ref={containerRef} className="viewer" />

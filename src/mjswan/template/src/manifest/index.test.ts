@@ -111,6 +111,58 @@ describe('parseManifest', () => {
     expect(requested).toContain('demo/humanoid/assets/sample_a.vrm');
   });
 
+  it('lists the credits and fetches a text only when asked, scene and work paths resolved apart', async () => {
+    const { source, requested } = fakeSource();
+    const [project] = MANIFEST.projects;
+    const manifest: Manifest = {
+      ...MANIFEST,
+      projects: [
+        {
+          ...project,
+          work: { license: 'LICENSE', spdx: 'Apache-2.0', copyright: 'Copyright (c) Demo' },
+          scenes: [
+            {
+              ...project.scenes[0],
+              credits: [
+                { component: 'unitree_g1', license: 'LICENSE.unitree_g1', spdx: 'BSD-3-Clause' },
+                { component: 'skin-fox', skin: 'fox', license: 'LICENSE.skin-fox', notice: 'NOTICE.skin-fox' },
+                {
+                  component: 'skin-sample_a',
+                  skin: 'sample_a',
+                  vrm: { authors: ['mjswan'], license: 'CC0', other_license_url: 'https://example.com' },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const catalog = parseManifest(manifest, source);
+    const [scene] = catalog.projects[0].scenes;
+    expect(requested).toEqual([]);
+    expect(scene.credits.map((c) => [c.component, c.skin, c.spdx])).toEqual([
+      ['unitree_g1', undefined, 'BSD-3-Clause'],
+      ['skin-fox', 'fox', undefined],
+      ['skin-sample_a', 'sample_a', undefined],
+    ]);
+    expect(scene.credits[0].notice).toBeUndefined();
+    expect(scene.credits[2].vrm).toEqual({
+      name: undefined,
+      authors: ['mjswan'],
+      license: 'CC0',
+      otherLicenseUrl: 'https://example.com',
+    });
+    expect(await scene.credits[1].notice?.()).toBe('bytes:demo/humanoid/NOTICE.skin-fox');
+    expect(await catalog.projects[0].work?.license?.()).toBe('bytes:demo/LICENSE');
+    expect(catalog.projects[0].work?.copyright).toBe('Copyright (c) Demo');
+  });
+
+  it('has no credits and no work for a build without license files', () => {
+    const catalog = parseManifest(MANIFEST, fakeSource().source);
+    expect(catalog.projects[0].scenes[0].credits).toEqual([]);
+    expect(catalog.projects[0].work).toBeUndefined();
+  });
+
   it('resolves every path under a scene against <project-id>/<scene-id>/', async () => {
     const { source, requested } = fakeSource();
     const catalog = parseManifest(MANIFEST, source);
