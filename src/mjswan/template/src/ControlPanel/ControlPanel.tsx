@@ -402,7 +402,7 @@ function ControlPanel(props: ControlPanelProps) {
   const base = import.meta.env.BASE_URL || '/';
   const about = (
     <Stack gap="md" align="center">
-      <Text size="sm" c="dimmed">MuJoco Simulation on Web Assembly with Neural netwroks</Text>
+      <Text size="sm" c="dimmed">MuJoco Simulation on WebAssembly with Neural networks</Text>
       <Divider w="100%" />
       <Box>
         <Anchor href="https://github.com/ttktjmt/mjswan" target="_blank" style={{ fontWeight: '600' }}>
