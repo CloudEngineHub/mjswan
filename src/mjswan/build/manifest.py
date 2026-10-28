@@ -23,6 +23,7 @@ from ..mjlab.env import mdp_commands, policy_actions
 from ..mjlab.gui import record_scene_gui
 from ..viewer import ViewerConfig
 from .asset import motion_key
+from .credit import scene_credits, work_entry
 from .frontend import uses_custom_js
 from .mdp import (
     command_widths,
@@ -354,6 +355,7 @@ def scene_entry(
         **(
             {"skins": [skin_entry(skin) for skin in scene.skins]} if scene.skins else {}
         ),
+        **({"credits": credits} if (credits := scene_credits(scene)) else {}),
         "mdps": mdps,
         "policies": policies,
     }
@@ -411,6 +413,7 @@ def write_manifest(
                 "id": project.id,
                 "name": project.name,
                 **({"default": True} if project.default else {}),
+                **({"work": work} if (work := work_entry(project)) else {}),
                 "scenes": [
                     scene_entries[(project.id, scene.id)] for scene in project.scenes
                 ],

@@ -824,6 +824,54 @@ class TestBuild:
             out / "p" / "s" / "NOTICE.skin-doll"
         ).read_text().strip() == "Doll by mjswan."
 
+    def test_every_skin_is_credited_with_its_own_terms(
+        self, tmp_path, robot, vrm, glb, build_manifest
+    ):
+        vrm0 = fx.write_vrm(tmp_path / "old.vrm", version="0")
+        builder = Builder()
+        scene = builder.add_project(name="P").add_scene(name="S", model=robot)
+        scene.add_skin("Sample", SkinConfig(bones=BONES, source=str(vrm)))
+        scene.add_skin("Old", SkinConfig(bones=BONES, source=str(vrm0)))
+        scene.add_skin(
+            "Doll",
+            SkinConfig(
+                bones={"hips": "pelvis"},
+                source=str(glb),
+                humanoid={"hips": "hips"},
+                license="CC0-1.0",
+                notice="Doll by mjswan.",
+            ),
+        )
+        out = tmp_path / "out"
+        build_manifest(builder, out)
+
+        credits = {e["component"]: e for e in self._scene(out)["credits"]}
+        assert credits["skin-doll"] == {
+            "component": "skin-doll",
+            "skin": "doll",
+            "license": "LICENSE.skin-doll",
+            "spdx": "CC0-1.0",
+            "notice": "NOTICE.skin-doll",
+        }
+        assert credits["skin-sample"] == {
+            "component": "skin-sample",
+            "skin": "sample",
+            "vrm": {
+                "name": "Sample",
+                "authors": ["mjswan"],
+                "license": "https://vrm.dev/licenses/1.0/",
+            },
+        }
+        assert credits["skin-old"]["vrm"] == {
+            "name": "Sample",
+            "authors": ["mjswan"],
+            "license": "CC0",
+        }
+        # The meta is summarised; the bundled file is untouched.
+        assert (
+            out / "p" / "s" / "assets" / "sample.vrm"
+        ).read_bytes() == vrm.read_bytes()
+
     def test_a_repeated_name_is_made_unique(self, robot, vrm):
         scene = Builder().add_project(name="P").add_scene(name="S", model=robot)
         scene.add_skin("A", SkinConfig(bones=BONES, source=str(vrm)))

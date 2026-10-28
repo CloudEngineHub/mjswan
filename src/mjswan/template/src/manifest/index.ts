@@ -5,10 +5,10 @@
  * about the manifest; the app owns the catalog and calls engine verbs.
  *
  * The manifest is the one descriptor of a document: every key `snake_case`, every path
- * under a scene entry relative to `<project-id>/<scene-id>/`, the top-level `plugins`
- * relative to the document root.
+ * under a scene entry relative to `<project-id>/<scene-id>/`, under a project's `work`
+ * relative to `<project-id>/`, the top-level `plugins` relative to the document root.
  */
-import type { Bytes } from '../core/utils/bytes';
+import { resolveBytes, type Bytes } from '../core/utils/bytes';
 import type { ViewerConfig } from '../core/engine/viewer_config';
 import type { EventConfig, TerrainData } from '../core/event/EventBase';
 import type { SplatTransform } from '../core/scene/splat';
@@ -91,6 +91,27 @@ export interface ManifestPolicy {
   /** The checkpoint's own metadata: `policy_joint_names`, `default_joint_pos`, … */
   [key: string]: unknown;
 }
+/** A license file the build wrote (ADR 0007), named and identified at build time. */
+export interface ManifestLicense {
+  /** Path of the `LICENSE` file. */
+  license?: string;
+  /** Its SPDX id; `LicenseRef-custom` for a text that could not be identified. */
+  spdx?: string;
+  /** `Non-commercial`, `Share-alike`, `No derivatives` or `Copyleft`, when restricted. */
+  restriction?: string;
+  /** Its first line naming a holder, when it has one. */
+  copyright?: string;
+  /** Path of the `NOTICE` file. */
+  notice?: string;
+}
+/** One third-party component of a scene: `LICENSE.<component>` / `NOTICE.<component>`. */
+export interface ManifestCredit extends ManifestLicense {
+  component: string;
+  /** The skin it belongs to, by id. */
+  skin?: string;
+  /** A VRM skin's terms as its own `meta` states them. */
+  vrm?: { name?: string; authors: string[]; license?: string; other_license_url?: string };
+}
 export interface ManifestScene {
   id: string;
   name: string;
@@ -106,6 +127,7 @@ export interface ManifestScene {
   splat_section?: boolean;
   splats?: ManifestSplat[];
   skins?: ManifestSkin[];
+  credits?: ManifestCredit[];
   mdps: ManifestMdp[];
   policies: ManifestPolicy[];
 }
@@ -115,6 +137,8 @@ export interface ManifestProject {
   name: string;
   /** At most one project sets it; none set means the first in document order. */
   default?: boolean;
+  /** The work's own `LICENSE` / `NOTICE`. */
+  work?: ManifestLicense;
   scenes: ManifestScene[];
 }
 /** A node of mjlab's viewer GUI as recorded at build time; the app fills a `slot` from engine state. */
@@ -171,6 +195,19 @@ export interface SkinEntry {
   name: string;
   build(): Promise<SkinInput>;
 }
+/** A license, its texts fetched on demand. */
+export interface LicenseEntry {
+  spdx?: string;
+  restriction?: string;
+  copyright?: string;
+  license?: () => Promise<string>;
+  notice?: () => Promise<string>;
+}
+export interface CreditEntry extends LicenseEntry {
+  component: string;
+  skin?: string;
+  vrm?: { name?: string; authors: string[]; license?: string; otherLicenseUrl?: string };
+}
 export interface SceneEntry {
   id: string;
   name: string;
@@ -179,6 +216,8 @@ export interface SceneEntry {
   policies: PolicyEntry[];
   splats: SplatEntry[];
   skins: SkinEntry[];
+  /** Its third-party components, every skin's included, in manifest order. */
+  credits: CreditEntry[];
   /**
    * Assemble a full SceneInput for a chosen policy/splat/skin (ids). An omitted policy is
    * the default one; an omitted splat or skin is none.
@@ -194,6 +233,8 @@ export interface ProjectCatalog {
   name: string;
   /** The project the app opens on. Exactly one entry in a catalog has it set. */
   default: boolean;
+  /** The work's own license. */
+  work?: LicenseEntry;
   scenes: SceneEntry[];
 }
 export interface Catalog {
@@ -258,6 +299,28 @@ function checkFormat(parsed: Manifest): void {
 
 function inScene(dir: string, rel: string): string {
   return `${dir}${rel}`.replace(/\/+/g, '/');
+}
+
+function toLicenseEntry(dir: string, entry: ManifestLicense, source: ByteSource): LicenseEntry {
+  const text = (rel: string) => async () =>
+    new TextDecoder().decode(await resolveBytes(source(inScene(dir, rel))));
+  return {
+    spdx: entry.spdx,
+    restriction: entry.restriction,
+    copyright: entry.copyright,
+    license: entry.license ? text(entry.license) : undefined,
+    notice: entry.notice ? text(entry.notice) : undefined,
+  };
+}
+
+function toCreditEntry(dir: string, credit: ManifestCredit, source: ByteSource): CreditEntry {
+  const vrm = credit.vrm && {
+    name: credit.vrm.name,
+    authors: credit.vrm.authors,
+    license: credit.vrm.license,
+    otherLicenseUrl: credit.vrm.other_license_url,
+  };
+  return { ...toLicenseEntry(dir, credit, source), component: credit.component, skin: credit.skin, vrm };
 }
 
 /** Lazy-fetch an absolute/external URL as bytes (for splats hosted off-build). */
@@ -404,6 +467,7 @@ function toSceneEntry(
     policies,
     splats,
     skins,
+    credits: (scene.credits ?? []).map((c) => toCreditEntry(dir, c, source)),
     buildScene: async (opts) => {
       const policyId = opts?.policy;
       const policy =
@@ -446,6 +510,7 @@ export function parseManifest(manifest: Manifest | string, source: ByteSource): 
       id: project.id,
       name: project.name,
       default: project === flagged,
+      work: project.work && toLicenseEntry(`${project.id}/`, project.work, source),
       scenes: project.scenes.map((scene) => toSceneEntry(project, scene, source, parsed.format)),
     })),
     pluginsPath: parsed.plugins,

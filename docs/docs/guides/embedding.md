@@ -100,6 +100,9 @@ and chrome you mean rather than the first thing in the build:
 when exactly `1`", and the app writes the current state back into the URL, so you can
 arrange a view by hand and copy the address bar into your `src`.
 
+A hidden panel does not hide the scene's credits: `I` opens the About dialog, whose
+**Credits** tab lists the licenses and notices of what is on screen.
+
 ```html
 <iframe src="https://ttktjmt.github.io/mjswan/?project=showcase&scene=g1_on_street&policy=locomotion&panel=0" …></iframe>
 ```
@@ -260,5 +263,9 @@ const { createEngine } = await import(
 Or serve the package's `dist/` directory from your own origin: the bundle resolves its
 WebAssembly relative to itself, so that one directory needs no other host, no configuration,
 and a single `script-src` prefix under a strict CSP.
+
+Without the bundled app there is no About dialog, so showing each scene's credits is up to
+your page: the catalog's `scene.credits` and `project.work` list them, and fetch a
+`LICENSE` or `NOTICE` only when asked.
 
 See the [Engine API](../api/engine.md) for the full surface.

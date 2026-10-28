@@ -11,6 +11,7 @@ import {
   Modal,
   Select,
   Stack,
+  Tabs,
   Text,
   Tooltip,
 } from '@mantine/core';
@@ -23,6 +24,8 @@ const COMMAND_BUTTON_ICONS: Record<string, typeof IconSquareX> = {
 };
 import type { SplatConfig } from '../core/scene/splat';
 import { MJSWAN_VERSION, GITHUB_CONTRIBUTORS, type Contributor } from '../Version';
+import { aboutButton } from './ControlPanel.css';
+import { CreditsPanel, type SceneCredits } from './CreditsPanel';
 import FloatingPanel from './FloatingPanel';
 import { LabeledInput } from './LabeledInput';
 import { CommandSection } from './CommandSection';
@@ -121,6 +124,8 @@ interface ControlPanelProps {
   handTracking?: HandTrackingDescriptor | null;
   onXrSessionPress?: (id: XrSessionId, active: boolean) => void;
   onHandTrackingChange?: (enabled: boolean) => void;
+  /** The scene in view's third-party components and the work's license, for About. */
+  credits: SceneCredits;
 }
 
 function isEditableElement(element: Element | null): boolean {
@@ -288,9 +293,11 @@ function ControlPanel(props: ControlPanelProps) {
     handTracking = null,
     onXrSessionPress,
     onHandTrackingChange,
+    credits,
   } = props;
 
-  const [aboutModalOpened, { open: openAbout, close: closeAbout }] = useDisclosure(false);
+  const [aboutModalOpened, { open: openAbout, close: closeAbout, toggle: toggleAbout }] =
+    useDisclosure(false);
   const [splatSearchValue, setSplatSearchValue] = useState('');
   const [splatUrlError, setSplatUrlError] = useState<string | null>(null);
   const [customSplatActive, setCustomSplatActive] = useState(false);
@@ -353,7 +360,7 @@ function ControlPanel(props: ControlPanelProps) {
       }
 
       const key = event.key.toLowerCase();
-      if (key !== 'c' && key !== 'r') {
+      if (key !== 'c' && key !== 'r' && key !== 'i') {
         return;
       }
 
@@ -365,6 +372,8 @@ function ControlPanel(props: ControlPanelProps) {
       event.preventDefault();
       if (key === 'c') {
         onVisibleChange(!visible);
+      } else if (key === 'i') {
+        toggleAbout();
       } else {
         handleReset();
       }
@@ -374,7 +383,7 @@ function ControlPanel(props: ControlPanelProps) {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [visible, onVisibleChange, handleReset]);
+  }, [visible, onVisibleChange, handleReset, toggleAbout]);
 
   const getCommandsForGroup = (groupName: string): CommandDescriptor[] => {
     // Declaration order, so a `Zero` button lands under the sliders it zeroes.
@@ -390,6 +399,53 @@ function ControlPanel(props: ControlPanelProps) {
     return null;
   }
 
+  const base = import.meta.env.BASE_URL || '/';
+  const about = (
+    <Stack gap="md" align="center">
+      <Text size="sm" c="dimmed">MuJoco Simulation on WebAssembly with Neural networks</Text>
+      <Divider w="100%" />
+      <Box>
+        <Anchor href="https://github.com/ttktjmt/mjswan" target="_blank" style={{ fontWeight: '600' }}>
+          GitHub
+        </Anchor>
+        &nbsp;&nbsp;&bull;&nbsp;&nbsp;
+        <Anchor href="https://mjswan.readthedocs.io" target="_blank" style={{ fontWeight: '600' }}>
+          Documentation
+        </Anchor>
+        &nbsp;&nbsp;&bull;&nbsp;&nbsp;
+        <Anchor href="https://mjswan.com" target="_blank" style={{ fontWeight: '600' }}>
+          Platform
+        </Anchor>
+      </Box>
+      <Divider w="100%" />
+      <Box
+        style={{
+          textAlign: 'left',
+          maxHeight: '120px',
+          overflowY: 'auto',
+          lineHeight: '1',
+          fontSize: '0.8rem',
+          opacity: '0.75',
+        }}
+        px="md"
+      >
+        Thanks to our contributors! <br />
+        {GITHUB_CONTRIBUTORS.map((contributor: Contributor, index: number) => (
+          <span key={contributor.login}>
+            <Anchor
+              href={contributor.html_url}
+              target="_blank"
+              style={{ textDecoration: 'none', fontSize: '0.75rem' }}
+            >
+              {contributor.login}
+            </Anchor>
+            {index < GITHUB_CONTRIBUTORS.length - 1 && ', '}
+          </span>
+        ))}
+      </Box>
+    </Stack>
+  );
+
   return (
     <>
     <Modal
@@ -401,50 +457,21 @@ function ControlPanel(props: ControlPanelProps) {
       styles={{ body: { textAlign: 'center' } }}
     >
       <Stack gap="md" align="center">
-        <Image src={`${import.meta.env.BASE_URL || '/'}logo.svg`} style={{ width: '8em', height: 'auto' }} />
+        <Image src={`${base}logo.svg`} style={{ width: '8em', height: 'auto' }} />
         <Text size="xl" fw={700}>powered by mjswan</Text>
         <Text size="sm" c="dimmed">version {MJSWAN_VERSION}</Text>
-        <Text size="sm" c="dimmed">MuJoco Simulation on Web Assembly with Neural netwroks</Text>
-        <Divider w="100%" />
-        <Box>
-          <Anchor href="https://github.com/ttktjmt/mjswan" target="_blank" style={{ fontWeight: '600' }}>
-            GitHub
-          </Anchor>
-          &nbsp;&nbsp;&bull;&nbsp;&nbsp;
-          <Anchor href="https://mjswan.readthedocs.io" target="_blank" style={{ fontWeight: '600' }}>
-            Documentation
-          </Anchor>
-          &nbsp;&nbsp;&bull;&nbsp;&nbsp;
-          <Anchor href="https://mjswan.com" target="_blank" style={{ fontWeight: '600' }}>
-            Platform
-          </Anchor>
-        </Box>
-        <Divider w="100%" />
-        <Box
-          style={{
-            textAlign: 'left',
-            maxHeight: '120px',
-            overflowY: 'auto',
-            lineHeight: '1',
-            fontSize: '0.8rem',
-            opacity: '0.75',
-          }}
-          px="md"
-        >
-          Thanks to our contributors! <br />
-          {GITHUB_CONTRIBUTORS.map((contributor: Contributor, index: number) => (
-            <span key={contributor.login}>
-              <Anchor
-                href={contributor.html_url}
-                target="_blank"
-                style={{ textDecoration: 'none', fontSize: '0.75rem' }}
-              >
-                {contributor.login}
-              </Anchor>
-              {index < GITHUB_CONTRIBUTORS.length - 1 && ', '}
-            </span>
-          ))}
-        </Box>
+        <Tabs defaultValue="about" keepMounted={false} w="100%">
+          <Tabs.List justify="center">
+            <Tabs.Tab value="about">About</Tabs.Tab>
+            <Tabs.Tab value="credits">Credits</Tabs.Tab>
+          </Tabs.List>
+          <Tabs.Panel value="about" pt="md">
+            {about}
+          </Tabs.Panel>
+          <Tabs.Panel value="credits" pt="xs" style={{ textAlign: 'left' }}>
+            <CreditsPanel {...credits} />
+          </Tabs.Panel>
+        </Tabs>
       </Stack>
     </Modal>
     <FloatingPanel
@@ -457,12 +484,13 @@ function ControlPanel(props: ControlPanelProps) {
         <Tooltip label={`mjswan ${MJSWAN_VERSION}`}>
           <Box
             component="a"
+            className={aboutButton}
             onClick={(e) => { e.stopPropagation(); openAbout(); }}
             onMouseDown={(e) => e.stopPropagation()}
             onTouchStart={(e) => e.stopPropagation()}
-            style={{ position: "absolute", cursor: "pointer", display: "flex", top: "0.8em", left: "0.9em" }}
+            style={{ position: "absolute", cursor: "pointer", display: "flex", top: "0.6em", left: "0.7em" }}
           >
-            <Image src={`${import.meta.env.BASE_URL || '/'}logo.svg`} style={{ width: "1.2em", height: "auto" }} />
+            <Image src={`${base}logo.svg`} style={{ width: "1.2em", height: "auto" }} />
           </Box>
         </Tooltip>
         <div style={{ width: "1.1em" }} />
