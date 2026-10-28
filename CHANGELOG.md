@@ -848,6 +848,15 @@ shortcuts.
 
 ### Fixed
 
+- **The step loop holds its control rate.** It slept out each step's remainder, so a timer
+  that woke late (Chrome clamps nested timers to 4 ms) was never made up: a 200 Hz task
+  ran at about 165 steps a second, and a 50 Hz one at 48. Each step now waits for a
+  deadline one period after the last, and the loop drops the backlog once 250 ms behind.
+
+- **Xray shows the whole robot in a scene with a splat.** From some angles only the
+  parts behind the skin showed: three could draw the splat, one transparent mesh for all
+  its points, after the robot and over it.
+
 - **The npm package, the wheel and every build carry the licenses of the packages the
   engine bundles**, in `THIRD_PARTY_LICENSES.md` beside it. Minifying had dropped the
   notices in their code (three, three-vrm, ONNX Runtime Web, MuJoCo, JSZip, React,
