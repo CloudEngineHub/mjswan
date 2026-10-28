@@ -12,7 +12,7 @@ function body(): { group: THREE.Group; mesh: THREE.Mesh; shared: THREE.MeshStand
 }
 
 describe('SeeThrough', () => {
-  it('draws every mesh see-through, over what is in front, unshadowed', () => {
+  it('draws every mesh see-through, last, over what is in front, unshadowed', () => {
     const { group, mesh, shared } = body();
     new SeeThrough().apply([group, undefined]);
     const materials = mesh.material as THREE.Material[];
@@ -25,12 +25,14 @@ describe('SeeThrough', () => {
       expect(material.depthWrite).toBe(false);
     }
     expect(mesh.castShadow).toBe(false);
+    expect(mesh.renderOrder).toBe(Number.MAX_SAFE_INTEGER);
     // Its own material is untouched: the scene cache may hand it to another load.
     expect(shared.transparent).toBe(false);
   });
 
   it('puts each mesh back as it was, applied twice or not', () => {
     const { group, mesh, shared } = body();
+    mesh.renderOrder = 3;
     const seeThrough = new SeeThrough();
     seeThrough.apply([group]);
     const copies = mesh.material as THREE.Material[];
@@ -39,6 +41,7 @@ describe('SeeThrough', () => {
     seeThrough.restore();
     expect(mesh.material).toEqual([shared, shared]);
     expect(mesh.castShadow).toBe(true);
+    expect(mesh.renderOrder).toBe(3);
     seeThrough.restore();
     expect(mesh.material).toEqual([shared, shared]);
   });
