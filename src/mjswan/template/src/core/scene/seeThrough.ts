@@ -5,6 +5,9 @@
 import * as THREE from 'three';
 
 const OPACITY = 0.4;
+// Drawn without a depth test, so it must come last: three sorts transparent meshes by
+// their origins' depth, and a splat is one mesh for all its points.
+const LAST = Number.MAX_SAFE_INTEGER;
 
 function seeThrough(material: THREE.Material): THREE.Material {
   const out = material.clone();
@@ -16,7 +19,7 @@ function seeThrough(material: THREE.Material): THREE.Material {
 }
 
 export class SeeThrough {
-  private readonly own = new Map<THREE.Mesh, { material: THREE.Material | THREE.Material[]; castShadow: boolean }>();
+  private readonly own = new Map<THREE.Mesh, Pick<THREE.Mesh, 'material' | 'castShadow' | 'renderOrder'>>();
 
   /** Every mesh under `objects` that is not see-through already. */
   apply(objects: Iterable<THREE.Object3D | undefined>): void {
@@ -24,19 +27,19 @@ export class SeeThrough {
       object?.traverse((child) => {
         const mesh = child as THREE.Mesh;
         if (!mesh.isMesh || this.own.has(mesh)) return;
-        this.own.set(mesh, { material: mesh.material, castShadow: mesh.castShadow });
+        this.own.set(mesh, { material: mesh.material, castShadow: mesh.castShadow, renderOrder: mesh.renderOrder });
         mesh.material = Array.isArray(mesh.material) ? mesh.material.map(seeThrough) : seeThrough(mesh.material);
         mesh.castShadow = false;
+        mesh.renderOrder = LAST;
       });
     }
   }
 
-  /** Every mesh back on its own materials. */
+  /** Every mesh back as it was. */
   restore(): void {
     for (const [mesh, own] of this.own) {
       for (const material of [mesh.material].flat()) material.dispose();
-      mesh.material = own.material;
-      mesh.castShadow = own.castShadow;
+      Object.assign(mesh, own);
     }
     this.own.clear();
   }
