@@ -33,7 +33,7 @@ function webLink(value: string | undefined) {
 /** A license file's text, fetched once the row shows it. */
 function useText(load: (() => Promise<string>) | undefined, wanted: boolean) {
   const [state, setState] = useState<{ load?: () => Promise<string>; text?: string; failed?: boolean }>({});
-  // Another scene's file under the same row is another text.
+  // A row React reuses for another scene's file must not keep showing the old text.
   const own = state.load === load ? state : {};
   const done = own.text !== undefined || !!own.failed;
   useEffect(() => {
@@ -102,7 +102,7 @@ function CreditRow({ title, mono, entry, suffix, onScreen, vrm }: {
   title: string;
   mono: boolean;
   entry: LicenseEntry;
-  /** `.<component>`, or nothing for the work's own files: names a text that fails to load. */
+  /** `.<component>`, or empty for the work's own files; names the file in a load error. */
   suffix: string;
   onScreen?: boolean;
   vrm?: CreditEntry['vrm'];
@@ -160,8 +160,7 @@ function CreditGroup({ label, children }: { label: string; children: ReactNode }
   );
 }
 
-/** The Credits tab: each row a component, its license at a glance, its NOTICE in full and
- * its license text on demand. */
+/** The Credits tab: per component its license, its NOTICE in full, its text on demand. */
 export function CreditsPanel({ scene, project, credits, work, skins, skin }: SceneCredits) {
   const components = credits.filter((c) => c.skin === undefined);
   const menuOrder = new Map(skins.map((s, i) => [s.id, i]));

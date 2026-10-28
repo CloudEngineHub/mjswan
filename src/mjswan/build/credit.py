@@ -1,6 +1,6 @@
-"""A scene's ``credits`` and a project's ``work``: the license files the build writes
-beside them (ADR 0007), listed because a static host lists no directory, and each skin's
-own terms. A file's text stays in the file; its entry names it and says what it is."""
+"""A scene's ``credits`` and a project's ``work``: the license files written beside them
+(ADR 0007), named in the manifest because a static host lists no directory. The texts
+stay in the files."""
 
 from __future__ import annotations
 
@@ -28,11 +28,9 @@ def _license_fields(name: str, data: bytes) -> dict[str, str]:
 
 
 def scene_credits(scene: SceneConfig) -> list[dict[str, Any]]:
-    """One entry per third-party component, its paths relative to the scene directory.
-
-    A ``skin-<id>`` component belongs to that skin. A VRM's terms come from its own
-    ``meta``, summarised for display; the file itself is bundled unmodified.
-    """
+    """One entry per third-party component, paths relative to the scene directory. A
+    ``skin-<id>`` component belongs to that skin; a VRM skin adds a summary of its
+    ``meta``."""
     skins = {f"skin-{skin.config.id}": skin for skin in scene.skins}
     entries: dict[str, dict[str, Any]] = {}
     for attribution in scene.attributions:
