@@ -151,6 +151,22 @@ describe('GeomPreview handles', () => {
     expect(changes.slice(0, -1).every(([, d]) => !d)).toBe(true);
   });
 
+  it('moves the geom along a world axis from its centre, its size and turn left alone', () => {
+    const { window, canvas, camera, preview } = stage();
+    let last: PreviewGeom | null = null;
+    preview.onChange((geom) => (last = geom));
+    preview.show({ ...BOX, quat: [Math.SQRT1_2, 0, 0, Math.SQRT1_2], handles: 'move' });
+
+    // On the z arrow, which starts at the centre: above the box, below its tip.
+    window.dispatchEvent(pointer('pointerdown', screenOf(camera, [0, 0, 0.25]), { target: canvas }));
+    window.dispatchEvent(pointer('pointermove', screenOf(camera, [0, 0, 0.4])));
+    window.dispatchEvent(pointer('pointerup', screenOf(camera, [0, 0, 0.4])));
+
+    expect(round(last!.pos)).toEqual([0, 0, 0.25]);
+    expect(last!.size).toEqual(BOX.size);
+    expect(round(last!.quat)).toEqual(round([Math.SQRT1_2, 0, 0, Math.SQRT1_2]));
+  });
+
   it('leaves a press anywhere else to the pointer modes and the camera', () => {
     const { window, canvas, camera, preview } = stage();
     const changes: unknown[] = [];

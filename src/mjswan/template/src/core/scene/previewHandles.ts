@@ -1,8 +1,8 @@
 /**
  * The handles a host can put on the preview (ADR 0011): arrows that resize it and rings that
- * turn it, along and about its own axes (x red, y green, z blue). They are drawn a fixed size
- * on screen and over everything else, as an editor's gizmo is, and the math of a drag on
- * them is here too, in MuJoCo's axes.
+ * turn it, along and about its own axes, and arrows that move it along the world's (x red,
+ * y green, z blue). They are drawn a fixed size on screen and over everything else, as an
+ * editor's gizmo is, and the math of a drag on them is here too, in MuJoCo's axes.
  */
 import * as THREE from 'three';
 
@@ -19,11 +19,17 @@ export interface PreviewGeom {
   rgba: number[];
 }
 
-export type HandleKind = 'size' | 'turn';
+export type HandleKind = 'size' | 'turn' | 'move';
 export type Axis = 0 | 1 | 2;
 
-/** The arrow along a local axis that drives one `size` entry, or the ring about an axis. */
-export type Handle = { kind: 'size'; axis: Axis; index: number } | { kind: 'turn'; axis: Axis };
+/**
+ * The arrow along a local axis that drives one `size` entry, the ring about a local axis, or
+ * the arrow along a world axis that moves it.
+ */
+export type Handle =
+  | { kind: 'size'; axis: Axis; index: number }
+  | { kind: 'turn'; axis: Axis }
+  | { kind: 'move'; axis: Axis };
 
 /** A half-size stops shrinking here, metres. */
 const MIN_HALF_SIZE = 0.005;
@@ -83,6 +89,11 @@ export function resized(geom: PreviewGeom, axis: Axis, index: number, distance: 
   return { ...geom, size, pos: geom.pos.map((v, i) => v + shift.getComponent(i)) };
 }
 
+/** The geom moved `distance` along a world axis. */
+export function moved(geom: PreviewGeom, axis: Axis, distance: number): PreviewGeom {
+  return { ...geom, pos: geom.pos.map((v, i) => (i === axis ? v + distance : v)) };
+}
+
 /** The geom turned `angle` radians about one of its own axes, through its centre. */
 export function turned(geom: PreviewGeom, axis: Axis, angle: number): PreviewGeom {
   const q = quaternionOf(geom.quat).multiply(new THREE.Quaternion().setFromAxisAngle(AXES[axis], angle));
@@ -122,7 +133,7 @@ export class PreviewHandles {
     readonly kind: HandleKind,
     readonly type: PrimitiveType
   ) {
-    if (kind === 'size') {
+    if (kind !== 'turn') {
       const tip = ARROW.gap + ARROW.length;
       const shaft = new THREE.CylinderGeometry(ARROW.shaft, ARROW.shaft, ARROW.length - ARROW.head, 8);
       shaft.translate(0, ARROW.gap + (ARROW.length - ARROW.head) / 2, 0);
@@ -131,9 +142,11 @@ export class PreviewHandles {
       const hit = new THREE.CylinderGeometry(ARROW.hit, ARROW.hit, tip, 8);
       hit.translate(0, tip / 2, 0);
       this.geometries.push(shaft, head, hit);
-      for (const { axis, index } of sizeArrows(type)) {
-        this.add({ kind, axis, index }, [shaft, head], hit);
-      }
+      const arrows: Handle[] =
+        kind === 'size'
+          ? sizeArrows(type).map(({ axis, index }) => ({ kind, axis, index }))
+          : ([0, 1, 2] as const).map((axis) => ({ kind, axis }));
+      for (const handle of arrows) this.add(handle, [shaft, head], hit);
     } else {
       const ring = new THREE.TorusGeometry(RING.radius, RING.tube, 6, 96);
       const hit = new THREE.TorusGeometry(RING.radius, RING.hit, 6, 48);
@@ -148,10 +161,14 @@ export class PreviewHandles {
     const centre = mjcToThreeCoordinate(geom.pos);
     for (const part of this.parts) {
       const { root, handle } = part;
-      const direction = mjcToThreeCoordinate(axisOf(geom.quat, handle.axis).toArray());
+      // A move goes along the world's axes, as the position it changes is written in them.
+      const along = handle.kind === 'move' ? AXES[handle.axis] : axisOf(geom.quat, handle.axis);
+      const direction = mjcToThreeCoordinate(along.toArray());
       root.scale.setScalar(worldPerPx);
-      if (handle.kind === 'size') {
-        root.position.copy(centre).addScaledVector(direction, extent(geom.type, geom.size, handle.axis));
+      if (handle.kind !== 'turn') {
+        // A size arrow starts on the face it drags, a move arrow at the centre it moves.
+        const from = handle.kind === 'size' ? extent(geom.type, geom.size, handle.axis) : 0;
+        root.position.copy(centre).addScaledVector(direction, from);
         root.quaternion.setFromUnitVectors(UP, direction);
         const sight = eye.clone().sub(root.position).normalize();
         root.visible = Math.abs(sight.dot(direction)) < EDGE_ON;

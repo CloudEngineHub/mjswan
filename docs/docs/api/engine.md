@@ -266,7 +266,7 @@ model's geoms are; calling it again moves and reshapes the one on show, and
 | `pos` | `[x, y, z]` | World position, MuJoCo axes. |
 | `quat` | `[w, x, y, z]` | Optional; the identity. |
 | `rgba` | `[r, g, b, a]` | Optional, 0 to 1 each; MuJoCo's geom grey. |
-| `handles` | `'size' \| 'turn'` | Optional; none. See [Editing a geom](#editing-a-geom). |
+| `handles` | `'size' \| 'turn' \| 'move'` | Optional; none. See [Editing a geom](#editing-a-geom). |
 | `replaces` | `number` | Optional: a geom of the model it stands in for. See [Editing a geom](#editing-a-geom). |
 
 An engine before this release has neither member, so a host checks `'pick' in engine` and
@@ -274,8 +274,8 @@ keeps a fallback.
 
 ### Editing a geom
 
-The preview can carry handles that the pointer drags, so a host resizes and turns a geom
-before anything is written to the model
+The preview can carry handles that the pointer drags, so a host resizes, turns and moves a
+geom before anything is written to the model
 ([ADR 0011](https://github.com/ttktjmt/mjswan/blob/main/docs/adr/0011-pick-and-preview.md)).
 
 - `handles: 'size'`: an arrow per spatial `size` entry, along the geom's own axes (x red,
@@ -283,6 +283,9 @@ before anything is written to the model
   stays, and so does the bottom where a radius sets the height too (a sphere, a capsule).
 - `handles: 'turn'`: a ring about each of the geom's own axes. Sweeping the pointer round
   the centre turns it about that axis; Shift snaps to 15 degrees.
+- `handles: 'move'` (0.12.6): an arrow along each of the world's axes, from the centre.
+  Dragging one moves the geom along it; its size and turn stay. An engine before 0.12.6
+  draws rings for it, so offer it by version.
 
 A press on a handle belongs to it until released; any other press orbits the camera or goes
 to the pointer mode, as before. Handles keep their size on screen and draw over the scene.

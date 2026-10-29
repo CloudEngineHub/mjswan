@@ -12,6 +12,7 @@ import {
   PreviewHandles,
   axisOf,
   extent,
+  moved,
   resized,
   turned,
   type Axis,
@@ -33,7 +34,7 @@ export interface PreviewInput {
   quat?: ArrayLike<number>;
   /** 0 to 1 each; MuJoCo's geom grey when absent. */
   rgba?: ArrayLike<number>;
-  /** Handles the pointer can drag: arrows that resize it, or rings that turn it. */
+  /** Handles the pointer can drag: arrows that resize it, rings that turn it, or arrows that move it. */
   handles?: HandleKind;
   /** A geom of the loaded model it stands in for, hidden while it shows. A scene load ends it. */
   replaces?: number;
@@ -47,7 +48,8 @@ const IDENTITY = [1, 0, 0, 0];
 const TURN_STEP = Math.PI / 12;
 
 type Drag = { pointerId: number; handle: Handle; start: PreviewGeom } & (
-  | { kind: 'size'; axis: Axis; index: number; base: THREE.Vector3; along: THREE.Vector3; from: number }
+  /** `index`: the `size` entry a size arrow drives, -1 for a move. */
+  | { kind: 'size' | 'move'; axis: Axis; index: number; base: THREE.Vector3; along: THREE.Vector3; from: number }
   /** `x`, `y`: the centre on screen; `swept`: the angle the pointer has gone round it. */
   | { kind: 'turn'; axis: Axis; x: number; y: number; last: number; swept: number; sign: number }
 );
@@ -240,6 +242,13 @@ export class GeomPreview {
       if (from === null) return null;
       return { pointerId, handle, start, kind: 'size', axis: handle.axis, index: handle.index, base, along, from };
     }
+    if (handle.kind === 'move') {
+      const along = new THREE.Vector3().setComponent(handle.axis, 1);
+      const base = new THREE.Vector3(...start.pos);
+      const from = this.along(base, along, event.clientX, event.clientY);
+      if (from === null) return null;
+      return { pointerId, handle, start, kind: 'move', axis: handle.axis, index: -1, base, along, from };
+    }
     const { x, y } = this.screenCentre(start);
     const centre = mjcToThreeCoordinate(start.pos);
     const axis = mjcToThreeCoordinate(axisOf(start.quat, handle.axis).toArray());
@@ -249,9 +258,12 @@ export class GeomPreview {
   }
 
   private dragTo(drag: Drag, event: PointerEvent): PreviewGeom | null {
-    if (drag.kind === 'size') {
+    if (drag.kind !== 'turn') {
       const to = this.along(drag.base, drag.along, event.clientX, event.clientY);
-      return to === null ? null : resized(drag.start, drag.axis, drag.index, to - drag.from);
+      if (to === null) return null;
+      return drag.kind === 'move'
+        ? moved(drag.start, drag.axis, to - drag.from)
+        : resized(drag.start, drag.axis, drag.index, to - drag.from);
     }
     const angle = Math.atan2(event.clientY - drag.y, event.clientX - drag.x);
     // Unwrapped step by step, so a drag past half a turn keeps going.

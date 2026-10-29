@@ -1,9 +1,10 @@
 # A pick and a preview for hosts
 
 > Status: **Accepted**. Adds `engine.pick` and `engine.preview` to the headless engine's API
-> (ADR 0004): both in 0.12.4, and in 0.12.5 the preview's handles, `onChange`, `hit` and
-> `replaces`, with the geom `pick` hit described. mjswan Cloud's Studio, which places and
-> edits primitive geoms by pointing at the scene, is the first host.
+> (ADR 0004): both in 0.12.4; in 0.12.5 the preview's handles, `onChange`, `hit` and
+> `replaces`, with the geom `pick` hit described; and in 0.12.6 the handles that move it.
+> mjswan Cloud's Studio, which places and edits primitive geoms by pointing at the scene, is
+> the first host.
 
 ## Context
 
@@ -69,7 +70,7 @@ It is parented to the three.js scene, as the mode gizmos are: a scene load keeps
 `camera.frame()` does not frame it, and the pointer modes skip it. It casts a shadow,
 which says where it would rest. It is live: the model is never touched.
 
-### 3. Handles on the preview: arrows that resize it, rings that turn it
+### 3. Handles on the preview: arrows that resize it, rings that turn it, arrows that move it
 
 From 0.12.5, `show` also takes `handles`:
 
@@ -85,6 +86,9 @@ From 0.12.5, `show` also takes `handles`:
 - **`'turn'`:** a ring about each of the geom's own axes. Sweeping the pointer round the
   geom's centre turns it by the angle swept, about that axis and through the centre.
   Shift snaps to 15 degrees.
+- **`'move'` (0.12.6):** an arrow along each of the world's axes, from the geom's centre.
+  Dragging one moves the geom along it with the pointer; its size and turn stay. The
+  world's axes, not the geom's, since the position it changes is written in them.
 
 Handles are drawn a fixed size on screen and over everything else, as an editor's gizmo is,
 and an arrow pointing at the eye (a dot) is hidden. A press on a handle is the handle's
@@ -116,12 +120,14 @@ geom id too, so it hides with the front.
 An engine before 0.12.4 has neither `pick` nor `preview`, so a host checks for `pick` and
 keeps a fallback of its own (Studio keeps its outline). One before 0.12.5 has no `hit` or
 `onChange`, ignores `handles` and `replaces`, and reports no geom fields in a `PickHit`.
+One before 0.12.6 draws rings for `handles: 'move'`, so a host offers moving by version.
 
 ## Not decided
 
 - A preview of a mesh geom, or of more than one geom at a time: `type` stays a primitive,
   so a host edits a mesh's colour without one.
-- Moving the preview by dragging it, and handles along the world's axes.
+- Moving the preview by dragging its body, and resizing or turning it along the world's
+  axes.
 - Picking, previewing and handles in an XR session.
 
 ## Consequences
