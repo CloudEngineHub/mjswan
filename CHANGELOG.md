@@ -14,6 +14,12 @@ shortcuts.
 
 ### Added
 
+- **`engine.pick` and `engine.preview`, for a host that places geoms by pointing** (ADR
+  0011). `pick(clientX, clientY)` casts MuJoCo's own ray from the camera through a point of
+  the canvas and returns the surface it meets (point and normal in MuJoCo axes, the geom
+  and its body), the floor's infinite plane included and anything only drawn left out.
+  `preview.show({ type, size, pos, quat?, rgba? })` draws one primitive geom over the scene,
+  never simulated, built as the model's geoms are; `preview.hide()` removes it.
 - **Credits in the viewer.** The About dialog (the control panel's logo, or the new `I`
   key, which works with the panel hidden) has a **Credits** tab listing the scene in
   view: each third-party component with its license, its `NOTICE` in full and the license

@@ -4,19 +4,22 @@ import { sampleCubeTexture } from './cubeMap';
 import { createLights, lightSpecularRatio } from './lights';
 import { createTexture, createSkyboxTexture } from './textures';
 import { createTendonMeshes } from './tendons';
+import { primitiveGeometry, primitiveScale } from './primitive';
 
 /** How a scene's model bytes are encoded: `add_scene(spec=...)` writes `mjz`, `model=` `mjb`. */
 export type ModelFormat = 'mjz' | 'mjb';
 
 export function reflectanceParams(
-  mjModel: MjModel,
+  mjModel: MjModel | null,
   matId: number,
   specularRatio = 1
 ): Pick<THREE.MeshPhysicalMaterialParameters, 'specularIntensity' | 'roughness' | 'metalness'> {
-  const specular = matId !== -1 ? (mjModel.mat_specular?.[matId] ?? 0.5) : 0.5;
-  const shininess = matId !== -1 ? (mjModel.mat_shininess?.[matId] ?? 0.5) : 0.5;
-  const metallic = matId !== -1 ? (mjModel.mat_metallic?.[matId] ?? -1) : -1;
-  const roughnessAttr = matId !== -1 ? (mjModel.mat_roughness?.[matId] ?? -1) : -1;
+  // No material, or no model (a geom drawn from outside it), takes MuJoCo's defaults.
+  const material = matId !== -1 ? mjModel : null;
+  const specular = material?.mat_specular?.[matId] ?? 0.5;
+  const shininess = material?.mat_shininess?.[matId] ?? 0.5;
+  const metallic = material?.mat_metallic?.[matId] ?? -1;
+  const roughnessAttr = material?.mat_roughness?.[matId] ?? -1;
 
   return {
     specularIntensity: specular * specularRatio,
@@ -285,34 +288,28 @@ export async function loadSceneFromURL(
           // Used as a full-screen clip-space quad by the infinite plane shader
           geometry = new THREE.PlaneGeometry(2, 2);
         } else {
-          geometry = new THREE.PlaneGeometry(size[0] * 2.0, size[1] * 2.0);
-          geometry.rotateX(-Math.PI / 2);
+          geometry = primitiveGeometry('plane', size);
         }
         break;
       }
       case mujoco.mjtGeom.mjGEOM_HFIELD.value:
         geometry = createHFieldGeometry(mjModel, g);
         break;
-      case mujoco.mjtGeom.mjGEOM_SPHERE.value: {
-        geometry = new THREE.SphereGeometry(size[0]);
+      case mujoco.mjtGeom.mjGEOM_SPHERE.value:
+        geometry = primitiveGeometry('sphere', size);
         break;
-      }
-      case mujoco.mjtGeom.mjGEOM_CAPSULE.value: {
-        geometry = new THREE.CapsuleGeometry(size[0], size[1] * 2.0, 20, 20);
+      case mujoco.mjtGeom.mjGEOM_CAPSULE.value:
+        geometry = primitiveGeometry('capsule', size);
         break;
-      }
-      case mujoco.mjtGeom.mjGEOM_ELLIPSOID.value: {
-        geometry = new THREE.SphereGeometry(1);
+      case mujoco.mjtGeom.mjGEOM_ELLIPSOID.value:
+        geometry = primitiveGeometry('ellipsoid', size);
         break;
-      }
-      case mujoco.mjtGeom.mjGEOM_CYLINDER.value: {
-        geometry = new THREE.CylinderGeometry(size[0], size[0], size[1] * 2.0);
+      case mujoco.mjtGeom.mjGEOM_CYLINDER.value:
+        geometry = primitiveGeometry('cylinder', size);
         break;
-      }
-      case mujoco.mjtGeom.mjGEOM_BOX.value: {
-        geometry = new THREE.BoxGeometry(size[0] * 2.0, size[2] * 2.0, size[1] * 2.0);
+      case mujoco.mjtGeom.mjGEOM_BOX.value:
+        geometry = primitiveGeometry('box', size);
         break;
-      }
       case mujoco.mjtGeom.mjGEOM_MESH.value: {
         const meshID = mjModel.geom_dataid[g];
 
@@ -408,7 +405,7 @@ export async function loadSceneFromURL(
       getQuaternion(mjModel.geom_quat, g, mesh.quaternion);
     }
     if (type === mujoco.mjtGeom.mjGEOM_ELLIPSOID.value) {
-      mesh.scale.set(size[0], size[2], size[1]);
+      primitiveScale('ellipsoid', size, mesh.scale);
     }
     if (isInfinitePlane) {
       const baseMat = currentMaterial;
