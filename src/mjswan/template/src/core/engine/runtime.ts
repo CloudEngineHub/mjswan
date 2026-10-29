@@ -18,7 +18,7 @@ import type { Skin } from '../skin/skin';
 import type { SkinConfig } from '../skin/config';
 import { InteractionManager, type InteractionSim } from '../interaction/InteractionManager';
 import { SurfacePicker, type PickHit } from '../interaction/pick';
-import { GeomPreview, type PreviewInput } from '../scene/preview';
+import { GeomPreview, type PreviewInput, type PreviewListener } from '../scene/preview';
 import type { InteractionModeId } from '../interaction/params';
 import { createTendonState, updateTendonGeometry, updateTendonRendering } from '../scene/tendons';
 import { lightSpecularRatio, updateHeadlightFromCamera, updateLightsFromData } from '../scene/lights';
@@ -518,7 +518,7 @@ export class mjswanRuntime {
     });
 
     this.passthrough = new Passthrough(this.scene);
-    this.preview = new GeomPreview(this.scene);
+    this.preview = new GeomPreview(this.scene, this.renderer.domElement, this.camera);
     this.picker = new SurfacePicker(mujoco);
     this.preXrCameraOffset = null;
     this.renderer.xr.addEventListener('sessionstart', this.onXrSessionStart);
@@ -747,6 +747,7 @@ export class mjswanRuntime {
       this.updateCachedState();
 
       this.interaction.onSceneLoaded();
+      this.preview.onSceneLoaded();
 
       this.loadingScene = null;
     })();
@@ -1269,6 +1270,14 @@ export class mjswanRuntime {
 
   hidePreview(): void {
     this.preview.hide();
+  }
+
+  previewHit(clientX: number, clientY: number): boolean {
+    return this.preview.hit(clientX, clientY);
+  }
+
+  onPreviewChange(listener: PreviewListener): () => void {
+    return this.preview.onChange(listener);
   }
 
   /** The surface under a point of the canvas, or null over nothing or before a scene loads. */
@@ -2351,6 +2360,7 @@ export class mjswanRuntime {
       }
     }
 
+    this.preview.update();
     this.renderer.render(this.scene, this.camera);
   };
 
@@ -2430,7 +2440,7 @@ export class mjswanRuntime {
     this.disposeSkin();
 
     this.interaction.dispose();
-    this.preview.hide();
+    this.preview.dispose();
     this.picker.dispose();
 
     this.releaseModel();
