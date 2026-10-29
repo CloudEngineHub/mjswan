@@ -89,6 +89,8 @@ call order, and `dispose` waits for the one running.
 | `events` | `EventControls` | `fire(name)` for a `manual` term, `setArmed(name, armed)` for an `interval` one. |
 | `interaction` | `InteractionControls` | `setMode(id)`, `getMode()`, `setParam(mode, name, value)`, `getParams(mode)`, `cancel()`. See [Pointer interaction](#pointer-interaction). |
 | `xr` | `XrControls` | `enter(id)`, `exit()`, `setHandTracking(enabled)`. See [WebXR](#webxr). |
+| `pick` | `(clientX, clientY) => PickHit \| null` | The surface under a point of the canvas. See [Placing a geom](#placing-a-geom). |
+| `preview` | `PreviewControls` | `show(input)`, `hide()`: a geom drawn and never simulated. See [Placing a geom](#placing-a-geom). |
 | `getState` | `() => MjswanEngineState` | Current snapshot. |
 | `subscribe` | `(listener) => () => void` | Returns an unsubscribe function. |
 | `captureThumbnail` | `(opts?: { maxDim?, quality? }) => Promise<Blob>` | JPEG of the current frame. |
@@ -223,6 +225,44 @@ namespace its elements would feed its traced graphs a wider input, the same rule
 withholds [Grab](#pointer-interaction) there. A scene loaded with a policy stays a policy
 scene after that policy is cleared, so the policy can come back to the model it was sized
 for. The switch stays as set, and applies again on a scene that can take the hands.
+
+### Placing a geom
+
+For a host that adds geoms by pointing at the scene, as mjswan Cloud's Studio does
+([ADR 0011](https://github.com/ttktjmt/mjswan/blob/main/docs/adr/0011-pick-and-preview.md)).
+
+`pick(clientX, clientY)` takes a pointer's client CSS pixels as a `PointerEvent` gives them,
+and casts MuJoCo's own ray (`mj_ray`) from the camera through that point. It returns the
+first geom the ray meets among the groups the viewer draws (0 to 2), or `null` over empty
+space and before a scene loads:
+
+```ts
+interface PickHit {
+  point: [number, number, number];   // MuJoCo world axes: x forward, y left, z up
+  normal: [number, number, number];  // the surface's, turned to face the camera
+  geom: number;
+  body: number;
+}
+```
+
+The floor counts, an infinite plane and a height field included. Nothing only drawn does: the
+mode gizmos, the preview, a skin or a splat.
+
+`preview.show(input)` draws one primitive geom that is not in the model, built as the
+model's geoms are; calling it again moves and reshapes the one on show, and
+`preview.hide()` removes it. It casts a shadow, survives a scene load, is not framed by
+`camera.frame()`, and neither the pointer modes nor `pick` hit it.
+
+| Field | Type | Notes |
+|---|---|---|
+| `type` | `'plane' \| 'sphere' \| 'capsule' \| 'ellipsoid' \| 'cylinder' \| 'box'` | MuJoCo's primitive types. A plane is a finite one. |
+| `size` | `number[]` | MuJoCo's `size` for the type. |
+| `pos` | `[x, y, z]` | World position, MuJoCo axes. |
+| `quat` | `[w, x, y, z]` | Optional; the identity. |
+| `rgba` | `[r, g, b, a]` | Optional, 0 to 1 each; MuJoCo's geom grey. |
+
+An engine before this release has neither member, so a host checks `'pick' in engine` and
+keeps a fallback.
 
 ### Inputs
 

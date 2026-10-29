@@ -17,9 +17,11 @@ import { SeeThrough } from '../scene/seeThrough';
 import type { Skin } from '../skin/skin';
 import type { SkinConfig } from '../skin/config';
 import { InteractionManager, type InteractionSim } from '../interaction/InteractionManager';
+import { SurfacePicker, type PickHit } from '../interaction/pick';
+import { GeomPreview, type PreviewInput } from '../scene/preview';
 import type { InteractionModeId } from '../interaction/params';
 import { createTendonState, updateTendonGeometry, updateTendonRendering } from '../scene/tendons';
-import { updateHeadlightFromCamera, updateLightsFromData } from '../scene/lights';
+import { lightSpecularRatio, updateHeadlightFromCamera, updateLightsFromData } from '../scene/lights';
 import { mjcToThreeCoordinate, threeToMjcCoordinate } from '../scene/coordinate';
 import { HandMocap, handWeldNames, injectHandMocapXml } from '../xr/handMocap';
 import { WeldHold } from '../grab/weldHold';
@@ -322,6 +324,9 @@ export class mjswanRuntime {
   /** A late async XR support check must not report after teardown. */
   private disposed = false;
   private readonly passthrough: Passthrough;
+  /** What a host shows before it adds a geom, and where it would go (ADR 0011). */
+  private readonly preview: GeomPreview;
+  private readonly picker: SurfacePicker;
   private readonly handMocap: HandMocap;
   /** The hand-tracking switch, applied at the next model build. */
   private handTrackingEnabled: boolean;
@@ -513,6 +518,8 @@ export class mjswanRuntime {
     });
 
     this.passthrough = new Passthrough(this.scene);
+    this.preview = new GeomPreview(this.scene);
+    this.picker = new SurfacePicker(mujoco);
     this.preXrCameraOffset = null;
     this.renderer.xr.addEventListener('sessionstart', this.onXrSessionStart);
     this.renderer.xr.addEventListener('sessionend', this.onXrSessionEnd);
@@ -1253,6 +1260,22 @@ export class mjswanRuntime {
     this.camera.position.copy(computeCameraPosition(lookat, distance, elevation, azimuth));
     this.controls.target.copy(mjcToThreeCoordinate(lookat));
     this.controls.update();
+  }
+
+  /** A geom drawn where a host would add one, never simulated; a scene load keeps it. */
+  showPreview(input: PreviewInput): void {
+    this.preview.show(input, this.mjModel ? lightSpecularRatio(this.mjModel) : 1);
+  }
+
+  hidePreview(): void {
+    this.preview.hide();
+  }
+
+  /** The surface under a point of the canvas, or null over nothing or before a scene loads. */
+  pickSurface(clientX: number, clientY: number): PickHit | null {
+    if (!this.mjModel || !this.mjData) return null;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    return this.picker.pick(this.mjModel, this.mjData, this.camera, rect, clientX, clientY);
   }
 
   /** Re-fit the camera to the current scene bounds, keeping azimuth/elevation. */
@@ -2407,6 +2430,8 @@ export class mjswanRuntime {
     this.disposeSkin();
 
     this.interaction.dispose();
+    this.preview.hide();
+    this.picker.dispose();
 
     this.releaseModel();
 

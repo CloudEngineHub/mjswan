@@ -10,9 +10,14 @@ import type { SplatTransform } from '../core/scene/splat';
 import type { ModelFormat } from '../core/scene/scene';
 import type { EnginePlugins } from '../core/plugins';
 import type { SkinConfig } from '../core/skin/config';
+import type { PrimitiveType } from '../core/scene/primitive';
+import type { PreviewInput } from '../core/scene/preview';
+import type { PickHit } from '../core/interaction/pick';
 
 // Bytes: asset bytes or a lazy loader. EnginePlugins: custom MDP terms, trusted-only.
 export type { Bytes, SplatTransform, ModelFormat, EnginePlugins, SkinConfig };
+// What a host previews and where it would go (ADR 0011).
+export type { PrimitiveType, PreviewInput, PickHit };
 
 export interface SplatInput {
   data: Bytes;            // .spz
@@ -224,6 +229,17 @@ export interface HandTrackingDescriptor {
   enabled: boolean;
 }
 
+/**
+ * One primitive geom drawn over the scene and never simulated: what a host shows where a
+ * geom would go before it adds one (ADR 0011). It is built as the model's geoms are, casts
+ * a shadow, and survives a scene load; neither the pointer modes nor `pick` hit it.
+ */
+export interface PreviewControls {
+  /** Draw it, or move and reshape the one on show. Live: the model is never touched. */
+  show(input: PreviewInput): void;
+  hide(): void;
+}
+
 export interface XrControls {
   /**
    * Start a session. Call it from the click that asks for one: the browser grants a session
@@ -300,6 +316,14 @@ export interface MjswanEngine {
   readonly events: EventControls;
   readonly interaction: InteractionControls;
   readonly xr: XrControls;
+  readonly preview: PreviewControls;
+
+  /**
+   * The surface under a point of the canvas, in client CSS pixels as a `PointerEvent`
+   * gives them, by MuJoCo's own ray (ADR 0011): what the simulation would hit, the floor
+   * included, and nothing only drawn. Null over empty space, or before a scene loads.
+   */
+  pick(clientX: number, clientY: number): PickHit | null;
 
   // state
   getState(): MjswanEngineState;

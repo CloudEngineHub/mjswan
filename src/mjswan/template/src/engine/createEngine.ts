@@ -29,7 +29,9 @@ import type {
   MjswanEngine,
   InteractionModeId,
   MjswanEngineState,
+  PickHit,
   PolicyInput,
+  PreviewControls,
   SceneInput,
   SkinInput,
   SplatInput,
@@ -117,6 +119,7 @@ class Engine implements MjswanEngine {
   readonly events: EventControls;
   readonly interaction: InteractionControls;
   readonly xr: XrControls;
+  readonly preview: PreviewControls;
 
   constructor(runtime: mjswanRuntime) {
     this.runtime = runtime;
@@ -182,6 +185,14 @@ class Engine implements MjswanEngine {
       exit: () => this.runtime.exitXr(),
       setHandTracking: (enabled) => this.runtime.setHandTracking(enabled),
     };
+    this.preview = {
+      show: (input) => this.runtime.showPreview(input),
+      hide: () => this.runtime.hidePreview(),
+    };
+  }
+
+  pick(clientX: number, clientY: number): PickHit | null {
+    return this.disposed ? null : this.runtime.pickSurface(clientX, clientY);
   }
 
   private onCommandEvent: CommandEventListener = () => this.refresh();
