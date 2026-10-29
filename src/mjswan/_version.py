@@ -1,3 +1,3 @@
 """The one definition of the package version; hatch reads it from here."""
 
-__version__ = "0.12.4"
+__version__ = "0.12.5"
