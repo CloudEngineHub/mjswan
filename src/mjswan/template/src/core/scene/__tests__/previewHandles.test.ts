@@ -1,7 +1,7 @@
 /** What a drag on the preview's handles does to the geom, in MuJoCo's axes. */
 import { describe, expect, it } from 'vitest';
 
-import { extent, resized, sizeArrows, turned, type PreviewGeom } from '../previewHandles';
+import { extent, moved, resized, sizeArrows, turned, type PreviewGeom } from '../previewHandles';
 
 const round = (v: number[]) => v.map((x) => Number(x.toFixed(6)) + 0);
 const geom = (over: Partial<PreviewGeom>): PreviewGeom => ({
@@ -69,6 +69,16 @@ describe('resized', () => {
     const next = resized(geom({ quat: QUARTER_ABOUT_Z }), 0, 0, 0.2);
     expect(round(next.size)).toEqual([0.2, 0.1, 0.1]);
     expect(round(next.pos)).toEqual([0, 0.1, 0.1]);
+  });
+});
+
+describe('moved', () => {
+  it('moves along a world axis, however the geom is turned, and changes nothing else', () => {
+    const start = geom({ quat: QUARTER_ABOUT_Z });
+    const next = moved(start, 1, 0.3);
+    expect(round(next.pos)).toEqual([0, 0.3, 0.1]);
+    expect(next.size).toEqual(start.size);
+    expect(next.quat).toEqual(start.quat);
   });
 });
 

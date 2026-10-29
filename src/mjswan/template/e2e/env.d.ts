@@ -16,4 +16,6 @@ interface Window {
     reset(): void;
     read(): { peakForce: number; welded: boolean };
   };
+  /** Gathered from `preview.onChange` by the preview spec. */
+  __changes?: { geom: { size: number[]; pos: number[]; quat: number[] }; done: boolean }[];
 }

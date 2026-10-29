@@ -242,8 +242,8 @@ export interface PreviewControls {
   /** Whether the preview or one of its handles is under a point of the canvas, in client CSS pixels. */
   hit(clientX: number, clientY: number): boolean;
   /**
-   * Called as the pointer drags a handle, with the preview as it now is, and once more with
-   * `done` when it lets go. Returns the unsubscribe.
+   * Called as the pointer drags a handle (a resize, a turn or a move), with the preview as
+   * it now is, and once more with `done` when it lets go. Returns the unsubscribe.
    */
   onChange(listener: (preview: PreviewGeom, done: boolean) => void): () => void;
 }

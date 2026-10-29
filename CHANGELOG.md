@@ -14,6 +14,10 @@ shortcuts.
 
 ### Added
 
+- **Handles that move the preview** (ADR 0011). `preview.show({ ..., handles: 'move' })`
+  draws an arrow along each of the world's axes from the geom's centre; dragging one moves
+  the geom along it, its size and turn left alone, and `preview.onChange` reports it as it
+  does a resize or a turn.
 - **Handles on the preview, and a pick that names the geom** (ADR 0011). `preview.show`
   takes `handles: 'size'`, arrows along the geom's own axes that resize it as they are
   dragged (the opposite face stays, and the bottom where a radius sets the height), or
