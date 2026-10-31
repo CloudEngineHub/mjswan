@@ -683,6 +683,8 @@ def add_motion(
     dataset_joint_names: list[str] | None = None,
     default: bool = False,
     loop: bool = True,
+    frame_fields: tuple[str, ...] | list[str] = (),
+    group: str | None = None,
 ) -> MotionHandle
 ```
 
@@ -700,9 +702,36 @@ Attach a bundled `.npz` reference motion to the policy (used by motion-tracking 
 | `dataset_joint_names` | `list[str] \| None` | `None` | Joint order in the dataset. Defaults to the policy's `policy_joint_names`. |
 | `default` | `bool` | `False` | Select this motion on load. |
 | `loop` | `bool` | `True` | Restart the clip when it ends. |
+| `frame_fields` | `tuple[str, ...] \| list[str]` | `()` | Names of extra arrays in the `.npz`, each shaped `[frames, ...]`, that the tracking command serves per frame. See below. |
+| `group` | `str \| None` | `None` | Heading the viewer's motion selector lists this motion under. Groups appear in the order their first motion was added, after any ungrouped motions. |
 
 Each distinct clip is written once per scene and shared by every policy that uses it, so
 the checkpoints of one run do not each get a copy.
+
+**Per-frame data.** A traced term reads a tracking command's state as
+`env.command_manager.get_term("motion").<field>`, and the browser's `TrackingCommand`
+computes a fixed set of fields from the clip (`anchor_pos_w`, `ref_joint_pos`,
+`body_pos_relative_w`, ...). Anything else that depends only on the clip and the frame,
+such as a motion encoder's latent, can travel with the clip instead: store it in the
+`.npz` as one row per frame and name it in `frame_fields`. The browser then serves the
+selected motion's row for the current reference frame, the frame every other field is
+read at: it advances with the clip, returns to the initial frame on a reset, wraps to
+the first frame with the clip when `loop` is on, and holds the last otherwise. The
+build checks that each named array exists and has as many rows as the clip has frames
+(`joint_pos`, or `qpos` for a `qpos` clip), and refuses a policy whose graphs read a
+field the command neither computes nor finds in the `frame_fields` of every one of the
+policy's motions.
+
+```python
+policy.add_motion(
+    name="Walk 1",
+    source="clips/walk_1.npz",  # joint_pos, ..., and latent: [frames, 32]
+    anchor_body_name="pelvis",
+    body_names=body_names,
+    frame_fields=["latent"],
+    group="Walk forward",
+)
+```
 
 **Returns:** `MotionHandle`
 
@@ -722,6 +751,8 @@ def add_motion_wandb(
     dataset_joint_names: list[str] | None = None,
     default: bool = False,
     loop: bool = True,
+    frame_fields: tuple[str, ...] | list[str] = (),
+    group: str | None = None,
 ) -> MotionHandle
 ```
 
@@ -754,6 +785,8 @@ def add_motion_hf(
     dataset_joint_names: list[str] | None = None,
     default: bool = False,
     loop: bool = True,
+    frame_fields: tuple[str, ...] | list[str] = (),
+    group: str | None = None,
 ) -> MotionHandle
 ```
 

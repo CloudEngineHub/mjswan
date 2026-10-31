@@ -68,7 +68,7 @@ const MANIFEST: Manifest = {
               mdp: 'mdp_0',
               onnx: 'policy/walk.onnx',
               policy_joint_names: ['a', 'b'],
-              motions: [{ name: 'clip', path: 'assets/walk_clip.npz', fps: 50, default: true }],
+              motions: [{ name: 'clip', path: 'assets/walk_clip.npz', fps: 50, default: true, group: 'Walk' }],
             },
             { id: 'run', name: 'run', mdp: 'mdp_1', onnx: 'policy/run.onnx', in_keys: ['obs'], out_keys: ['action'] },
           ],
@@ -87,7 +87,7 @@ describe('parseManifest', () => {
     expect(scene.splatSection).toBe(true);
     expect(scene.policies.map((p) => p.id)).toEqual(['walk', 'run']);
     expect(scene.policies[0].default).toBe(true);
-    expect(scene.policies[0].motions).toEqual([{ name: 'clip', default: true }]);
+    expect(scene.policies[0].motions).toEqual([{ name: 'clip', default: true, group: 'Walk' }]);
     expect(scene.splats[0]).toMatchObject({ id: 'room', name: 'Room', control: true, transform: { scale: 2, xOffset: 0.5 } });
     expect(scene.skins.map((s) => [s.id, s.name])).toEqual([
       ['sample_a', 'Sample A'],

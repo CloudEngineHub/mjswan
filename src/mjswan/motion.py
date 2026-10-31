@@ -48,6 +48,13 @@ class MotionConfig:
     time_source: Literal["wall", "sim"] = "wall"
     """Frame index source: ``wall`` uses render-loop ``dt``; ``sim`` uses ``mjData.time`` for pause/slow-motion accuracy."""
 
+    frame_fields: tuple[str, ...] = ()
+    """Extra ``.npz`` arrays, each ``[frames, ...]``, that the tracking command serves
+    row by row at the current reference frame, as ``{command, field}`` graph slots."""
+
+    group: str | None = None
+    """Heading the viewer's motion selector lists this motion under."""
+
     metadata: dict[str, Any] = field(default_factory=dict)
     """Additional metadata for future extensions."""
 
@@ -70,6 +77,10 @@ class MotionConfig:
             data["clip_format"] = self.clip_format
         if self.time_source != "wall":
             data["time_source"] = self.time_source
+        if self.frame_fields:
+            data["frame_fields"] = list(self.frame_fields)
+        if self.group is not None:
+            data["group"] = self.group
         if self.metadata:
             data["metadata"] = dict(self.metadata)
         return data

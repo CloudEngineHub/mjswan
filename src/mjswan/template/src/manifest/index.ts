@@ -62,6 +62,10 @@ export interface ManifestMotion {
   /** Scene-relative path of the bundled `.npz` (`assets/<name>.npz`). */
   path: string;
   default?: boolean;
+  /** Arrays of the `.npz`, one row per frame, the tracking command serves as state fields. */
+  frame_fields?: string[];
+  /** Heading the motion selector lists it under. */
+  group?: string;
   [key: string]: unknown;
 }
 /**
@@ -177,7 +181,7 @@ export interface PolicyEntry {
   id: string;
   name: string;
   default: boolean;
-  motions: Array<{ name: string; default: boolean }>;
+  motions: Array<{ name: string; default: boolean; group?: string }>;
   /** Assemble the engine PolicyInput: its manifest entry merged with its MDP, plus bytes. */
   build(): Promise<PolicyInput>;
 }
@@ -270,9 +274,9 @@ export function sanitizeName(name: string): string {
  * randomization is traced through, and a command graph's `reset_mask`, gated writes and
  * `root_velocity_b` write; 6 an action term's traced `process` and `reset` graphs, its
  * `interpolate`, `hold_s` and `delay`, the `joint_position_relative` type, and the
- * `action_term` input slot (ADR 0009); 7 a scene's `skins`.
+ * `action_term` input slot (ADR 0009); 7 a scene's `skins`; 8 a motion's `frame_fields`.
  */
-export const MAX_DOCUMENT_FORMAT = 7;
+export const MAX_DOCUMENT_FORMAT = 8;
 
 /**
  * Refuse a document this reader cannot read: one without a `format`, or one newer than it
@@ -437,7 +441,7 @@ function toSceneEntry(
     id: p.id,
     name: p.name,
     default: p.default ?? false,
-    motions: (p.motions ?? []).map((m) => ({ name: m.name, default: m.default ?? false })),
+    motions: (p.motions ?? []).map((m) => ({ name: m.name, default: m.default ?? false, group: m.group })),
     build: async () => buildPolicy(dir, scene, p, source),
   }));
 
