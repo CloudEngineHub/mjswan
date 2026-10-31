@@ -154,6 +154,33 @@ register_command(
 
 # --- MotionCommand (mjlab's tracking tasks) ---
 
+#: The fields ``TrackingCommand.getStateField`` serves itself. Any other field a graph
+#: reads off it comes from the selected motion's ``frame_fields``.
+TRACKING_STATE_FIELDS = frozenset(
+    {
+        "command",
+        "is_ready",
+        "ref_root_pos_w",
+        "ref_root_quat_w",
+        "ref_joint_pos",
+        "anchor_pos_w",
+        "anchor_quat_w",
+        "anchor_lin_vel_w",
+        "anchor_ang_vel_w",
+        "ref_base_height",
+        "ref_base_lin_vel_b",
+        "ref_base_ang_vel_b",
+        "ref_gravity_b",
+        "joint_pos",
+        "tracked_joint_pos",
+        "body_pos_w",
+        "robot_anchor_pos_w",
+        "robot_anchor_quat_w",
+        "robot_body_pos_w",
+        "body_pos_relative_w",
+    }
+)
+
 
 def serialize_motion_command(cfg: Any) -> dict[str, Any]:
     """Convert mjlab's ``MotionCommandCfg`` into browser tracking metadata."""
@@ -294,6 +321,7 @@ register_command(
 
 
 __all__ = [
+    "TRACKING_STATE_FIELDS",
     "motion_rsi_offset",
     "serialize_motion_command",
     "ui_command",

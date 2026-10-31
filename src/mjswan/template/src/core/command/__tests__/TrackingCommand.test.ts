@@ -4,8 +4,9 @@
  * `TrackingCommand` itself. This pins the one part of that which can be silently wrong: the
  * re-anchoring frame, mjlab's `update_relative_body_poses`.
  */
+import JSZip from 'jszip';
 import * as THREE from 'three';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { TrackingCommand, reanchorBodyPositions } from '../TrackingCommand';
 import type { CommandConfigEntry, CommandTermContext } from '../types';
@@ -236,5 +237,125 @@ describe('TrackingCommand frames', () => {
     expect(shafts()).toBe(3 * 4);
     term.updateDebugVisuals(false);
     expect(shafts()).toBe(0);
+  });
+});
+
+/** One float32 `.npy`, as `np.save` writes it. */
+function npy(shape: number[], values: number[]): Uint8Array {
+  const header = new TextEncoder().encode(
+    `{'descr': '<f4', 'fortran_order': False, 'shape': (${shape.join(', ')},), }\n`,
+  );
+  const out = new Uint8Array(10 + header.length + 4 * values.length);
+  const view = new DataView(out.buffer);
+  out.set([0x93, 0x4e, 0x55, 0x4d, 0x50, 0x59, 1, 0]);
+  view.setUint16(8, header.length, true);
+  out.set(header, 10);
+  values.forEach((value, i) => view.setFloat32(10 + header.length + 4 * i, value, true));
+  return out;
+}
+
+/** A body_world clip of `frames` frames whose `latent` row i is (10i, 10i + 1). */
+function clip(frames: number, extra: Record<string, Uint8Array> = {}): Promise<ArrayBuffer> {
+  const zip = new JSZip();
+  const zeros = (width: number) => npy([frames, width], new Array(frames * width).fill(0));
+  const frameIndex = Array.from({ length: frames }, (_, i) => i);
+  zip.file('joint_pos.npy', npy([frames, 1], frameIndex));
+  zip.file('joint_vel.npy', zeros(1));
+  zip.file('body_pos_w.npy', zeros(3));
+  zip.file('body_quat_w.npy', npy([frames, 4], frameIndex.flatMap(() => [1, 0, 0, 0])));
+  zip.file('body_lin_vel_w.npy', zeros(3));
+  zip.file('body_ang_vel_w.npy', zeros(3));
+  zip.file('latent.npy', npy([frames, 2], frameIndex.flatMap((i) => [10 * i, 10 * i + 1])));
+  for (const [name, bytes] of Object.entries(extra)) zip.file(`${name}.npy`, bytes);
+  return zip.generateAsync({ type: 'arraybuffer', compression: 'STORE' });
+}
+
+/**
+ * A motion's `frame_fields`: arrays of its own `.npz` a traced graph reads as
+ * `{command: "motion", field}` slots, at the frame the native fields are read at.
+ */
+describe('TrackingCommand frame fields', () => {
+  async function tracker(motions: Array<Record<string, unknown>>) {
+    const requestReset = vi.fn();
+    const context = {
+      mujoco: {},
+      mjModel: null,
+      mjData: null,
+      scene: new THREE.Scene(),
+      requestReset,
+    } as unknown as CommandTermContext;
+    const config = { name: 'TrackingCommand', motions } as unknown as CommandConfigEntry;
+    return { term: new TrackingCommand('motion', config, context), requestReset };
+  }
+  const walk = async (frames = 4) => ({
+    name: 'walk',
+    data: await clip(frames),
+    fps: 10,
+    anchor_body_name: 'pelvis',
+    body_names: ['pelvis'],
+    frame_fields: ['latent'],
+  });
+
+  it('serves the current frame after select, step, loop and reset', async () => {
+    const { term, requestReset } = await tracker([await walk()]);
+    expect(term.getStateField('latent')).toBeNull(); // Nothing selected yet.
+
+    await term.setSelectedMotion('walk');
+    close(term.getStateField('latent')!, [0, 1]);
+    term.update(0.1); // The step a reset lands on holds its frame.
+    close(term.getStateField('latent')!, [0, 1]);
+    term.update(0.1);
+    close(term.getStateField('latent')!, [10, 11]);
+    // The same frame as the native fields.
+    close(term.getStateField('joint_pos')!, [1]);
+
+    term.update(0.1);
+    term.update(0.1);
+    close(term.getStateField('latent')!, [30, 31]);
+    term.update(0.1); // Past the last frame: wraps and asks for an episode reset.
+    close(term.getStateField('latent')!, [0, 1]);
+    expect(requestReset).toHaveBeenCalledTimes(1);
+
+    term.update(0.1);
+    term.update(0.1);
+    close(term.getStateField('latent')!, [20, 21]);
+    term.reset();
+    close(term.getStateField('latent')!, [0, 1]);
+  });
+
+  it('hands out a copy, and null for a field no motion carries', async () => {
+    const { term } = await tracker([await walk()]);
+    await term.setSelectedMotion('walk');
+    term.getStateField('latent')!.fill(99);
+    close(term.getStateField('latent')!, [0, 1]);
+    expect(term.getStateField('phase')).toBeNull();
+  });
+
+  it("serves the selected motion's own rows", async () => {
+    const run = { ...(await walk()), name: 'run', data: await clip(2, { latent: npy([2, 2], [5, 6, 7, 8]) }) };
+    const { term } = await tracker([await walk(), run]);
+    await term.setSelectedMotion('run');
+    close(term.getStateField('latent')!, [5, 6]);
+    await term.setSelectedMotion('walk');
+    close(term.getStateField('latent')!, [0, 1]);
+  });
+
+  it('serves a qpos clip the same way', async () => {
+    const zip = new JSZip();
+    zip.file('qpos.npy', npy([3, 1], [0, 0, 0]));
+    zip.file('latent.npy', npy([3, 1], [4, 5, 6]));
+    const data = await zip.generateAsync({ type: 'arraybuffer', compression: 'STORE' });
+    const { term } = await tracker([
+      { ...(await walk()), data, clip_format: 'qpos' },
+    ]);
+    await term.setSelectedMotion('walk');
+    term.update(0.1);
+    term.update(0.1);
+    close(term.getStateField('latent')!, [5]);
+  });
+
+  it('refuses a clip missing a frame field it lists', async () => {
+    const { term } = await tracker([{ ...(await walk()), frame_fields: ['latent', 'phase'] }]);
+    await expect(term.setSelectedMotion('walk')).rejects.toThrow("missing frame field 'phase'");
   });
 });

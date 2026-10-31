@@ -300,7 +300,7 @@ policy.add_motion_hf(
 )
 ```
 
-`anchor_body_name` and `body_names` are required — they tell the browser-side tracker which bodies in the MuJoCo model correspond to the dataset. `default=True` marks the motion as the one selected on load; when multiple motions are attached the viewer shows a selector. See the API reference for the full parameter list.
+`anchor_body_name` and `body_names` are required: they tell the browser-side tracker which bodies in the MuJoCo model correspond to the dataset. `default=True` marks the motion as the one selected on load; when multiple motions are attached the viewer shows a selector, with `group=` listing a motion under a heading in it. See the API reference for the full parameter list, including `frame_fields` for per-frame data a policy reads alongside the clip.
 
 ## Licenses
 

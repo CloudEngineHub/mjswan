@@ -419,6 +419,8 @@ class PolicyHandle:
         dataset_joint_names: list[str] | None = None,
         default: bool = False,
         loop: bool = True,
+        frame_fields: tuple[str, ...] | list[str] = (),
+        group: str | None = None,
     ) -> MotionHandle:
         """Add a bundled ``.npz`` reference motion to this policy."""
         motion = MotionConfig(
@@ -438,6 +440,8 @@ class PolicyHandle:
             ),
             default=default,
             loop=loop,
+            frame_fields=tuple(frame_fields),
+            group=group,
         )
         return self._append_motion(motion)
 
@@ -455,6 +459,8 @@ class PolicyHandle:
         dataset_joint_names: list[str] | None = None,
         default: bool = False,
         loop: bool = True,
+        frame_fields: tuple[str, ...] | list[str] = (),
+        group: str | None = None,
     ) -> MotionHandle:
         """Download a motion artifact from W&B and attach it to this policy."""
         from . import source
@@ -483,6 +489,8 @@ class PolicyHandle:
             ),
             default=default,
             loop=loop,
+            frame_fields=tuple(frame_fields),
+            group=group,
         )
         return self._append_motion(motion)
 
@@ -501,6 +509,8 @@ class PolicyHandle:
         dataset_joint_names: list[str] | None = None,
         default: bool = False,
         loop: bool = True,
+        frame_fields: tuple[str, ...] | list[str] = (),
+        group: str | None = None,
     ) -> MotionHandle:
         """Download a ``.npz`` reference motion from the Hugging Face Hub.
 
@@ -520,6 +530,8 @@ class PolicyHandle:
             dataset_joint_names: Joint ordering in the clip. Defaults to the policy's.
             default: Select this motion when the policy loads.
             loop: Restart from the first frame after the last.
+            frame_fields: Extra arrays in the clip served per frame to traced graphs.
+            group: Heading the viewer's motion selector lists it under.
         """
         from . import source
 
@@ -547,6 +559,8 @@ class PolicyHandle:
             ),
             default=default,
             loop=loop,
+            frame_fields=tuple(frame_fields),
+            group=group,
         )
         return self._append_motion(motion)
 
