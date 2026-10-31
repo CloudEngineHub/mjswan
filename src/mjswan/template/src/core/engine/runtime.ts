@@ -8,7 +8,7 @@ import {
   loadSceneFromURL,
   type ModelFormat,
 } from '../scene/scene';
-import { loadMjzFile } from '../utils/mjzLoader';
+import { loadMjzFile, type ArchiveLimits } from '../utils/mjzLoader';
 import { type Bytes } from '../utils/bytes';
 import type { EnginePlugins } from '../plugins';
 import { type SplatTransform, type SplatMesh, loadSplat, disposeSplat, applySplatTransform } from '../scene/splat';
@@ -326,6 +326,8 @@ export class mjswanRuntime {
   private readonly passthrough: Passthrough;
   /** What a host shows before it adds a geom, and where it would go (ADR 0011). */
   private readonly preview: GeomPreview;
+  /** The host's rules for a `.mjz` it did not build; none for one it did. */
+  private readonly archive: ArchiveLimits | undefined;
   private readonly picker: SurfacePicker;
   private readonly handMocap: HandMocap;
   /** The hand-tracking switch, applied at the next model build. */
@@ -409,8 +411,10 @@ export class mjswanRuntime {
     container: HTMLElement,
     termSeed = DEFAULT_TERM_SEED,
     handTracking = false,
+    archive?: ArchiveLimits,
   ) {
     this.mujoco = mujoco;
+    this.archive = archive;
     this.container = container;
     this.termSeed = termSeed;
     this.commandManager = new CommandManager();
@@ -779,7 +783,7 @@ export class mjswanRuntime {
         this.injectedWithoutPolicy = false;
         this.modelHasHands = false;
       } else {
-        modelPath = await loadMjzFile(this.mujoco, model);
+        modelPath = await loadMjzFile(this.mujoco, model, this.archive);
         const text = readMjcfFile(this.mujoco, `/working/${modelPath}`);
         this.sceneXml = { file: modelPath, text };
         this.scenePrefixed = isEntityPrefixed(text);
