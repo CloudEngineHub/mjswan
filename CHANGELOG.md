@@ -21,6 +21,18 @@ shortcuts.
   inflates, not read from the archive's directory, and the name checked is the one the file
   is written under (its local header's, or the Unicode path in its directory record), so a
   forged directory does not get past it. Without the option, an archive unpacks as before.
+- **Per-frame data on a motion, and motion groups** (**document format 8**).
+  `add_motion(frame_fields=[...])` (and `add_motion_wandb` / `add_motion_hf`) names extra
+  arrays of the clip's `.npz`, each one row per frame, that the browser's
+  `TrackingCommand` serves as state fields of their own name at the current reference
+  frame, so a traced term can read data that depends only on the clip and the frame
+  (a motion encoder's latent, say) off `env.command_manager.get_term("motion")` like any
+  other field, and the viewer's motion selector picks the clip. The build checks each
+  array against the clip's frame count, and refuses a policy whose graphs read a field
+  the command neither computes nor finds in every one of its motions' `frame_fields`.
+  `group="..."` lists a motion under a heading in the selector; `PolicyEntry.motions`
+  carries it. A format-7 engine would serve no frame field and freeze the graph reading
+  one.
 - **Handles that move the preview** (ADR 0011). `preview.show({ ..., handles: 'move' })`
   draws an arrow along each of the world's axes from the geom's centre; dragging one moves
   the geom along it, its size and turn left alone, and `preview.onChange` reports it as it

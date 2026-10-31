@@ -235,16 +235,12 @@ def write_app(
                         policy.model,
                         str(scene_dir / "policy" / f"{policy.id}.onnx"),
                     )
-                    mdp_id = scene.mdp_id(policy.mdp)
                     policy_entries.append(
                         policy_entry(
                             policy,
-                            mdp_id,
+                            mdp_entry_by_id[scene.mdp_id(policy.mdp)],
                             sidecars[policy.id],
                             motion_files,
-                            obs_keys=list(
-                                mdp_entry_by_id[mdp_id].get("observations") or {}
-                            ),
                         )
                     )
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MantineProvider } from '@mantine/core';
-import ControlPanel from './ControlPanel';
+import ControlPanel, { motionOptions } from './ControlPanel';
 import { theme } from './AppTheme';
 import { LoadingProvider, useLoading } from './contexts/LoadingContext';
 import { Loader } from './components/Loader';
@@ -400,7 +400,7 @@ function AppContent() {
             policies={options(sceneEntry.policies)}
             policyValue={policyName}
             onPolicyChange={handlePolicyChange}
-            motions={options(sceneEntry.policies.find((p) => p.name === policyName)?.motions ?? [])}
+            motions={motionOptions(sceneEntry.policies.find((p) => p.name === policyName)?.motions ?? [])}
             motionValue={motionName}
             onMotionChange={handleMotionChange}
             skins={options(sceneEntry.skins)}

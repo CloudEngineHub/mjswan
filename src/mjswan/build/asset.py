@@ -4,12 +4,16 @@ its skins."""
 from __future__ import annotations
 
 import hashlib
+import io
 import shutil
 import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
+
 from ..document.ids import name2id, unique_id
+from ..envs.mdp.commands import TRACKING_STATE_FIELDS
 
 if TYPE_CHECKING:
     from ..scene import SceneConfig
@@ -33,6 +37,41 @@ def _resolve_motion_source(source: str) -> Path:
     return src if src.is_absolute() else (Path.cwd() / src).resolve()
 
 
+def check_frame_fields(motion: Any) -> None:
+    """Refuse a clip whose ``frame_fields`` the browser could not serve frame by frame."""
+    payload = motion.data
+    if payload is None and motion.source is not None:
+        src = _resolve_motion_source(motion.source)
+        payload = src.read_bytes() if src.is_file() else None
+    if payload is None:
+        return  # a missing file is warned about where it is copied
+    clip = "qpos" if motion.clip_format == "qpos" else "joint_pos"
+    with np.load(io.BytesIO(payload)) as npz:
+        if clip not in npz:
+            raise ValueError(
+                f"Motion {motion.name!r} lists frame_fields, but its .npz has no "
+                f"{clip!r} array to count its frames by."
+            )
+        frames = npz[clip].shape[0]
+        for name in motion.frame_fields:
+            if name in TRACKING_STATE_FIELDS:
+                raise ValueError(
+                    f"Motion {motion.name!r}: frame field {name!r} is a field the "
+                    "tracking command serves itself; rename the array."
+                )
+            if name not in npz:
+                raise ValueError(
+                    f"Motion {motion.name!r}: frame field {name!r} is not an array "
+                    f"in its .npz, which has {sorted(npz.files)}."
+                )
+            if npz[name].shape[:1] != (frames,):
+                raise ValueError(
+                    f"Motion {motion.name!r}: frame field {name!r} has shape "
+                    f"{npz[name].shape}; it needs one row per frame, {frames} as "
+                    f"{clip!r} has."
+                )
+
+
 def write_scene_motions(scene: SceneConfig, scene_dir: Path) -> dict[str, str]:
     """Write each distinct clip in the scene once; return content key -> filename.
 
@@ -44,6 +83,8 @@ def write_scene_motions(scene: SceneConfig, scene_dir: Path) -> dict[str, str]:
     used: set[str] = set()
     for policy in scene.policies:
         for motion in policy.motions:
+            if motion.frame_fields:
+                check_frame_fields(motion)
             key = motion_key(motion)
             if key in files:
                 continue
@@ -115,6 +156,7 @@ def write_scene_skins(scene: SceneConfig, scene_assets_dir: Path) -> None:
 
 
 __all__ = [
+    "check_frame_fields",
     "motion_key",
     "point_env_cfg_at_bundled_motion",
     "write_scene_motions",

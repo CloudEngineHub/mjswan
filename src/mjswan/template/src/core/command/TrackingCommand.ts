@@ -20,6 +20,8 @@ export type TrackingMotionConfig = {
   loop?: boolean;
   clip_format?: 'body_world' | 'qpos';
   time_source?: 'wall' | 'sim';
+  /** Arrays of the `.npz`, one row per frame, served as state fields of their own name. */
+  frame_fields?: string[];
 };
 
 type LoadedTrackingMotion = TrackingMotionConfig & {
@@ -30,6 +32,7 @@ type LoadedTrackingMotion = TrackingMotionConfig & {
   bodyLinVelW: Float32Array[];
   bodyAngVelW: Float32Array[];
   qposFrames?: Float32Array[];
+  frameFields: Map<string, Float32Array[]>;
   frameCount: number;
 };
 
@@ -466,6 +469,8 @@ export class TrackingCommand implements CommandTerm {
    * The `ref_*` fields and `is_ready` are the look-ahead window, which mjlab has no
    * equivalent of: each is the `time_steps` offsets' frames concatenated, and the
    * traced term slices out the ones it wants.
+   *
+   * Any other field is one of the selected motion's `frame_fields`, at the current frame.
    */
   getStateField(field: string): Float32Array | null {
     switch (field) {
@@ -520,7 +525,7 @@ export class TrackingCommand implements CommandTerm {
       case 'body_pos_relative_w':
         return this.bodyPosRelativeW();
       default:
-        return null;
+        return this.selectedMotion?.frameFields.get(field)?.[this.refIdx]?.slice() ?? null;
     }
   }
 
@@ -650,6 +655,14 @@ export class TrackingCommand implements CommandTerm {
     this.sampleHz = config.fps;
     const npz = await loadNpz(await resolveBytes(config.data));
     const empty: Float32Array[] = [];
+    const frameFields = new Map<string, Float32Array[]>();
+    for (const name of config.frame_fields ?? []) {
+      const entry = npz[name];
+      if (!entry) {
+        throw new Error(`Motion asset is missing frame field '${name}'`);
+      }
+      frameFields.set(name, splitFrames(entry));
+    }
 
     if (config.clip_format === 'qpos') {
       if (!npz['qpos']) {
@@ -665,6 +678,7 @@ export class TrackingCommand implements CommandTerm {
         bodyLinVelW: empty,
         bodyAngVelW: empty,
         qposFrames,
+        frameFields,
         frameCount: qposFrames.length,
       };
     }
@@ -682,7 +696,7 @@ export class TrackingCommand implements CommandTerm {
     const bodyQuatW = this.selectMotionBodyFrames(splitFrames(npz['body_quat_w']!), config.body_names, 4, sourceBodyNames);
     const bodyLinVelW = this.selectMotionBodyFrames(splitFrames(npz['body_lin_vel_w']!), config.body_names, 3, sourceBodyNames);
     const bodyAngVelW = this.selectMotionBodyFrames(splitFrames(npz['body_ang_vel_w']!), config.body_names, 3, sourceBodyNames);
-    return { ...config, jointPos, jointVel, bodyPosW, bodyQuatW, bodyLinVelW, bodyAngVelW, frameCount: jointPos.length };
+    return { ...config, jointPos, jointVel, bodyPosW, bodyQuatW, bodyLinVelW, bodyAngVelW, frameFields, frameCount: jointPos.length };
   }
 
   private selectMotionBodyFrames(

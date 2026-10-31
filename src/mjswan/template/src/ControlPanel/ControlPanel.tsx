@@ -14,6 +14,7 @@ import {
   Tabs,
   Text,
   Tooltip,
+  type ComboboxData,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { IconChevronDown, IconRefresh, IconSquareX, IconX } from '@tabler/icons-react';
@@ -75,7 +76,7 @@ interface ControlPanelProps {
   policies: SelectOption[];
   policyValue: string | null;
   onPolicyChange: (value: string | null) => void;
-  motions: SelectOption[];
+  motions: ComboboxData;
   motionValue: string | null;
   onMotionChange: (value: string | null) => void;
   skins: SelectOption[];

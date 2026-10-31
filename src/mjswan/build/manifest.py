@@ -11,7 +11,7 @@ from __future__ import annotations
 import contextlib
 import json
 import warnings
-from collections.abc import Callable
+from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -19,6 +19,7 @@ from .._version import __version__
 from ..document import DOCUMENT_FORMAT
 from ..document.manifest import DEFAULT_IN_KEYS, DEFAULT_OUT_KEYS, RUNTIME_INPUT_SLOTS
 from ..envs.mdp.actions import TracedActionCfg
+from ..envs.mdp.commands import TRACKING_STATE_FIELDS
 from ..mjlab.env import mdp_commands, policy_actions
 from ..mjlab.gui import record_scene_gui
 from ..viewer import ViewerConfig
@@ -254,29 +255,28 @@ def _serialize_reading_actions(
 
 def policy_entry(
     policy: PolicyConfig,
-    mdp_id: str,
+    mdp: Mapping[str, Any],
     sidecar: dict[str, Any],
     motion_files: dict[str, str],
-    *,
-    obs_keys: list[str],
 ) -> dict[str, Any]:
     """One policy's manifest entry: the checkpoint's own metadata plus its MDP ref.
 
     The sidecar's keys pass through except the MDP sections, which
-    :func:`mdp_entry` merges; Python-side fields win over it. ``obs_keys`` are
-    the MDP entry's observation groups, which the slot table is checked against. A
-    table equal to the runtime's default is omitted (ADR 0006 §5).
+    :func:`mdp_entry` merges; Python-side fields win over it. ``mdp`` is the MDP's
+    entry, which the slot table and the motions are checked against. A table equal to
+    the runtime's default is omitted (ADR 0006 §5).
     """
+    _check_motion_fields(policy, mdp)
     entry: dict = {
         "id": policy.id,
         "name": policy.name,
         **({"default": True} if policy.default else {}),
-        "mdp": mdp_id,
+        "mdp": mdp["id"],
         "onnx": f"policy/{policy.id}.onnx",
     }
     skip = {*MDP_SIDECAR_KEYS, "id", "name", "mdp", "default", "motions"}
     entry.update({k: v for k, v in sidecar.items() if k not in skip})
-    in_keys = _input_slots(policy, obs_keys)
+    in_keys = _input_slots(policy, list(mdp.get("observations") or {}))
     if in_keys != list(DEFAULT_IN_KEYS):
         entry["in_keys"] = in_keys
     if policy.out_keys is not None and policy.out_keys != list(DEFAULT_OUT_KEYS):
@@ -305,6 +305,45 @@ def policy_entry(
             for motion in policy.motions
         ]
     return entry
+
+
+def _check_motion_fields(policy: PolicyConfig, mdp: Mapping[str, Any]) -> None:
+    """Refuse a graph reading a tracking command field no motion of the policy serves.
+
+    ``TrackingCommand`` answers a field it neither computes nor finds in the selected
+    motion's ``frame_fields`` with nothing, and the graph then holds a stale value.
+    """
+    tracking = {
+        name
+        for name, command in (mdp.get("commands") or {}).items()
+        if command.get("name") == "TrackingCommand"
+    }
+    read = {
+        slot["field"]
+        for slot in _graph_slots(mdp)
+        if slot.get("command") in tracking and "field" in slot
+    }
+    for field in sorted(read - TRACKING_STATE_FIELDS):
+        lacking = [m.name for m in policy.motions if field not in m.frame_fields]
+        if lacking or not policy.motions:
+            whose = f"motions {lacking} do not" if lacking else "no motion does"
+            raise ValueError(
+                f"Policy {policy.name!r} has a graph reading tracking command field "
+                f"{field!r}, which the browser serves only from a motion's "
+                f"frame_fields, and {whose} list it. Give each motion a {field!r} "
+                f"array, one row per frame, and add_motion(frame_fields=[{field!r}])."
+            )
+
+
+def _graph_slots(node: Any) -> Iterator[dict[str, Any]]:
+    """Every graph input slot in an MDP entry, however deep its graph sits."""
+    if isinstance(node, Mapping):
+        yield from node.get("input_slots") or ()
+        for value in node.values():
+            yield from _graph_slots(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _graph_slots(value)
 
 
 def _input_slots(policy: PolicyConfig, obs_keys: list[str]) -> list[str]:
