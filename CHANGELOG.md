@@ -14,6 +14,13 @@ shortcuts.
 
 ### Added
 
+- **`createEngine(element, { archive })`, for a host that renders `.mjz` archives it did not
+  build.** `archive: { maxEntries, maxInflatedBytes, extensions }` refuses an archive before
+  MuJoCo compiles it when it holds more files, inflates to more bytes, or holds a file whose
+  name is not a safe path ending in one of `extensions`. The bytes are counted as each file
+  inflates, not read from the archive's directory, and the name checked is the one the file
+  is written under (its local header's, or the Unicode path in its directory record), so a
+  forged directory does not get past it. Without the option, an archive unpacks as before.
 - **Handles that move the preview** (ADR 0011). `preview.show({ ..., handles: 'move' })`
   draws an arrow along each of the world's axes from the geom's centre; dragging one moves
   the geom along it, its size and turn left alone, and `preview.onChange` reports it as it

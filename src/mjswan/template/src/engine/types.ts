@@ -6,6 +6,9 @@
 import type { CameraView, ViewerConfig } from '../core/engine/viewer_config';
 import type { TerrainData } from '../core/event/EventBase';
 import type { Bytes } from '../core/utils/bytes';
+import type { ArchiveLimits } from '../core/utils/mjzLoader';
+
+export type { ArchiveLimits };
 import type { SplatTransform } from '../core/scene/splat';
 import type { ModelFormat } from '../core/scene/scene';
 import type { EnginePlugins } from '../core/plugins';
@@ -299,6 +302,11 @@ export interface CreateEngineOptions {
   termSeed?: number;
   /** The hand-tracking switch's starting state ({@link XrControls.setHandTracking}). Default false. */
   handTracking?: boolean;
+  /**
+   * What a `.mjz` may hold, checked as it unpacks rather than read from its directory: a
+   * host that renders archives it did not build passes its own upload rules. Default none.
+   */
+  archive?: ArchiveLimits;
 }
 
 /** A headless, instance-scoped simulation engine. Create with {@link createEngine}. */
