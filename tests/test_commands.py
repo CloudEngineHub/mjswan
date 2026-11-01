@@ -247,6 +247,26 @@ class TestMotionGhost:
         assert data["ghost_color"] == list(motion.viz.ghost_color)
 
 
+class TestMotionResetFrame:
+    """Which frame a reset's first step observes: mjlab's one past it, unless held."""
+
+    def test_mjlabs_command_leaves_it_out(self):
+        from mjswan.envs.mdp.commands import serialize_motion_command
+
+        class MotionCommandCfg:
+            anchor_body_name = "torso_link"
+
+        assert "hold_reset_frame" not in serialize_motion_command(MotionCommandCfg())
+
+    def test_a_cfg_that_holds_the_frame_says_so(self):
+        from mjswan.envs.mdp.commands import serialize_motion_command
+
+        class MotionCommandCfg:
+            hold_reset_frame = True
+
+        assert serialize_motion_command(MotionCommandCfg())["hold_reset_frame"] is True
+
+
 class TestVelocityViz:
     """The drawing restated from mjlab's `_debug_vis_impl`, pinned against its source.
 

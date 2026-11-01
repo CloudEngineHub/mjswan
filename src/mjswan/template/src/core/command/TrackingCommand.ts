@@ -137,7 +137,10 @@ export class TrackingCommand implements CommandTerm {
   private selectedRootBodyIndex: number;
   private datasetQposAdr: number[];
   private frameAccumulator: number;
-  private justReset: boolean;
+  /** Upstream SuperMimic's command: a reset's first step observes the frame it wrote. */
+  private readonly holdResetFrame: boolean;
+  /** The pending reset is a clip's wrap. */
+  private looped: boolean;
   /** mjlab's `_debug_vis_enabled`. */
   private debugVisOn: boolean;
   private readonly samplingMode: string;
@@ -170,7 +173,8 @@ export class TrackingCommand implements CommandTerm {
     this.selectedRootBodyIndex = 0;
     this.datasetQposAdr = [];
     this.frameAccumulator = 0.0;
-    this.justReset = true;
+    this.holdResetFrame = config.hold_reset_frame === true;
+    this.looped = false;
     this.debugVisOn = true;
     this.samplingMode = typeof config.sampling_mode === 'string' ? config.sampling_mode : 'start';
     this.timeSteps = Array.isArray(config.time_steps)
@@ -253,32 +257,38 @@ export class TrackingCommand implements CommandTerm {
     this.datasetQposAdr = this.resolveQposAdr(loaded.dataset_joint_names ?? []);
     this.refLen = loaded.frameCount;
     this.refJointPos = loaded.jointPos;
-    this.refIdx = this.sampleInitialFrame(this.refLen);
     this.nJoints = loaded.jointPos[0]?.length ?? 0;
-    this.frameAccumulator = 0.0;
-    this.justReset = true;
+    this.looped = false;
     this.updateReferenceState();
-    this.applyReferenceStateToSim();
-    this.updateGhostPose();
+    this.startEpisode();
     return true;
   }
 
   reset(): void {
+    this.updateReferenceState();
+    this.startEpisode();
+  }
+
+  /**
+   * mjlab's resample, which writes the start frame into the sim, then the `dt` 0 compute
+   * it runs after every reset, which steps one frame past it. A wrap's reset does not
+   * (mjlab resamples a wrap after that step's increment), nor does a command that holds
+   * the frame it wrote; a `sim` clock sets the frame itself.
+   */
+  private startEpisode(): void {
     this.refIdx = this.sampleInitialFrame(this.refLen);
     this.frameAccumulator = 0.0;
-    this.justReset = true;
-    this.updateReferenceState();
     this.applyReferenceStateToSim();
+    const steps =
+      !this.looped && !this.holdResetFrame && this.selectedMotion?.time_source !== 'sim';
+    if (steps && this.refIdx + 1 < this.refLen) this.refIdx += 1;
+    this.looped = false;
     this.updateGhostPose();
   }
 
-  update(dt: number): void {
-    if (!this.selectedMotion || this.refLen <= 1) {
-      return;
-    }
-    if (this.justReset) {
-      this.justReset = false;
-      this.updateGhostPose();
+  update(dt: number, afterReset = false): void {
+    // `reset()` already ran the `dt` 0 update mjlab gives a reset env.
+    if (afterReset || !this.selectedMotion || this.refLen <= 1) {
       return;
     }
     if (this.selectedMotion.time_source === 'sim') {
@@ -303,8 +313,9 @@ export class TrackingCommand implements CommandTerm {
       }
       this.frameAccumulator -= 1.0;
     }
-    if (motionLooped) {
-      this.context.requestReset?.();
+    if (motionLooped && this.context.requestReset) {
+      this.looped = true;
+      this.context.requestReset();
     }
     this.updateGhostPose();
   }
@@ -794,12 +805,15 @@ export class TrackingCommand implements CommandTerm {
       const linVel = this.sampleRootVelocity(this.refIdx, this.refBodyLinVelW);
       const angVel = this.sampleRootAngularVelocity(this.refIdx);
       if (linVel && angVel) {
+        // A free joint's qvel holds its angular velocity in the body's frame, as
+        // `writeRootVelocity` and mjlab's `write_root_velocity` write it; the clip's is the world's.
+        const angVelB = quatApplyInv(rootQuat, angVel);
         mjData.qvel[qvelAdr + 0] = linVel[0] ?? 0.0;
         mjData.qvel[qvelAdr + 1] = linVel[1] ?? 0.0;
         mjData.qvel[qvelAdr + 2] = linVel[2] ?? 0.0;
-        mjData.qvel[qvelAdr + 3] = angVel[0] ?? 0.0;
-        mjData.qvel[qvelAdr + 4] = angVel[1] ?? 0.0;
-        mjData.qvel[qvelAdr + 5] = angVel[2] ?? 0.0;
+        mjData.qvel[qvelAdr + 3] = angVelB[0];
+        mjData.qvel[qvelAdr + 4] = angVelB[1];
+        mjData.qvel[qvelAdr + 5] = angVelB[2];
       }
     }
 
