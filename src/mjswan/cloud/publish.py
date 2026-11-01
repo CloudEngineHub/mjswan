@@ -316,7 +316,7 @@ def plan_publish(dist_dir: Path) -> PublishPlan:
         if path.parent == dist_dir / "assets":
             continue  # the SPA's own directory: bundle metadata, not the document
         rel = path.relative_to(dist_dir).as_posix()
-        # The root LICENSE is the engine's, not the work's, and is not admitted.
+        # The root LICENSE and NOTICE are the engine's, not the work's, and are not admitted.
         if is_license_file_path(rel):
             _check_safe_path(rel)
             size = path.stat().st_size

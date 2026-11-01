@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Anchor, Badge, Box, Button, Group, Stack, Text } from '@mantine/core';
 import type { CreditEntry, LicenseEntry } from '../manifest';
 import { MJSWAN_VERSION } from '../Version';
+import NOTICE from '../../NOTICE?raw';
 
 const BASE = import.meta.env.BASE_URL || '/';
 
@@ -13,6 +14,8 @@ const ENGINE: LicenseEntry = {
     if (!response.ok) throw new Error(`LICENSE: ${response.status}`);
     return response.text();
   },
+  // Bundled, so the dialog keeps it even where the root file is missing.
+  notice: async () => NOTICE,
 };
 
 /** The Credits tab's scene part: the scene in view, its skins, the work. */

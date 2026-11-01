@@ -401,6 +401,10 @@ shortcuts.
   type fails the build, naming the geoms and their types; mjlab raises the same refusal,
   but at the first firing.
 - The `mjlab-to-mjswan` agent skill ([skills/mjlab-to-mjswan/](skills/mjlab-to-mjswan/)), published from this repo as the `mjswan` Claude Code plugin (`/mjswan:mjlab-to-mjswan`): it ports one mjlab task from any repo into a browser app.
+- **A `NOTICE` file**, which every build places beside `LICENSE` and the About dialog's
+  Credits tab shows under mjswan. The license stays Apache-2.0; the README now asks
+  commercial use and company pages to keep the swan icon in the control panel and the
+  dialog it opens.
 
 ### Changed
 

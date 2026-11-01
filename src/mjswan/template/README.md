@@ -119,6 +119,7 @@ for when a term needs one, and how a binding's `ts_src` names the file.
 
 ## License
 
-Apache-2.0
+Apache-2.0. For commercial use, please keep the attribution described in the
+[repository README](https://github.com/ttktjmt/mjswan#license).
 
 The packages bundled into `dist/` keep their own licenses, collected in `dist/THIRD_PARTY_LICENSES.md`.

@@ -1,7 +1,7 @@
 """Where a license file may sit in a build, and how big it may be (ADR 0007 §1).
 
-Files sit under a project directory, never at the build root, whose ``LICENSE`` is the
-engine's:
+Files sit under a project directory, never at the build root, whose ``LICENSE`` and
+``NOTICE`` are the engine's:
 
 - ``<project-id>/LICENSE`` and ``NOTICE``: the work's;
 - ``<project-id>/<scene-id>/LICENSE.<component>`` / ``NOTICE.<component>``: one
@@ -75,7 +75,7 @@ def license_path_problem(path: str) -> str | None:
     if depth == 1:
         return (
             "LICENSE and NOTICE belong in the project directory, not at the build "
-            "root, which holds the engine's own LICENSE"
+            "root, which holds the engine's own LICENSE and NOTICE"
         )
     if depth == 2:
         return "a project-level license file is LICENSE or NOTICE, without a component suffix"

@@ -47,10 +47,10 @@ def install_spa(dest: Path, template_dir: Path | None = None) -> bool:
             shutil.copytree(item, target, dirs_exist_ok=True)
         else:
             shutil.copy2(item, target)
-    # Ship the license alongside the app.
-    license_file = root / "LICENSE"
-    if license_file.exists():
-        shutil.copy2(license_file, dest / license_file.name)
+    # Ship the license and notice alongside the app.
+    for name in ("LICENSE", "NOTICE"):
+        if (root / name).exists():
+            shutil.copy2(root / name, dest / name)
     return True
 
 

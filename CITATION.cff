@@ -8,7 +8,7 @@ type: software
 authors:
   - given-names: Tatsuki
     family-names: Tsujimoto
-    email: tatsuki.tsujimoto@gmail.com
+    email: contact@ttktjmt.com
 repository-code: 'https://github.com/ttktjmt/mjswan'
 keywords:
   - reinforcement-learning

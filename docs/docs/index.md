@@ -182,5 +182,8 @@ mjswan is perfect for:
 ## License
 
 mjswan is licensed under the [Apache-2.0 License](https://github.com/ttktjmt/mjswan/blob/main/LICENSE){:target="_blank" rel="noopener noreferrer"}.
-When using mjswan, please retain attribution notices in the app to help other users
-discover the project.
+
+- **Research and hobby use**: modify freely.
+- **Commercial use and company pages**: please keep the swan icon in the control panel and the dialog it opens.
+
+Please consider [sponsoring](https://github.com/sponsors/ttktjmt){:target="_blank" rel="noopener noreferrer"} if you find it useful 🦢

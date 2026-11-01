@@ -94,4 +94,9 @@ It is also built upon the excellent work of [zalo/mujoco_wasm](https://github.co
 
 ## License
 
-This project is licensed under the [Apache-2.0 License](LICENSE). When using mjswan, please retain attribution notices in the app to help other users discover this project.
+mjswan is licensed under the [Apache-2.0 License](LICENSE).
+
+- **Research and hobby use**: modify freely.
+- **Commercial use and company pages**: please keep the swan icon in the control panel and the dialog it opens.
+
+Please consider [sponsoring](https://github.com/sponsors/ttktjmt) if you find it useful 🦢
