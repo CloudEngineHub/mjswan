@@ -715,8 +715,11 @@ computes a fixed set of fields from the clip (`anchor_pos_w`, `ref_joint_pos`,
 such as a motion encoder's latent, can travel with the clip instead: store it in the
 `.npz` as one row per frame and name it in `frame_fields`. The browser then serves the
 selected motion's row for the current reference frame, the frame every other field is
-read at: it advances with the clip, returns to the initial frame on a reset, wraps to
-the first frame with the clip when `loop` is on, and holds the last otherwise. The
+read at: it advances with the clip, wraps to the first frame with the clip when `loop`
+is on, and holds the last otherwise. A reset writes the initial frame into the
+simulation and, as mjlab's `MotionCommand` does, serves the one after it; a
+`MotionCommandCfg` subclass whose command serves the initial frame itself sets
+`hold_reset_frame = True`. The
 build checks that each named array exists and has as many rows as the clip has frames
 (`joint_pos`, or `qpos` for a `qpos` clip), and refuses a policy whose graphs read a
 field the command neither computes nor finds in the `frame_fields` of every one of the

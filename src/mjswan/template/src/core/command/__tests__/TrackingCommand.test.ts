@@ -275,7 +275,7 @@ function clip(frames: number, extra: Record<string, Uint8Array> = {}): Promise<A
  * `{command: "motion", field}` slots, at the frame the native fields are read at.
  */
 describe('TrackingCommand frame fields', () => {
-  async function tracker(motions: Array<Record<string, unknown>>) {
+  async function tracker(motions: Array<Record<string, unknown>>, extra: Record<string, unknown> = {}) {
     const requestReset = vi.fn();
     const context = {
       mujoco: {},
@@ -284,9 +284,10 @@ describe('TrackingCommand frame fields', () => {
       scene: new THREE.Scene(),
       requestReset,
     } as unknown as CommandTermContext;
-    const config = { name: 'TrackingCommand', motions } as unknown as CommandConfigEntry;
+    const config = { name: 'TrackingCommand', motions, ...extra } as unknown as CommandConfigEntry;
     return { term: new TrackingCommand('motion', config, context), requestReset };
   }
+  const frameOf = (term: TrackingCommand) => term.getStateField('latent')![0] / 10;
   const walk = async (frames = 4) => ({
     name: 'walk',
     data: await clip(frames),
@@ -301,33 +302,64 @@ describe('TrackingCommand frame fields', () => {
     expect(term.getStateField('latent')).toBeNull(); // Nothing selected yet.
 
     await term.setSelectedMotion('walk');
-    close(term.getStateField('latent')!, [0, 1]);
-    term.update(0.1); // The step a reset lands on holds its frame.
-    close(term.getStateField('latent')!, [0, 1]);
-    term.update(0.1);
     close(term.getStateField('latent')!, [10, 11]);
     // The same frame as the native fields.
     close(term.getStateField('joint_pos')!, [1]);
-
     term.update(0.1);
+    close(term.getStateField('latent')!, [20, 21]);
+
     term.update(0.1);
     close(term.getStateField('latent')!, [30, 31]);
     term.update(0.1); // Past the last frame: wraps and asks for an episode reset.
     close(term.getStateField('latent')!, [0, 1]);
     expect(requestReset).toHaveBeenCalledTimes(1);
+    term.reset(); // That reset, which starts at the frame it writes.
+    close(term.getStateField('latent')!, [0, 1]);
 
     term.update(0.1);
     term.update(0.1);
     close(term.getStateField('latent')!, [20, 21]);
     term.reset();
-    close(term.getStateField('latent')!, [0, 1]);
+    close(term.getStateField('latent')!, [10, 11]);
+  });
+
+  it("serves mjlab's frames across a reset, its steps and an auto-reset", async () => {
+    // mjlab's `time_steps` after `env.reset()`, three steps, a step that auto-resets, and
+    // one more: each reset writes frame 0, and the compute that follows it steps to 1.
+    const { term } = await tracker([await walk(8)]);
+    await term.setSelectedMotion('walk');
+    const served = [frameOf(term)];
+    for (let i = 0; i < 3; i++) {
+      term.update(0.1);
+      served.push(frameOf(term));
+    }
+    term.reset();
+    term.update(0.1, true);
+    served.push(frameOf(term));
+    term.update(0.1);
+    served.push(frameOf(term));
+    expect(served).toEqual([1, 2, 3, 4, 1, 2]);
+  });
+
+  it('serves the frame a reset writes first for a command that holds it', async () => {
+    const { term } = await tracker([await walk(8)], { hold_reset_frame: true });
+    await term.setSelectedMotion('walk');
+    const served = [frameOf(term)];
+    term.update(0.1);
+    served.push(frameOf(term));
+    term.reset();
+    term.update(0.1, true);
+    served.push(frameOf(term));
+    term.update(0.1);
+    served.push(frameOf(term));
+    expect(served).toEqual([0, 1, 0, 1]);
   });
 
   it('hands out a copy, and null for a field no motion carries', async () => {
     const { term } = await tracker([await walk()]);
     await term.setSelectedMotion('walk');
     term.getStateField('latent')!.fill(99);
-    close(term.getStateField('latent')!, [0, 1]);
+    close(term.getStateField('latent')!, [10, 11]);
     expect(term.getStateField('phase')).toBeNull();
   });
 
@@ -335,9 +367,9 @@ describe('TrackingCommand frame fields', () => {
     const run = { ...(await walk()), name: 'run', data: await clip(2, { latent: npy([2, 2], [5, 6, 7, 8]) }) };
     const { term } = await tracker([await walk(), run]);
     await term.setSelectedMotion('run');
-    close(term.getStateField('latent')!, [5, 6]);
+    close(term.getStateField('latent')!, [7, 8]);
     await term.setSelectedMotion('walk');
-    close(term.getStateField('latent')!, [0, 1]);
+    close(term.getStateField('latent')!, [10, 11]);
   });
 
   it('serves a qpos clip the same way', async () => {
@@ -349,13 +381,42 @@ describe('TrackingCommand frame fields', () => {
       { ...(await walk()), data, clip_format: 'qpos' },
     ]);
     await term.setSelectedMotion('walk');
-    term.update(0.1);
-    term.update(0.1);
     close(term.getStateField('latent')!, [5]);
+    term.update(0.1);
+    close(term.getStateField('latent')!, [6]);
   });
 
   it('refuses a clip missing a frame field it lists', async () => {
     const { term } = await tracker([{ ...(await walk()), frame_fields: ['latent', 'phase'] }]);
     await expect(term.setSelectedMotion('walk')).rejects.toThrow("missing frame field 'phase'");
+  });
+});
+
+describe('TrackingCommand reference state', () => {
+  it("writes the root's angular velocity into qvel in the body's frame, as mjlab does", async () => {
+    // Yawed 90 degrees and turning about the world's x axis, which is the body's -y.
+    const s = Math.SQRT1_2;
+    const zip = new JSZip();
+    zip.file('joint_pos.npy', npy([2, 1], [0, 0]));
+    zip.file('joint_vel.npy', npy([2, 1], [0, 0]));
+    zip.file('body_pos_w.npy', npy([2, 3], [0, 0, 1, 0, 0, 1]));
+    zip.file('body_quat_w.npy', npy([2, 4], [s, 0, 0, s, s, 0, 0, s]));
+    zip.file('body_lin_vel_w.npy', npy([2, 3], [0.5, 0, 0, 0.5, 0, 0]));
+    zip.file('body_ang_vel_w.npy', npy([2, 3], [1, 0, 0, 1, 0, 0]));
+    const data = await zip.generateAsync({ type: 'arraybuffer', compression: 'STORE' });
+    const mjModel = { njnt: 1, nbody: 2, jnt_type: [0], jnt_qposadr: [0], jnt_dofadr: [0] };
+    const mjData = { qpos: new Float64Array(7), qvel: new Float64Array(6) };
+    const context = {
+      mujoco: { mj_forward: vi.fn(), MjData: class { qpos = new Float64Array(7); } },
+      mjModel,
+      mjData,
+      scene: new THREE.Scene(),
+    } as unknown as CommandTermContext;
+    const motion = { name: 'turn', data, fps: 10, anchor_body_name: 'pelvis', body_names: ['pelvis'] };
+    const config = { name: 'TrackingCommand', debug_vis: false, motions: [motion] };
+    const term = new TrackingCommand('motion', config as unknown as CommandConfigEntry, context);
+
+    await term.setSelectedMotion('turn');
+    close(Float32Array.from(mjData.qvel), [0.5, 0, 0, 0, -1, 0]);
   });
 });

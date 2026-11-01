@@ -886,6 +886,24 @@ shortcuts.
 
 ### Fixed
 
+- **A tracking policy observes the reference frame mjlab gives it after a reset.** mjlab's
+  `MotionCommand` writes a reset's start frame into the simulation, then steps one frame
+  past it in the compute that follows every reset, so the first observation reads frame
+  1. The browser held the start frame for a step instead, and for two after a reset
+  between steps (a clip picked, the reset key, a page load): the policy read the
+  reference one or two control steps late for the whole episode. `TrackingCommand.reset()`
+  now runs that compute itself, as `OnnxCommand.reset()` does, and a clip's wrap still
+  starts at the frame it writes, as mjlab's does. A `MotionCommandCfg` subclass whose
+  command serves the start frame first sets `hold_reset_frame = True`, which the build
+  carries to the browser.
+
+- **A tracking reset spins the root as the clip does.** `TrackingCommand` wrote the clip's
+  root angular velocity, which is in the world's frame, into the free joint's `qvel`
+  unrotated, where MuJoCo reads it in the body's frame, as mjlab's `write_root_velocity`
+  and the engine's own `writeRootVelocity` write it. A clip starting with its root turned
+  gave the robot a wrong spin at each reset (up to 0.59 rad/s on a musculoskeletal human
+  walking clip); it is now rotated into the body's frame.
+
 - **The step loop holds its control rate.** It slept out each step's remainder, so a timer
   that woke late (Chrome clamps nested timers to 4 ms) was never made up: a 200 Hz task
   ran at about 165 steps a second, and a 50 Hz one at 48. Each step now waits for a

@@ -207,6 +207,9 @@ def serialize_motion_command(cfg: Any) -> dict[str, Any]:
     entity_name = getattr(cfg, "entity_name", None)
     if entity_name:
         data["entity_name"] = entity_name
+    # Not mjlab's: set by a subclass whose command serves the frame a reset writes first.
+    if getattr(cfg, "hold_reset_frame", False):
+        data["hold_reset_frame"] = True
     return data
 
 
