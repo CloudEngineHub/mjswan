@@ -805,8 +805,7 @@ export class TrackingCommand implements CommandTerm {
       const linVel = this.sampleRootVelocity(this.refIdx, this.refBodyLinVelW);
       const angVel = this.sampleRootAngularVelocity(this.refIdx);
       if (linVel && angVel) {
-        // A free joint's qvel holds its angular velocity in the body's frame, as
-        // `writeRootVelocity` and mjlab's `write_root_velocity` write it; the clip's is the world's.
+        // A free joint's qvel holds its angular velocity in the body's frame; the clip's is the world's.
         const angVelB = quatApplyInv(rootQuat, angVel);
         mjData.qvel[qvelAdr + 0] = linVel[0] ?? 0.0;
         mjData.qvel[qvelAdr + 1] = linVel[1] ?? 0.0;
